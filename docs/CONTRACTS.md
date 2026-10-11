@@ -22,6 +22,8 @@ UI (C) ── CameraInput ──┘
 - `FlightSimulation.advance(realDelta:)` сама дробит шаг (≤ 0.02 с), учитывает ускорение времени и авто-сброс (`SimEvent.warpReset`).
 - `ControlInput` — непрерывный ввод (тяга 0…1, оси −1…1, RCS). `FlightCommand` — кнопки (ступень, SAS, ускорение, парашют).
 - `FlightTelemetry` — готовые числа для HUD и звука (включая `stages: [StageInfo]` — Δv, TWR, топливо по ступеням; тягу, РДТТ, плотность, нагрев, перегрузку); HUD сам ничего не считает.
+- `FlightTelemetry.navball` — маркеры навбола уже в осях корабля; `pitch/heading/roll` — относительно горизонта; `chute`, `chuteSafe`; `warpIndex` в `TimeWarp.levels` (×1–4 физическое, ×10–100 000 рельсы) и `warpBlocked`.
+- `stages[0]` — текущая ступень; отдельного номера ступени нет.
 - `SimEvent` — одноразовые события шага для звука, вибрации, эффектов, подсказок.
 
 ## Приложение — `App/Core/AppContracts.swift`
