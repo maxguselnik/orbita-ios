@@ -1,18 +1,15 @@
-import OrbitPhysics
 import SwiftUI
 
 struct RootView: View {
-    @Environment(GameSettings.self) private var settings
+    /// Этап 1: HUD на моковом полёте; физика потока A подключится при интеграции.
+    @State private var flight = FlightHUDModel()
 
     var body: some View {
-        ZStack(alignment: .top) {
+        ZStack {
             FlightSceneView()
                 .ignoresSafeArea()
 
-            Text("Орбита · этап 0 · \(Bodies.terra.name) · \(settings.frameRate.rawValue) Гц")
-                .font(.footnote.monospacedDigit())
-                .foregroundStyle(.white.opacity(0.8))
-                .padding(8)
+            FlightHUDView(model: flight)
         }
         .background(.black)
         .statusBarHidden()
