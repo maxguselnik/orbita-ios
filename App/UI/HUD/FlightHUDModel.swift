@@ -60,7 +60,7 @@ final class FlightHUDModel {
         ))
         let events = sim.advance(realDelta: delta)
         snapshot = sim.snapshot
-        feedback?.frame(snapshot: snapshot, events: events)
+        feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
         if let message = events.compactMap(Self.message(for:)).last {
             show(message, now: date)
         }

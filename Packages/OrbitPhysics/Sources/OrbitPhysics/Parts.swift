@@ -183,6 +183,17 @@ struct Ship: Sendable, Hashable {
         return false
     }
 
+    /// Индексы деталей-двигателей, которые сейчас дают тягу (для факела).
+    func firingEngines(throttle: Double) -> [Int] {
+        let r = bottomSection
+        let liq = liquidFuel(in: r)
+        return r.filter { i in
+            let p = parts[i]
+            guard p.spec.kind == .engine, p.ignited else { return false }
+            return p.spec.isSolid ? p.fuel > 0 : (throttle > 0 && liq > 1e-9)
+        }
+    }
+
     /// Есть ли у зажжённых двигателей нижней секции топливо.
     func ignitedEnginesHaveFuel() -> (any: Bool, solid: Bool, liquid: Bool) {
         let r = bottomSection

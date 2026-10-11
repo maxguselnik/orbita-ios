@@ -3,6 +3,8 @@ import SwiftUI
 
 /// Пустая 3D-сцена: виртуальная камера, свет и шар-заглушка Терры.
 struct FlightSceneView: View {
+    let renderer: SceneRenderer
+
     var body: some View {
         RealityView { content in
             content.camera = .virtual

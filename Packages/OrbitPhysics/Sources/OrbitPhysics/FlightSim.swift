@@ -24,7 +24,9 @@ struct Vessel {
 
     var state: VesselState {
         VesselState(id: id, body: body, position: r, velocity: v, attitude: q, angularVelocity: w,
-                    mass: ship.mass, throttle: throttle, situation: situation, isActive: isActive)
+                    mass: ship.mass, throttle: throttle, situation: situation, isActive: isActive,
+                    parts: ship.parts.map(\.id), firingEngines: ship.firingEngines(throttle: throttle),
+                    chute: chute, chuteDeploy: chuteDeploy)
     }
 }
 

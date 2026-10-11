@@ -69,11 +69,19 @@ public struct VesselState: Sendable, Hashable {
     public var situation: VesselSituation
     /// Активен ли (интегрируется численно) или «на рельсах».
     public var isActive: Bool
+    /// Детали сверху вниз (для рендера), индексы двигателей с факелом,
+    /// состояние и раскрытие парашюта 0…1.
+    public var parts: [PartID]
+    public var firingEngines: [Int]
+    public var chute: ChuteState
+    public var chuteDeploy: Double
 
     public init(id: VesselID, body: BodyID, position: Vec3, velocity: Vec3,
                 attitude: Quat = .identity, angularVelocity: Vec3 = .zero,
                 mass: Double, throttle: Double = 0,
-                situation: VesselSituation = .prelaunch, isActive: Bool = true) {
+                situation: VesselSituation = .prelaunch, isActive: Bool = true,
+                parts: [PartID] = [], firingEngines: [Int] = [],
+                chute: ChuteState = .none, chuteDeploy: Double = 0) {
         self.id = id
         self.body = body
         self.position = position
@@ -84,6 +92,10 @@ public struct VesselState: Sendable, Hashable {
         self.throttle = throttle
         self.situation = situation
         self.isActive = isActive
+        self.parts = parts
+        self.firingEngines = firingEngines
+        self.chute = chute
+        self.chuteDeploy = chuteDeploy
     }
 }
 
