@@ -6,7 +6,7 @@ struct ThrottleColumn: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            ThrottleSlider(value: $model.throttle, solidLocked: model.telemetry.stages.first?.hasSolid == true && model.telemetry.solidBurning)
+            ThrottleSlider(value: $model.throttle, solidLocked: model.solidLocked)
             HStack(spacing: 6) {
                 Button { model.throttle = 1 } label: { Text("MAX").frame(maxWidth: .infinity) }
                     .buttonStyle(HUDButtonStyle())
