@@ -3,12 +3,12 @@ import Foundation
 /// Мир: вращение Терры, Луна «на рельсах», переходы между системами координат.
 public enum World {
     /// Угловая скорость вращения Терры вокруг +Z, рад/с.
-    public static let terraRotationRate = 2 * Double.pi / Bodies.terra.rotationPeriod
+    public static let terraRotationRate: Double = 2 * Double.pi / Bodies.terra.rotationPeriod
     /// Угловая скорость Луны по круговой орбите (из μ Терры), рад/с. Луна движется против часовой стрелки (как вращение Терры).
-    public static let lunaAngularRate = (Bodies.terra.mu / pow(Bodies.luna.orbitRadius, 3)).squareRoot()
-    public static let lunaPeriod = 2 * Double.pi / lunaAngularRate
+    public static let lunaAngularRate: Double = (Bodies.terra.mu / pow(Bodies.luna.orbitRadius, 3.0)).squareRoot()
+    public static let lunaPeriod: Double = 2 * Double.pi / lunaAngularRate
     /// Фаза Луны (угол от +X) в момент t = 0, рад.
-    public static let lunaInitialPhase = 2.6
+    public static let lunaInitialPhase: Double = 2.6
     /// Направление на стартовую площадку в системе, связанной с Террой (экватор, долгота 0).
     public static let padDirection = Vec3.unitX
 
@@ -23,7 +23,8 @@ public enum World {
         let a = lunaInitialPhase + lunaAngularRate * t
         let s: Double = sin(a)
         let c: Double = cos(a)
-        return Vec3(-s, c, 0) * (Bodies.luna.orbitRadius * lunaAngularRate)
+        let speed: Double = Bodies.luna.orbitRadius * lunaAngularRate
+        return Vec3(-s, c, 0) * speed
     }
 
     /// Угол поворота Терры вокруг +Z, рад, в [0, 2π).
