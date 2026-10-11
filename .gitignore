@@ -1,0 +1,10 @@
+*.xcodeproj/
+*.xcworkspace/
+!Packages/**/*.xcworkspace
+DerivedData/
+.build/
+.swiftpm/
+xcuserdata/
+build/
+.DS_Store
+Support/Info.plist
