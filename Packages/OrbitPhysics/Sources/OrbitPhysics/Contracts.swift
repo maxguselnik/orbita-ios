@@ -10,6 +10,11 @@ public enum SASMode: String, Sendable, Hashable, Codable, CaseIterable {
 }
 
 /// Непрерывный ввод игрока; UI выставляет каждый кадр.
+///
+/// Оси корабля (правая тройка): нос = +Y, спина = +Z, правый борт = +X.
+/// pitch > 0 — нос к +Z (вверх), yaw > 0 — нос к +X (вправо), roll > 0 — правый борт вниз
+/// (по часовой при взгляде сзади). На площадке: нос в зенит, +X — на восток, +Z — на юг,
+/// поэтому гравитационный разворот на восток — yaw > 0.
 public struct ControlInput: Sendable, Hashable, Codable {
     /// Тяга 0…1.
     public var throttle: Double
@@ -48,6 +53,8 @@ public enum VesselSituation: String, Sendable, Hashable, Codable {
 public typealias VesselID = UInt32
 
 /// Состояние корабля. Координаты — инерциальная система с центром в `body`, м и м/с.
+/// `position` — нижняя точка стека деталей (то, что касается грунта), не центр масс.
+/// `angularVelocity` — в инерциальной системе, рад/с. Оси корабля — см. `ControlInput`.
 public struct VesselState: Sendable, Hashable {
     public var id: VesselID
     public var body: BodyID
