@@ -9,7 +9,7 @@ echo "▶ xcodegen generate"
 xcodegen generate
 
 echo "▶ Тесты OrbitPhysics"
-swift test --package-path Packages/OrbitPhysics
+swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors
 
 echo "▶ Сборка под симулятор"
 xcodebuild -project Orbita.xcodeproj -scheme Orbita \
