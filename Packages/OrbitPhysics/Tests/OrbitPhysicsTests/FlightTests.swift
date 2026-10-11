@@ -120,6 +120,8 @@ struct FlightTests {
         }
         #expect(landing.count == 1 && landing[0] < 9, "посадка: \(all.filter { if case .crash = $0 { return true }; return false })")
         #expect(sim.snapshot.telemetry.chute == .cut)
+        // Отделённый РДТТ упал и удалён.
+        #expect(sim.snapshot.vessels.count == 1)
     }
 
     @Test func parachuteLandingFromSuborbital() {
