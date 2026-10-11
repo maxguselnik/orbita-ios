@@ -24,6 +24,9 @@ final class FlightHUDModel {
     @ObservationIgnored var yawInput = 0.0
     @ObservationIgnored var rollInput = 0.0
 
+    /// Звук, вибрация и наклон; подключает RootView.
+    @ObservationIgnored var feedback: FlightFeedback?
+
     @ObservationIgnored private var sim: any FlightSimulation
     private let makeSimulation: () -> any FlightSimulation
     @ObservationIgnored private var lastTick: Date?
@@ -48,9 +51,16 @@ final class FlightHUDModel {
         // Длинные паузы (фон, отладчик) не превращаем в скачок симуляции.
         let delta = lastTick.map { min(max(date.timeIntervalSince($0), 0), 0.1) } ?? 0
         lastTick = date
-        sim.setInput(ControlInput(throttle: throttle, pitch: pitchInput, yaw: yawInput, roll: rollInput))
+        let tilt = feedback?.tiltInput() ?? (pitch: 0, roll: 0)
+        sim.setInput(ControlInput(
+            throttle: throttle,
+            pitch: min(max(pitchInput + tilt.pitch, -1), 1),
+            yaw: yawInput,
+            roll: min(max(rollInput + tilt.roll, -1), 1)
+        ))
         let events = sim.advance(realDelta: delta)
         snapshot = sim.snapshot
+        feedback?.frame(snapshot: snapshot, events: events)
         if let message = events.compactMap(Self.message(for:)).last {
             show(message, now: date)
         }
@@ -68,11 +78,13 @@ final class FlightHUDModel {
     func pause() {
         isPaused = true
         isPanelOpen = false
+        feedback?.setPaused(true)
     }
 
     func resume() {
         lastTick = nil
         isPaused = false
+        feedback?.setPaused(false)
     }
 
     /// Перезапуск полёта (сейчас — новый MockFlight).
@@ -85,6 +97,7 @@ final class FlightHUDModel {
         rollInput = 0
         toast = nil
         isPanelOpen = false
+        feedback?.recalibrate()
         resume()
     }
 
