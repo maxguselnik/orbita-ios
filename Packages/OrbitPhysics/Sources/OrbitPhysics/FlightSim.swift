@@ -36,8 +36,8 @@ struct Vessel {
 /// - Оси корабля (правая тройка): нос = +Y, «верх» (спина) = +Z, правый борт = +X.
 ///   pitch > 0 — нос к +Z (вверх), yaw > 0 — нос к +X (вправо), roll > 0 — правый борт вниз
 ///   (по часовой при взгляде сзади).
-/// - На площадке: нос в зенит, +Z — на запад, +X — на юг. Гравитационный разворот на восток —
-///   pitch < 0 («от себя»); после разворота спина смотрит от земли, yaw > 0 поворачивает курс вправо.
+/// - На площадке: нос в зенит, +X (правый борт) — на восток, +Z (спина) — на юг.
+///   Гравитационный разворот на восток — yaw > 0 («джойстик вправо»).
 /// - SAS прогрейд/ретрогрейд ниже 36 км над Террой — относительно воздуха, выше — орбитальные.
 public final class FlightSim: FlightSimulation {
     public static let maxStep = 0.02
@@ -76,8 +76,8 @@ public final class FlightSim: FlightSimulation {
         let up = World.fromBodyFixed(World.padDirection, body: .terra, time: time)
         let r = up * (Bodies.terra.radius + Terrain.padHeight)
         let east = Vec3.unitZ.cross(up).normalized
-        let west = -east
-        let q = Quat(basisX: up.cross(west), y: up, z: west)
+        // Правая тройка: X — восток, Y — зенит, Z = X × Y — юг.
+        let q = Quat(basisX: east, y: up, z: east.cross(up))
         self.init(design: design, body: .terra, position: r,
                   velocity: World.surfaceVelocity(body: .terra, position: r), attitude: q, time: time)
         launchTime = nil
@@ -728,7 +728,8 @@ public final class FlightSim: FlightSimulation {
         if horizUp0.length > 1e-3 {
             horizUp = horizUp0.normalized
         } else {
-            horizUp = -east
+            // Нос вертикален: опора — юг, тогда на площадке крен 0.
+            horizUp = -north
         }
         let top = s.q.rotate(.unitZ)
         t.roll = atan2(horizUp.cross(top).dot(nose), horizUp.dot(top))

@@ -34,6 +34,12 @@ struct FlightTests {
         #expect(abs(s.velocity.length - World.terraRotationRate * r0) < 1e-6)
         #expect(sim.snapshot.telemetry.situation == .prelaunch)
         #expect(abs(sim.snapshot.telemetry.pitch - .pi / 2) < 1e-6)
+        #expect(abs(sim.snapshot.telemetry.roll) < 1e-6)
+        // Правый борт — на восток, спина — на юг.
+        let att = sim.snapshot.vessels[0].attitude
+        let up0 = sim.activeStateVector.position.normalized
+        #expect((att.rotate(.unitX) - Vec3.unitZ.cross(up0).normalized).length < 1e-9)
+        #expect((att.rotate(.unitZ) - Vec3(0, 0, -1)).length < 1e-9)
         #expect(abs(sim.snapshot.telemetry.heightAboveTerrain) < 1e-6)
         // Рельсы на площадке разрешены.
         sim.send(.setWarp(index: 6))
@@ -42,17 +48,15 @@ struct FlightTests {
         #expect(abs(sim.activeStateVector.position.length - r0) < 1e-6)
     }
 
-    @Test func manualPitchDownTurnsEastAndYawRight() {
+    @Test func yawRightOnPadTurnsEast() {
         let sim = FlightSim(design: .orbit)
-        sim.send(.setSAS(.off))
-        sim.setInput(ControlInput(pitch: -1))
         // На площадке ориентация заморожена — проверяем в полёте.
         let s = sim.activeStateVector
         let up = s.position.normalized
         let flying = FlightSim(design: .orbit, body: .terra, position: s.position + up * 5_000, velocity: s.velocity,
                                attitude: sim.snapshot.vessels[0].attitude)
         flying.send(.setSAS(.off))
-        flying.setInput(ControlInput(pitch: -1))
+        flying.setInput(ControlInput(yaw: 1))
         run(flying, limit: 0.5)
         let t = flying.snapshot.telemetry
         #expect(t.pitch < .pi / 2 - 0.01)
