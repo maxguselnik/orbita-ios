@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [main, 'stage*/**']
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -37,3 +37,30 @@ jobs:
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug build \
             CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
+
+  screens:
+    name: Скриншоты (симулятор)
+    needs: ios
+    if: github.event_name == 'push'
+    runs-on: macos-15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: XcodeGen
+        run: brew install xcodegen && xcodegen generate
+      - name: Снимки
+        run: scripts/ci-screens.sh $(cat screens.txt 2>/dev/null || echo flight)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: screens-${{ github.sha }}
+          path: screens/
+      - name: Публикация в ветку ci-screens
+        run: |
+          DEST="${GITHUB_REF_NAME}/${GITHUB_SHA::7}"
+          git config user.name "orbita-ci"
+          git config user.email "orbita-ci@users.noreply.github.com"
+          git fetch --depth 1 origin ci-screens && git worktree add -B ci-screens ../pub origin/ci-screens \
+            || { git worktree add --orphan -b ci-screens ../pub; }
+          mkdir -p "../pub/$DEST" && cp screens/* "../pub/$DEST/"
+          cd ../pub && git add -A && git commit -qm "Снимки $DEST" && git push origin ci-screens
