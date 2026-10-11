@@ -18,7 +18,9 @@ func run(_ sim: FlightSim, limit: Double, frame: Double = 0.1, until: (FlightSim
 func circularOrbit(altitude: Double, phase: Double = 0, body: CelestialBody = Bodies.terra) -> StateVector {
     let r = body.radius + altitude
     let vc = (body.mu / r).squareRoot()
-    return StateVector(position: Vec3(cos(phase), sin(phase), 0) * r, velocity: Vec3(-sin(phase), cos(phase), 0) * vc)
+    let s: Double = sin(phase)
+    let c: Double = cos(phase)
+    return StateVector(position: Vec3(c, s, 0) * r, velocity: Vec3(-s, c, 0) * vc)
 }
 
 @Suite("Полёт")

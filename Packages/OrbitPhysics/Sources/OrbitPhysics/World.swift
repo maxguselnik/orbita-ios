@@ -21,7 +21,9 @@ public enum World {
 
     public static func lunaVelocity(at t: Double) -> Vec3 {
         let a = lunaInitialPhase + lunaAngularRate * t
-        return Vec3(-sin(a), cos(a), 0) * (Bodies.luna.orbitRadius * lunaAngularRate)
+        let s: Double = sin(a)
+        let c: Double = cos(a)
+        return Vec3(-s, c, 0) * (Bodies.luna.orbitRadius * lunaAngularRate)
     }
 
     /// Угол поворота Терры вокруг +Z, рад, в [0, 2π).
