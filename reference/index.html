@@ -1,0 +1,1242 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Орбита">
+<meta name="theme-color" content="#070b16">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Russo+One&family=IBM+Plex+Sans+Condensed:wght@400;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<title>Орбита</title>
+<style>
+:root{
+  --ink:#070b16; --panel:rgba(10,16,32,.74); --panel2:rgba(22,32,58,.92); --line:rgba(120,160,230,.22);
+  --text:#e6edf8; --muted:#8ea2c2; --amber:#ffb347; --cyan:#6fd3ff; --violet:#b69cff; --green:#5ee08a; --red:#ff6b6b;
+  box-sizing:border-box; padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){ --ink:#070b16; --panel:rgba(10,16,32,.74); --text:#e6edf8; } }
+:root[data-theme="dark"]{ --ink:#070b16; --panel:rgba(10,16,32,.74); --text:#e6edf8; }
+html{height:100%;scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{height:100%;margin:0;background:var(--ink);color:var(--text);overflow:hidden;
+  font-family:'IBM Plex Sans Condensed','Arial Narrow',system-ui,sans-serif;font-size:13px;
+  -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;touch-action:none;-webkit-tap-highlight-color:transparent}
+.num{font-family:'IBM Plex Mono',ui-monospace,Menlo,monospace;font-variant-numeric:tabular-nums}
+#cv{position:fixed;left:0;top:0;display:block}
+.hidden{display:none!important}
+.screen{position:fixed;inset:0;padding:max(10px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+.b{background:var(--panel2);color:var(--text);border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;
+  padding:6px 10px;min-height:38px;touch-action:manipulation;cursor:pointer}
+.b:active,.b.down{background:#2c4170}
+.b:focus-visible{outline:2px solid var(--cyan);outline-offset:2px}
+.b.on{background:var(--cyan);color:#05121c;border-color:var(--cyan)}
+.b.amber{background:var(--amber);color:#2a1500;border-color:var(--amber);font-weight:600}
+/* menu */
+#menu{display:flex;align-items:center;justify-content:space-between;gap:24px}
+#menu h1{font-family:'Russo One',system-ui,sans-serif;font-weight:400;font-size:clamp(44px,9vw,92px);margin:0;letter-spacing:.02em;line-height:.9}
+#menu .sub{color:var(--muted);margin:10px 0 0;font-size:15px;max-width:30ch}
+#menuBtns{display:flex;flex-direction:column;gap:8px;min-width:230px}
+#menuBtns .b{min-height:44px;font-size:15px;text-align:left}
+#goalsMini{color:var(--muted);font-size:12px;margin-top:4px}
+/* VAB */
+#vab{display:grid;grid-template-columns:200px 1fr 230px;gap:10px}
+#palette{overflow-y:auto;touch-action:pan-y;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;gap:4px;padding-right:2px}
+.pi{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:3px 6px;min-height:46px;cursor:pointer}
+.pi:active{background:#22355c}
+.pi canvas{width:34px;height:40px;flex:none}
+.pi b{font-weight:600;display:block;font-size:12.5px}
+.pi small{color:var(--muted);font-size:11px}
+#vabCenter{display:flex;flex-direction:column;min-width:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;
+  background:radial-gradient(120% 90% at 50% 100%,#1a2440 0%,#0b1124 60%,#070b16 100%)}
+#vabCv{flex:1;width:100%;min-height:0;display:block}
+#vabTools{display:flex;gap:6px;padding:6px;border-top:1px solid var(--line)}
+#vabTools .b{flex:1;min-height:36px}
+#vabSide{display:flex;flex-direction:column;gap:6px;overflow-y:auto;touch-action:pan-y}
+#vabSide .row{display:flex;gap:6px}
+#vabSide .row .b{flex:1}
+#stats{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px;font-size:12px;line-height:1.45}
+#stats .w{color:var(--red)}
+#stats .hint{color:var(--muted);font-size:11px;margin-top:4px}
+#btnLaunch{min-height:52px;font-size:17px}
+/* HUD */
+#hud{position:fixed;inset:0;pointer-events:none;
+  padding:max(6px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(6px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left))}
+#hudIn{position:relative;width:100%;height:100%}
+#hud .b,#hud .pin{pointer-events:auto}
+.pan{background:var(--panel);border:1px solid var(--line);border-radius:10px;backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#ti{position:absolute;top:0;left:50%;transform:translateX(-50%);display:grid;grid-template-columns:repeat(4,auto);gap:2px 14px;padding:5px 12px;white-space:nowrap}
+#ti .k{color:var(--muted);font-size:11px;margin-right:5px}
+#ti .v{font-size:13.5px}
+#ti .ap{color:var(--cyan)}
+#ti .st{grid-column:1/-1;text-align:center;color:var(--muted);font-size:11.5px}
+#warpBox{position:absolute;top:0;left:0;display:flex;align-items:center;gap:4px;padding:3px}
+#warpBox .b{min-height:34px;min-width:38px;padding:4px 8px}
+#warpLbl{min-width:58px;text-align:center}
+#mt{position:absolute;top:44px;left:2px;color:var(--muted);font-size:11.5px}
+#tr{position:absolute;top:0;right:0;display:flex;gap:6px}
+#tr .b{min-height:36px}
+#sInfo{position:absolute;right:0;top:44px;width:154px;padding:6px 8px;font-size:11.5px;line-height:1.4}
+.bar{height:6px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;margin:3px 0 4px}
+.bar i{display:block;height:100%;background:var(--amber);width:0}
+#thr{position:absolute;left:0;top:64px;bottom:0;width:52px;display:flex;flex-direction:column;gap:4px}
+#thr .b{min-height:32px;padding:2px;font-size:12px}
+#thrTrack{flex:1;position:relative;border-radius:10px;background:var(--panel);border:1px solid var(--line);overflow:hidden;pointer-events:auto;touch-action:none}
+#thrFill{position:absolute;left:0;right:0;bottom:0;background:linear-gradient(to top,#ff8a2b,#ffd27a);height:0}
+#thrLbl{position:absolute;left:0;right:0;top:4px;text-align:center;font-size:12px;mix-blend-mode:difference}
+#rot{position:absolute;left:60px;bottom:0;display:flex;gap:6px}
+#rot .b{width:62px;height:58px;font-size:24px;padding:0}
+#nb{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:108px;height:108px;pointer-events:none}
+#nbTxt{position:absolute;bottom:110px;left:50%;transform:translateX(-50%);font-size:11px;color:var(--muted);white-space:nowrap}
+#sas{position:absolute;right:0;bottom:70px;display:grid;grid-template-columns:repeat(3,48px);gap:4px}
+#sas .b{min-height:32px;padding:2px;font-size:11.5px}
+#stageBtn{position:absolute;right:0;bottom:0;width:154px;height:62px;font-size:16px;line-height:1.1}
+#stageBtn small{display:block;font-size:11px;font-weight:400;opacity:.75}
+#mapInfo{position:absolute;left:60px;top:64px;max-width:250px;padding:6px 9px;font-size:11.5px;line-height:1.45}
+#mapInfo .enc{color:var(--violet)} #mapInfo .ret{color:var(--amber)}
+#toasts{position:fixed;top:calc(max(6px,env(safe-area-inset-top)) + 62px);left:50%;transform:translateX(-50%);display:flex;flex-direction:column;gap:4px;align-items:center;pointer-events:none;z-index:30}
+.toast{background:var(--panel2);border:1px solid var(--line);padding:5px 12px;border-radius:20px;font-size:12.5px;animation:tIn .25s ease-out}
+.toast.gold{border-color:var(--amber);color:var(--amber)}
+@keyframes tIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
+#ov{position:fixed;inset:0;z-index:40;background:rgba(3,6,14,.72);display:flex;align-items:center;justify-content:center;
+  padding:max(10px,env(safe-area-inset-top)) max(12px,env(safe-area-inset-right)) max(10px,env(safe-area-inset-bottom)) max(12px,env(safe-area-inset-left))}
+#ovBox{max-width:600px;width:100%;max-height:100%;overflow-y:auto;touch-action:pan-y;background:var(--panel2);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+#ovBox h2{font-family:'Russo One',system-ui,sans-serif;font-weight:400;margin:0 0 8px;font-size:22px}
+#ovBox p,#ovBox li{line-height:1.45;color:#cdd8ea}
+#ovBox ol{padding-left:20px;margin:6px 0}
+#ovBtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+#ovBtns .b{flex:1 1 140px;min-height:44px}
+.goal{display:flex;gap:8px;padding:2px 0;color:var(--muted)} .goal.ok{color:var(--green)}
+#rotateMsg{position:fixed;inset:0;z-index:100;background:var(--ink);display:flex;align-items:center;justify-content:center;text-align:center;font-size:18px;padding:30px}
+@media (prefers-reduced-motion: reduce){.toast{animation:none}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="menu" class="screen">
+  <div>
+    <h1>Орбита</h1>
+    <p class="sub">Собери ракету, выйди на орбиту Терры, долети до Луны, сядь и вернись домой.</p>
+  </div>
+  <div id="menuBtns">
+    <button class="b amber" id="mVab">Собрать ракету</button>
+    <button class="b" id="mCont">Продолжить сохранённый полёт</button>
+    <button class="b" id="mHelp">Как играть</button>
+    <button class="b" id="mSound">Звук включён</button>
+    <div id="goalsMini"></div>
+  </div>
+</div>
+
+<div id="vab" class="screen hidden">
+  <div id="palette"></div>
+  <div id="vabCenter">
+    <canvas id="vabCv"></canvas>
+    <div id="vabTools">
+      <button class="b" id="vUp" aria-label="Поднять деталь">▲</button>
+      <button class="b" id="vDn" aria-label="Опустить деталь">▼</button>
+      <button class="b" id="vDel">Удалить</button>
+      <button class="b" id="vClr">Очистить</button>
+    </div>
+  </div>
+  <div id="vabSide">
+    <div class="row"><button class="b" data-pre="sub">Прыжок</button><button class="b" data-pre="orb">Орбита</button><button class="b" data-pre="mun">Луна</button></div>
+    <div id="stats"></div>
+    <button class="b amber" id="btnLaunch">На старт</button>
+    <button class="b" id="vBack">В меню</button>
+  </div>
+</div>
+
+<div id="hud" class="hidden"><div id="hudIn">
+  <div id="warpBox" class="pan">
+    <button class="b" id="wDn" aria-label="Медленнее">◀</button>
+    <span id="warpLbl" class="num">×1</span>
+    <button class="b" id="wUp" aria-label="Быстрее">▶</button>
+  </div>
+  <div id="mt" class="num">T+ 00:00</div>
+  <div id="ti" class="pan">
+    <div><span class="k">Выс</span><span class="v num" id="hAlt">0</span></div>
+    <div><span class="k">Скор</span><span class="v num" id="hSpd">0</span></div>
+    <div class="ap"><span class="k">Ап</span><span class="v num" id="hAp">—</span></div>
+    <div class="ap"><span class="k">Пе</span><span class="v num" id="hPe">—</span></div>
+    <div><span class="k">Верт</span><span class="v num" id="hVs">0</span></div>
+    <div><span class="k">Над грунтом</span><span class="v num" id="hRad">0</span></div>
+    <div class="ap"><span class="k">До Ап</span><span class="v num" id="hTap">—</span></div>
+    <div class="ap"><span class="k">До Пе</span><span class="v num" id="hTpe">—</span></div>
+    <div class="st" id="hSt">Терра · на поверхности</div>
+  </div>
+  <div id="tr">
+    <button class="b" id="bMap">Карта</button>
+    <button class="b" id="bFocus">Фокус</button>
+    <button class="b" id="bPause" aria-label="Пауза">❚❚</button>
+  </div>
+  <div id="sInfo" class="pan">
+    <div>Топливо ступени</div>
+    <div class="bar"><i id="fuelBar"></i></div>
+    <div class="num" id="sDv">Δv 0 м/с</div>
+    <div class="num" id="sTot">всего 0 м/с</div>
+    <div class="num" id="sTwr">TWR 0</div>
+  </div>
+  <div id="mapInfo" class="pan hidden"></div>
+  <div id="thr">
+    <button class="b" id="tMax">MAX</button>
+    <div id="thrTrack"><div id="thrFill"></div><div id="thrLbl" class="num">0%</div></div>
+    <button class="b" id="tCut">0</button>
+  </div>
+  <div id="rot">
+    <button class="b" id="rL" aria-label="Повернуть влево">⟲</button>
+    <button class="b" id="rR" aria-label="Повернуть вправо">⟳</button>
+  </div>
+  <div id="nbTxt" class="num"></div>
+  <canvas id="nb"></canvas>
+  <div id="sas">
+    <button class="b on" id="sasT">SAS</button>
+    <button class="b" data-m="pro">Прогр</button>
+    <button class="b" data-m="retro">Ретро</button>
+    <button class="b on" data-m="hold">Держ</button>
+    <button class="b" data-m="rout">Рад↑</button>
+    <button class="b" data-m="rin">Рад↓</button>
+  </div>
+  <button class="b amber" id="stageBtn">Зажигание<small>ступень</small></button>
+</div></div>
+
+<div id="toasts"></div>
+<div id="ov" class="hidden"><div id="ovBox"><div id="ovBody"></div><div id="ovBtns"></div></div></div>
+<div id="rotateMsg" class="hidden">Поверните телефон горизонтально</div>
+
+<script>
+(() => {
+'use strict';
+// ================= utils
+const TAU = Math.PI * 2, G0 = 9.80665;
+const clamp = (x, a, b) => x < a ? a : x > b ? b : x;
+const len = v => Math.hypot(v[0], v[1]);
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1];
+const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+const wrapPi = a => { a = (a + Math.PI) % TAU; if (a < 0) a += TAU; return a - Math.PI; };
+const wrap2 = a => { a %= TAU; return a < 0 ? a + TAU : a; };
+const lerp = (a, b, t) => a + (b - a) * t;
+const $ = id => document.getElementById(id);
+const grp = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, '\u2009');
+function fmtD(m) {
+  if (!isFinite(m)) return '∞';
+  const a = Math.abs(m), s = m < 0 ? '−' : '';
+  if (a < 10000) return s + grp(a) + ' м';
+  if (a < 1e5) return s + (a / 1000).toFixed(2) + ' км';
+  if (a < 1e6) return s + (a / 1000).toFixed(1) + ' км';
+  return s + grp(a / 1000) + ' км';
+}
+function fmtV(v) { return (v < 0 ? '−' : '') + (Math.abs(v) < 100 ? Math.abs(v).toFixed(1) : grp(Math.abs(v))) + ' м/с'; }
+function fmtT(s) {
+  if (!isFinite(s)) return '—';
+  s = Math.max(0, s); const d = Math.floor(s / 86400); s -= d * 86400;
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), c = Math.floor(s % 60), p = n => String(n).padStart(2, '0');
+  return (d ? d + 'д ' : '') + (h || d ? p(h) + ':' : '') + p(m) + ':' + p(c);
+}
+function lerpCol(a, b, t) {
+  const pa = [1, 3, 5].map(i => parseInt(a.substr(i, 2), 16)), pb = [1, 3, 5].map(i => parseInt(b.substr(i, 2), 16));
+  return 'rgb(' + pa.map((x, i) => Math.round(lerp(x, pb[i], t))).join(',') + ')';
+}
+const store = {
+  get(k) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } }
+};
+
+// ================= world
+const TERRA = { id: 'terra', name: 'Терра', R: 600000, mu: 3.5316e12, atm: 70000, rho0: 1.225, Hs: 5600, soi: Infinity,
+  c1: '#4f9a5c', c2: '#2d6a3e', sea: '#2a5d9e' };
+const LUNA = { id: 'luna', name: 'Луна', R: 200000, mu: 6.5138398e10, atm: 0, soi: 2429559, orbitR: 12000000,
+  c1: '#a9a7a1', c2: '#77756f' };
+LUNA.omega = Math.sqrt(TERRA.mu / LUNA.orbitR ** 3);
+LUNA.phi0 = 2.6;
+const BODY = { terra: TERRA, luna: LUNA };
+// Луна идёт по часовой стрелке — туда же, куда разворачивается ракета (наклон вправо)
+function lunaPos(t) { const a = LUNA.phi0 - LUNA.omega * t; return [LUNA.orbitR * Math.cos(a), LUNA.orbitR * Math.sin(a)]; }
+function lunaVel(t) { const a = LUNA.phi0 - LUNA.omega * t, s = LUNA.orbitR * LUNA.omega; return [s * Math.sin(a), -s * Math.cos(a)]; }
+const PAD_ANG = Math.PI / 2;
+function terraBase(a) { return 1500 + 800 * Math.sin(3 * a + 1) + 400 * Math.sin(7 * a + 2) + 200 * Math.sin(23 * a + .5) + 60 * Math.sin(97 * a + 1.3) + 20 * Math.sin(311 * a + .7); }
+const PAD_H = terraBase(PAD_ANG);
+function terrainH(b, a) {
+  if (b === TERRA) { const d = wrapPi(a - PAD_ANG), w = Math.exp(-((d / 0.01) ** 2)); return terraBase(a) * (1 - w) + PAD_H * w; }
+  return 1700 + 900 * Math.sin(5 * a) + 500 * Math.sin(13 * a + 1) + 250 * Math.sin(41 * a + 2) + 90 * Math.sin(131 * a + .4) + 30 * Math.sin(419 * a + 2.2);
+}
+function density(b, alt) { return b.atm && alt < b.atm ? b.rho0 * Math.exp(-Math.max(0, alt) / b.Hs) : 0; }
+
+// ================= orbital mechanics (universal variables, works for ellipse & hyperbola)
+function stC(z) { if (z > 1e-6) { const s = Math.sqrt(z); return (1 - Math.cos(s)) / z; } if (z < -1e-6) { const s = Math.sqrt(-z); return (Math.cosh(s) - 1) / (-z); } return 0.5 - z / 24; }
+function stS(z) { if (z > 1e-6) { const s = Math.sqrt(z); return (s - Math.sin(s)) / (s * s * s); } if (z < -1e-6) { const s = Math.sqrt(-z); return (Math.sinh(s) - s) / (s * s * s); } return 1 / 6 - z / 120; }
+function numProp(r0, v0, mu, dt) {
+  let r = r0.slice(), v = v0.slice(); const n = clamp(Math.ceil(Math.abs(dt) / 2), 200, 40000), h = dt / n;
+  const acc = p => { const m = len(p), k = -mu / (m * m * m); return [p[0] * k, p[1] * k]; };
+  let a = acc(r);
+  for (let i = 0; i < n; i++) {
+    v[0] += a[0] * h / 2; v[1] += a[1] * h / 2; r[0] += v[0] * h; r[1] += v[1] * h;
+    a = acc(r); v[0] += a[0] * h / 2; v[1] += a[1] * h / 2;
+  }
+  return [r, v];
+}
+function kepler(r0, v0, mu, dt) {
+  if (dt === 0) return [r0.slice(), v0.slice()];
+  const r0m = len(r0), v02 = dot(v0, v0), sm = Math.sqrt(mu), rv = dot(r0, v0), vr0 = rv / r0m, alpha = 2 / r0m - v02 / mu;
+  if (alpha > 1e-12) { const P = TAU / (sm * alpha ** 1.5); dt = dt % P; }
+  let x;
+  if (alpha > 1e-12) x = sm * alpha * dt;
+  else if (alpha < -1e-12) {
+    const a = 1 / alpha, arg = (-2 * mu * alpha * dt) / (rv + Math.sign(dt) * Math.sqrt(-mu * a) * (1 - r0m * alpha));
+    x = arg > 0 ? Math.sign(dt) * Math.sqrt(-a) * Math.log(arg) : sm * Math.abs(alpha) * dt;
+    if (!isFinite(x)) x = sm * Math.abs(alpha) * dt;
+  } else x = sm * dt / r0m;
+  let ok = false;
+  for (let i = 0; i < 60; i++) {
+    const x2 = x * x, z = alpha * x2, C = stC(z), S = stS(z);
+    const F = r0m * vr0 / sm * x2 * C + (1 - alpha * r0m) * x2 * x * S + r0m * x - sm * dt;
+    const dF = r0m * vr0 / sm * x * (1 - z * S) + (1 - alpha * r0m) * x2 * C + r0m;
+    const ratio = F / dF; x -= ratio;
+    if (!isFinite(x)) break;
+    if (Math.abs(ratio) < 1e-10 * Math.max(1, Math.abs(x))) { ok = true; break; }
+  }
+  if (!ok || !isFinite(x)) return numProp(r0, v0, mu, dt);
+  const x2 = x * x, z = alpha * x2, C = stC(z), S = stS(z);
+  const f = 1 - x2 / r0m * C, g = dt - x2 * x / sm * S;
+  const r = [f * r0[0] + g * v0[0], f * r0[1] + g * v0[1]], rm = len(r);
+  const fd = sm / (rm * r0m) * (z * x * S - x), gd = 1 - x2 / rm * C;
+  const v = [fd * r0[0] + gd * v0[0], fd * r0[1] + gd * v0[1]];
+  if (!isFinite(r[0]) || !isFinite(v[0])) return numProp(r0, v0, mu, dt);
+  return [r, v];
+}
+function elements(r, v, mu) {
+  const rm = len(r), v2 = dot(v, v), E = v2 / 2 - mu / rm, h = r[0] * v[1] - r[1] * v[0], rv = dot(r, v);
+  const ex = ((v2 - mu / rm) * r[0] - rv * v[0]) / mu, ey = ((v2 - mu / rm) * r[1] - rv * v[1]) / mu, e = Math.hypot(ex, ey);
+  const a = -mu / (2 * E), p = h * h / mu, rp = p / (1 + e), ra = e < 1 ? p / (1 - e) : Infinity;
+  const w = Math.atan2(ey, ex);
+  let nu = Math.atan2(r[1], r[0]) - w; if (h < 0) nu = -nu; nu = wrap2(nu);
+  let tAp = Infinity, tPe = Infinity, T = Infinity;
+  if (e < 1) {
+    T = TAU * Math.sqrt(a ** 3 / mu);
+    const EA = 2 * Math.atan(Math.sqrt((1 - e) / (1 + e)) * Math.tan(nu / 2));
+    const M = wrap2(EA - e * Math.sin(EA)), n = TAU / T;
+    tPe = (TAU - M) / n; tAp = wrap2(Math.PI - M) / n;
+  } else if (rv < 0) {
+    const F = 2 * Math.atanh(Math.sqrt((e - 1) / (e + 1)) * Math.tan(nu / 2));
+    const M = e * Math.sinh(F) - F; tPe = -M / Math.sqrt(mu / (-a) ** 3);
+  }
+  return { a, e, rp, ra, w, h, T, tAp, tPe, nu };
+}
+
+// ================= parts
+const PART = {
+  chute: { name: 'Парашют П-16', kind: 'chute', h: .35, w: .7, dry: .1, desc: 'Раскрывается ниже 34 км' },
+  pod: { name: 'Капсула К-1', kind: 'pod', h: 1.6, w: 1.25, dry: .84, desc: 'Экипаж и управление' },
+  dec: { name: 'Разделитель', kind: 'dec', h: .25, w: 1.25, dry: .05, desc: 'Сбрасывает всё, что ниже' },
+  decL: { name: 'Разделитель XL', kind: 'dec', h: .3, w: 2.5, dry: .2, desc: 'Для широкой ступени' },
+  t100: { name: 'Бак Т-100', kind: 'tank', h: .55, w: 1.25, dry: .0625, fuel: .5 },
+  t200: { name: 'Бак Т-200', kind: 'tank', h: 1.0, w: 1.25, dry: .125, fuel: 1 },
+  t400: { name: 'Бак Т-400', kind: 'tank', h: 1.85, w: 1.25, dry: .25, fuel: 2 },
+  t800: { name: 'Бак Т-800', kind: 'tank', h: 3.6, w: 1.25, dry: .5, fuel: 4 },
+  j64: { name: 'Бак Ю-64', kind: 'tank', h: 7.5, w: 2.5, dry: 4, fuel: 32 },
+  legs: { name: 'Посадочные опоры', kind: 'legs', h: .35, w: 1.25, dry: .15, desc: 'Посадка до 12 м/с' },
+  eS: { name: '«Штиль»', kind: 'eng', type: 'liq', h: .85, w: 1.0, dry: .5, thrust: 60, ispV: 345, ispA: 85, desc: 'Вакуумный двигатель' },
+  eM: { name: '«Вихрь»', kind: 'eng', type: 'liq', h: 1.3, w: 1.25, dry: 1.5, thrust: 215, ispV: 320, ispA: 250, desc: 'Универсальный' },
+  eL: { name: '«Титан»', kind: 'eng', type: 'liq', h: 2.4, w: 2.5, dry: 6, thrust: 1630, ispV: 310, ispA: 285, desc: 'Тяжёлая первая ступень' },
+  srb: { name: 'РДТТ «Молот»', kind: 'eng', type: 'sol', h: 3.6, w: 1.25, dry: .75, fuel: 2.81, thrust: 227, ispV: 195, ispA: 170, desc: 'Твердотопливный, без дросселя' }
+};
+const PART_ORDER = ['chute', 'pod', 'dec', 'decL', 't100', 't200', 't400', 't800', 'j64', 'legs', 'eS', 'eM', 'eL', 'srb'];
+const PRESETS = {
+  sub: ['chute', 'pod', 'dec', 'srb'],
+  orb: ['chute', 'pod', 'dec', 't400', 'eS', 'dec', 't800', 't800', 'eM'],
+  mun: ['chute', 'pod', 't800', 'legs', 'eS', 'dec', 't800', 't800', 'eM', 'decL', 'j64', 'eL']
+};
+const CHUTE_CDA = 700;
+const mkInst = id => ({ id, fuel: PART[id].fuel || 0, ign: false });
+function massOf(parts) { let m = 0; for (const p of parts) m += PART[p.id].dry + (p.fuel || 0); return m; }
+function sections(parts) {
+  const s = []; let st = 0;
+  for (let i = 1; i < parts.length; i++) if (PART[parts[i].id].kind === 'dec') { s.push([st, i - 1]); st = i; }
+  if (parts.length) s.push([st, parts.length - 1]);
+  return s;
+}
+const bottomSec = parts => { const s = sections(parts); return s[s.length - 1] || [0, -1]; };
+const shipLen = parts => parts.reduce((a, p) => a + PART[p.id].h, 0);
+const maxW = parts => parts.reduce((a, p) => Math.max(a, PART[p.id].w), 0);
+const thrustAt = (d, p) => d.thrust * (d.ispV + (d.ispA - d.ispV) * p) / d.ispV;
+function dragArea(parts) { const w = maxW(parts) || 1; return Math.PI * w * w / 4 * 0.5; }
+function retroStable(parts) { if (!parts.length) return false; const k = PART[parts[parts.length - 1].id].kind; return k === 'pod' || k === 'chute' || k === 'legs'; }
+// Δv по ступеням (первый элемент — нижняя/текущая ступень)
+function dvStages(parts, pFn, g) {
+  const sec = sections(parts), out = [];
+  for (let k = sec.length - 1; k >= 0; k--) {
+    const [i0, i1] = sec[k]; const above = parts.slice(0, i1 + 1); const m0 = massOf(above);
+    const p = pFn(sec.length - 1 - k);
+    let liq = 0, sol = 0, Tl = 0, Ts = 0, fl = 0, fs = 0;
+    for (let i = i0; i <= i1; i++) {
+      const pt = parts[i], d = PART[pt.id];
+      if (d.kind === 'tank') liq += pt.fuel;
+      if (d.kind === 'eng') {
+        const T = thrustAt(d, p), isp = d.ispV + (d.ispA - d.ispV) * p;
+        if (d.type === 'liq') { Tl += T; fl += T / isp; } else { sol += pt.fuel; if (pt.fuel > 0) { Ts += T; fs += T / isp; } }
+      }
+    }
+    const fuel = (Tl > 0 ? liq : 0) + sol, T = Tl + Ts, isp = (fl + fs) > 0 ? T / (fl + fs) : 0;
+    const dv = isp > 0 && fuel > 0 ? isp * G0 * Math.log(m0 / (m0 - fuel)) : 0;
+    out.push({ dv, twr: T / (m0 * g), m0, fuelCap: 0, p });
+  }
+  return out;
+}
+
+// ================= audio (процедурный)
+const Sfx = {
+  on: store.get('orbita.sound') !== false, c: null,
+  init() {
+    if (this.c) { if (this.c.state === 'suspended') this.c.resume(); return; }
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return;
+    const c = this.c = new AC();
+    this.m = c.createGain(); this.m.gain.value = this.on ? 0.8 : 0; this.m.connect(c.destination);
+    const n = c.sampleRate * 2;
+    const wb = c.createBuffer(1, n, c.sampleRate), wd = wb.getChannelData(0);
+    for (let i = 0; i < n; i++) wd[i] = Math.random() * 2 - 1;
+    const bb = c.createBuffer(1, n, c.sampleRate), bd = bb.getChannelData(0); let l = 0;
+    for (let i = 0; i < n; i++) { l = (l + 0.02 * (Math.random() * 2 - 1)) / 1.02; bd[i] = l * 3.5; }
+    this.white = wb; this.brown = bb;
+    const loop = (buf, filt, f, q) => { const s = c.createBufferSource(); s.buffer = buf; s.loop = true; const fi = c.createBiquadFilter(); fi.type = filt; fi.frequency.value = f; fi.Q.value = q || .7; const g = c.createGain(); g.gain.value = 0; s.connect(fi); fi.connect(g); g.connect(this.m); s.start(); return { f: fi, g }; };
+    this.eng = loop(bb, 'lowpass', 300);
+    this.crk = loop(wb, 'bandpass', 900, .8);
+    this.wind = loop(wb, 'bandpass', 600, .5);
+    const o = c.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 38; const of = c.createBiquadFilter(); of.type = 'lowpass'; of.frequency.value = 90;
+    this.rum = c.createGain(); this.rum.gain.value = 0; o.connect(of); of.connect(this.rum); this.rum.connect(this.m); o.start();
+    this.pad = c.createGain(); this.pad.gain.value = 0; this.pad.connect(this.m);
+    [110, 164.8, 220.5].forEach((f, i) => { const os = c.createOscillator(); os.type = 'sine'; os.frequency.value = f; const lfo = c.createOscillator(); lfo.frequency.value = .07 + i * .03; const lg = c.createGain(); lg.gain.value = .5; const og = c.createGain(); og.gain.value = .33; lfo.connect(lg); lg.connect(og.gain); os.connect(og); og.connect(this.pad); os.start(); lfo.start(); });
+  },
+  setOn(v) { this.on = v; store.set('orbita.sound', v); if (this.m) this.m.gain.setTargetAtTime(v ? 0.8 : 0, this.c.currentTime, .05); },
+  st(p, v, tc) { p.setTargetAtTime(v, this.c.currentTime, tc || .08); },
+  update(liq, sol, wind, space, vac) {
+    if (!this.c) return;
+    const k = vac ? .55 : 1;
+    this.st(this.eng.g.gain, (liq * .9 + sol * .7) * k); this.st(this.eng.f.frequency, (vac ? 160 : 260) + liq * 450 + sol * 650);
+    this.st(this.crk.g.gain, (sol * .3 + liq * .06) * k); this.st(this.rum.gain, (liq + sol) * .22 * k);
+    this.st(this.wind.g.gain, wind * .55, .2); this.st(this.wind.f.frequency, 350 + wind * 1500, .2);
+    this.st(this.pad.gain, space * .045, 1.5);
+  },
+  burst(dur, f0, f1, vol, type) {
+    if (!this.c) return; const c = this.c, t = c.currentTime;
+    const s = c.createBufferSource(); s.buffer = this.white; const f = c.createBiquadFilter(); f.type = type || 'lowpass';
+    f.frequency.setValueAtTime(f0, t); f.frequency.exponentialRampToValueAtTime(Math.max(30, f1), t + dur);
+    const g = c.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur);
+    s.connect(f); f.connect(g); g.connect(this.m); s.start(t); s.stop(t + dur + .05);
+  },
+  tone(f0, f1, dur, vol, type) {
+    if (!this.c) return; const c = this.c, t = c.currentTime, o = c.createOscillator(), g = c.createGain();
+    o.type = type || 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(.001, t + dur); o.connect(g); g.connect(this.m); o.start(t); o.stop(t + dur + .05);
+  },
+  click() { this.tone(1300, 900, .05, .12, 'square'); },
+  decouple() { this.burst(.3, 3500, 300, .7, 'bandpass'); this.tone(140, 50, .25, .5, 'triangle'); },
+  ignite() { this.burst(.7, 180, 1600, .6); },
+  chute() { this.burst(.6, 2600, 700, .4, 'highpass'); },
+  boom() { this.burst(2.4, 1800, 60, 1.3); this.tone(70, 25, 1.8, .8, 'sawtooth'); },
+  goal() { this.tone(660, 990, .18, .18, 'triangle'); setTimeout(() => this.tone(990, 1320, .25, .15, 'triangle'), 140); }
+};
+
+// ================= state
+const cv = $('cv'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+let mode = 'menu', S = null, T = 0, warpIdx = 0, mapOn = false, paused = false;
+const WARPS = [1, 2, 3, 4, 10, 50, 100, 1000, 10000, 100000];
+let zoom = 8, mapScale = 2e-5, mapFocus = null, mapPan = [0, 0];
+let debris = [], parts = [], pred = null, predClock = 0, hudClock = 0, goalClock = 0;
+const input = { rot: 0, thrUp: 0 };
+let goals = store.get('orbita.goals') || {};
+let design = store.get('orbita.design') || PRESETS.mun.slice();
+const STARS = Array.from({ length: 280 }, () => ({ a: Math.random() * TAU, d: Math.sqrt(Math.random()) * 1.05, s: Math.random() * 1.2 + .3, b: Math.random() * .6 + .4 }));
+const GOALS = [['launch', 'Первый старт'], ['space', 'Космос: выше 70 км'], ['orbit', 'Орбита вокруг Терры'], ['lunaSoi', 'Сфера влияния Луны'], ['lunaOrbit', 'Орбита Луны'], ['lunaLand', 'Посадка на Луну'], ['home', 'Возвращение на Терру']];
+
+function newShip(ids) {
+  const r = TERRA.R + PAD_H;
+  return { parts: ids.map(mkInst), r: [r * Math.cos(PAD_ANG), r * Math.sin(PAD_ANG)], v: [0, 0], th: PAD_ANG, om: 0, soi: 'terra',
+    landed: true, thr: 0, sas: true, sasMode: 'hold', hold: PAD_ANG, chuteArmed: false, chuteOpen: false, chuteDep: 0, chuteUsed: false,
+    dead: false, visited: false, q: 0, rho: 0, heat: 0, fx: { liq: 0, sol: 0 }, aeroA: 0 };
+}
+const body = () => BODY[S.soi];
+
+// ================= toasts / overlay
+function toast(msg, cls) {
+  const el = document.createElement('div'); el.className = 'toast' + (cls ? ' ' + cls : ''); el.textContent = msg;
+  const box = $('toasts'); box.appendChild(el); while (box.children.length > 3) box.firstChild.remove();
+  setTimeout(() => el.remove(), 2800);
+}
+function overlay(html, btns) {
+  $('ovBody').innerHTML = html; const bx = $('ovBtns'); bx.innerHTML = '';
+  btns.forEach(([t, fn, cls]) => { const b = document.createElement('button'); b.className = 'b' + (cls ? ' ' + cls : ''); b.textContent = t; b.onclick = () => { Sfx.click(); fn(); }; bx.appendChild(b); });
+  $('ov').classList.remove('hidden');
+}
+const closeOv = () => $('ov').classList.add('hidden');
+function goalsHtml() { return GOALS.map(([k, t]) => `<div class="goal${goals[k] ? ' ok' : ''}">${goals[k] ? '★' : '☆'} ${t}</div>`).join(''); }
+function award(k) { if (goals[k]) return; goals[k] = true; store.set('orbita.goals', goals); const g = GOALS.find(x => x[0] === k); toast('★ ' + g[1], 'gold'); Sfx.goal(); }
+const HELP = `<h2>Как играть</h2><ol>
+<li>В ангаре выберите готовую ракету «Луна» или соберите свою: сверху парашют и капсула, ниже баки и двигатель. Разделитель отделяет ступень, нижняя ступень работает первой.</li>
+<li>На старте: тяга MAX (левый ползунок), затем «Зажигание». SAS удерживает курс.</li>
+<li>Гравитационный разворот: с 1 км плавно наклоняйтесь вправо (⟳). К 10 км — около 45°, к 40 км — почти горизонтально. Следите за «Ап».</li>
+<li>Когда Ап ≈ 80 км — тяга 0. Ускорьте время до апоцентра («До Ап»), включите «Прогр» и жгите, пока Пе не станет выше 70 км. Вы на орбите.</li>
+<li>К Луне: на карте ждите, пока «фаза к Луне» не совпадёт с нужной, и жгите прогрейд, пока не появится фиолетовая траектория встречи.</li>
+<li>У Луны: в перицентре жгите «Ретро», чтобы выйти на орбиту. Посадка — «Ретро» и гашение скорости до 2–5 м/с у грунта. Опоры держат до 12 м/с.</li>
+<li>Домой: жгите прогрейд, пока оранжевая траектория не войдёт в атмосферу Терры (Пе 30–40 км). Парашют («Ступень») раскроется ниже 34 км при скорости до 450 м/с.</li></ol>
+<p>Щипок — масштаб, двойной тап — сброс, на карте можно двигать вид пальцем. Клавиатура: Shift/Ctrl — тяга, Z/X — максимум/ноль, A/D — поворот, пробел — ступень, M — карта, T — SAS, , и . — время.</p>`;
+
+// ================= flight control
+function isThrusting() {
+  if (!S) return false; const [i0, i1] = bottomSec(S.parts); let liq = 0;
+  for (let i = i0; i <= i1; i++) if (PART[S.parts[i].id].kind === 'tank') liq += S.parts[i].fuel;
+  for (let i = i0; i <= i1; i++) { const p = S.parts[i], d = PART[p.id]; if (d.kind === 'eng' && p.ign && (d.type === 'sol' ? p.fuel > 0 : (S.thr > 0 && liq > 0))) return true; }
+  return false;
+}
+function railsAllowed() {
+  if (S.landed) return true; const b = body(); const alt = len(S.r) - b.R;
+  return alt > (b === TERRA ? b.atm : 4000);
+}
+function setWarp(i) {
+  i = clamp(i, 0, WARPS.length - 1);
+  if (WARPS[i] > 4) {
+    if (isThrusting()) { toast('Двигатель работает — только ×4'); i = 3; }
+    else if (!railsAllowed()) { toast(S.soi === 'terra' ? 'Быстрее ×4 — только выше 70 км' : 'Слишком близко к поверхности'); i = 3; }
+  }
+  warpIdx = i;
+}
+function nextStage() {
+  if (!S || S.dead) return '—'; const sec = sections(S.parts); const [i0, i1] = sec[sec.length - 1];
+  for (let i = i0; i <= i1; i++) { const p = S.parts[i]; if (PART[p.id].kind === 'eng' && !p.ign) return 'Зажигание'; }
+  if (sec.length > 1) return 'Разделение';
+  if (S.parts.some(p => p.id === 'chute') && !S.chuteArmed && !S.chuteUsed) return 'Парашют';
+  return '—';
+}
+function stage() {
+  if (!S || S.dead) return; const ps = S.parts, sec = sections(ps), [i0, i1] = sec[sec.length - 1];
+  const unlit = []; for (let i = i0; i <= i1; i++) if (PART[ps[i].id].kind === 'eng' && !ps[i].ign) unlit.push(i);
+  if (unlit.length) {
+    unlit.forEach(i => ps[i].ign = true); Sfx.ignite();
+    if (S.thr === 0 && unlit.some(i => PART[ps[i].id].type === 'liq')) toast('Двигатель готов — добавьте тягу');
+    return;
+  }
+  if (sec.length > 1) {
+    const nose = [Math.cos(S.th), Math.sin(S.th)];
+    const removed = ps.splice(i0); const hgt = shipLen(removed);
+    debris.push({ parts: removed, r: S.r.slice(), v: [S.v[0] - nose[0] * 2.5, S.v[1] - nose[1] * 2.5], th: S.th, om: (Math.random() - .5) * .3, soi: S.soi, age: 0 });
+    S.r = [S.r[0] + nose[0] * hgt, S.r[1] + nose[1] * hgt]; S.v = [S.v[0] + nose[0] * .5, S.v[1] + nose[1] * .5];
+    if (S.landed) S.landed = false;
+    const [j0, j1] = bottomSec(ps); for (let i = j0; i <= j1; i++) if (PART[ps[i].id].kind === 'eng') ps[i].ign = true;
+    Sfx.decouple(); pred = null; return;
+  }
+  if (ps.some(p => p.id === 'chute') && !S.chuteArmed && !S.chuteUsed) { S.chuteArmed = true; Sfx.click(); toast('Парашют взведён: раскроется ниже 34 км и медленнее 450 м/с'); }
+}
+function crashTol() { if (S.parts.some(p => p.id === 'legs')) return 12; return retroStable(S.parts) ? 9 : 6; }
+function crash(msg) {
+  if (S.dead) return; S.dead = true; S.deathMsg = msg; warpIdx = 0;
+  const L = shipLen(S.parts), n = [Math.cos(S.th), Math.sin(S.th)], c = [S.r[0] + n[0] * L / 2, S.r[1] + n[1] * L / 2];
+  for (let i = 0; i < 140; i++) { const a = Math.random() * TAU, s = Math.random() * 25 + 3; parts.push({ x: c[0], y: c[1], vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 0, max: 1 + Math.random() * 2.5, size: 1 + Math.random() * 3, k: i < 90 ? 'fire' : 'smoke' }); }
+  Sfx.boom(); Sfx.update(0, 0, 0, 0, false);
+  setTimeout(() => overlay(`<h2>Авария</h2><p>${msg}</p>${goalsHtml()}`, [['Повторить запуск', () => { closeOv(); startFlight(design); }, 'amber'], ['Загрузить сохранение', () => { closeOv(); loadGame(); }], ['В ангар', () => { closeOv(); toVab(); }]]), 1500);
+}
+function onLanded(b, vm) {
+  if (S.chuteOpen) { S.chuteOpen = false; S.chuteUsed = true; S.chuteArmed = false; }
+  toast('Посадка: ' + b.name + ' (' + vm.toFixed(1) + ' м/с)');
+  if (b === LUNA) { S.visited = true; award('lunaLand'); }
+  if (b === TERRA && S.visited) award('home');
+}
+function checkSoi() {
+  if (S.soi === 'terra') {
+    const m = lunaPos(T);
+    if (dist(S.r, m) < LUNA.soi) { const mv = lunaVel(T); S.r = [S.r[0] - m[0], S.r[1] - m[1]]; S.v = [S.v[0] - mv[0], S.v[1] - mv[1]]; S.soi = 'luna'; debris = []; parts = []; pred = null; toast('Сфера влияния: Луна'); award('lunaSoi'); }
+  } else if (len(S.r) > LUNA.soi) {
+    const m = lunaPos(T), mv = lunaVel(T); S.r = [S.r[0] + m[0], S.r[1] + m[1]]; S.v = [S.v[0] + mv[0], S.v[1] + mv[1]]; S.soi = 'terra'; debris = []; parts = []; pred = null; toast('Сфера влияния: Терра');
+  }
+}
+
+// ================= physics
+function physStep(dt) {
+  const s = S, b = body(), ps = s.parts, m = massOf(ps);
+  const rm = len(s.r), up = [s.r[0] / rm, s.r[1] / rm], alt = rm - b.R, rho = density(b, alt), p = b.atm ? rho / b.rho0 : 0;
+  const [i0, i1] = bottomSec(ps);
+  let liq = 0; for (let i = i0; i <= i1; i++) if (PART[ps[i].id].kind === 'tank') liq += ps[i].fuel;
+  let Tl = 0, Ts = 0, flow = 0;
+  for (let i = i0; i <= i1; i++) {
+    const pt = ps[i], d = PART[pt.id]; if (d.kind !== 'eng' || !pt.ign) continue;
+    if (d.type === 'liq') { if (liq > 1e-9 && s.thr > 0) { Tl += thrustAt(d, p) * s.thr; flow += d.thrust * s.thr / (d.ispV * G0); } }
+    else if (pt.fuel > 0) { Ts += thrustAt(d, p); pt.fuel = Math.max(0, pt.fuel - d.thrust / (d.ispV * G0) * dt); }
+  }
+  if (flow > 0) {
+    let use = flow * dt; if (use > liq) { Tl *= liq / use; use = liq; }
+    for (let i = i0; i <= i1; i++) { const pt = ps[i]; if (PART[pt.id].kind === 'tank' && liq > 0) pt.fuel = Math.max(0, pt.fuel - pt.fuel / liq * use); }
+  }
+  const Tt = Tl + Ts; s.fx = { liq: Tl > 0 ? s.thr : 0, sol: Ts > 0 ? 1 : 0, T: Tt };
+  const nose = [Math.cos(s.th), Math.sin(s.th)], g = b.mu / (rm * rm);
+  let ax = nose[0] * Tt / m, ay = nose[1] * Tt / m;
+  if (s.landed) {
+    if (ax * up[0] + ay * up[1] > g * 1.001) { s.landed = false; s.r = [s.r[0] + up[0] * .05, s.r[1] + up[1] * .05]; }
+    else { s.v = [0, 0]; s.om = 0; s.q = 0; s.rho = rho; s.heat = 0; return; }
+  }
+  const vm = len(s.v), q = .5 * rho * vm * vm; s.q = q; s.rho = rho; s.heat = rho * vm * vm * vm;
+  if (s.chuteArmed && !s.chuteOpen && rho > .003 && vm < 450) { s.chuteOpen = true; s.chuteArmed = false; Sfx.chute(); toast('Парашют раскрыт'); }
+  if (s.chuteOpen) s.chuteDep = Math.min(1, s.chuteDep + dt * .3);
+  s.aeroA = 0;
+  if (vm > .05 && rho > 0) {
+    const vAng = Math.atan2(s.v[1], s.v[0]), aoa = wrapPi(s.th - vAng);
+    const chA = s.chuteOpen ? CHUTE_CDA * s.chuteDep ** 3 : 0;
+    const CdA = dragArea(ps) * (1 + 2.5 * Math.sin(aoa) ** 2) + chA;
+    const dAcc = Math.min(q * CdA / 1000 / m, vm * .9 / dt);
+    ax -= s.v[0] / vm * dAcc; ay -= s.v[1] / vm * dAcc;
+    const tgt = (s.chuteOpen || retroStable(ps)) ? vAng + Math.PI : vAng;
+    const err = wrapPi(tgt - s.th);
+    s.aeroA = clamp((q * 4e-5 + q * chA * 1e-4) * Math.sin(err) / Math.sqrt(m / 2 + .5), -3, 3);
+    s.om /= 1 + dt * (q * 1e-4 + (s.chuteOpen ? 2 : 0));
+  }
+  ax -= up[0] * g; ay -= up[1] * g;
+  s.v[0] += ax * dt; s.v[1] += ay * dt; s.r[0] += s.v[0] * dt; s.r[1] += s.v[1] * dt;
+  attitude(dt, m, Tt > 0);
+  // контакт с поверхностью
+  const rm2 = len(s.r), ang = Math.atan2(s.r[1], s.r[0]), surf = b.R + terrainH(b, ang);
+  if (rm2 <= surf) {
+    const v2 = len(s.v), tol = crashTol();
+    if (v2 > tol) { crash(`Удар о поверхность (${b.name}) на скорости ${v2.toFixed(1)} м/с. Допустимо до ${tol} м/с.`); return; }
+    s.r = [Math.cos(ang) * surf, Math.sin(ang) * surf]; s.v = [0, 0]; s.om = 0; s.landed = true; onLanded(b, v2);
+  }
+  checkSoi();
+}
+function attitude(dt, m, firing) {
+  const s = S, ctrl = 1.4 / Math.sqrt(m / 2 + .5) + (firing ? .25 : 0);
+  let a = 0;
+  if (input.rot !== 0) { a = input.rot * ctrl; s.hold = s.th; }
+  else if (s.sas) {
+    let tgt = s.hold; const vm = len(s.v);
+    if (vm > .5) { const va = Math.atan2(s.v[1], s.v[0]); if (s.sasMode === 'pro') tgt = va; else if (s.sasMode === 'retro') tgt = va + Math.PI; }
+    if (s.sasMode === 'rout') tgt = Math.atan2(s.r[1], s.r[0]); else if (s.sasMode === 'rin') tgt = Math.atan2(s.r[1], s.r[0]) + Math.PI;
+    const err = wrapPi(tgt - s.th), dOm = Math.sign(err) * Math.min(.9, Math.sqrt(2 * ctrl * .7 * Math.abs(err)));
+    a = clamp((dOm - s.om) * 6, -ctrl, ctrl);
+  }
+  s.om = clamp(s.om + (a + s.aeroA) * dt, -1.5, 1.5); s.th = wrapPi(s.th + s.om * dt);
+}
+function stepDebris(dt) {
+  for (let i = debris.length - 1; i >= 0; i--) {
+    const d = debris[i]; if (d.soi !== S.soi) { debris.splice(i, 1); continue; }
+    const b = BODY[d.soi], rm = len(d.r), g = b.mu / (rm * rm), rho = density(b, rm - b.R), vm = len(d.v), m = massOf(d.parts);
+    let ax = -d.r[0] / rm * g, ay = -d.r[1] / rm * g;
+    if (vm > .1 && rho > 0) { const dA = Math.min(.5 * rho * vm * vm * dragArea(d.parts) * 1.6 / 1000 / m, vm * .9 / dt); ax -= d.v[0] / vm * dA; ay -= d.v[1] / vm * dA; }
+    d.v[0] += ax * dt; d.v[1] += ay * dt; d.r[0] += d.v[0] * dt; d.r[1] += d.v[1] * dt; d.th += d.om * dt; d.age += dt;
+    const a = Math.atan2(d.r[1], d.r[0]);
+    if (len(d.r) < b.R + terrainH(b, a)) { for (let k = 0; k < 25; k++) parts.push({ x: d.r[0], y: d.r[1], vx: (Math.random() - .5) * 20, vy: (Math.random() - .5) * 20, life: 0, max: 1.5 + Math.random(), size: 2 + Math.random() * 3, k: k < 12 ? 'fire' : 'smoke' }); debris.splice(i, 1); }
+    else if (dist(d.r, S.r) > 60000 || d.age > 400) debris.splice(i, 1);
+  }
+}
+function railsAdvance(Tw) {
+  if (S.landed) { T += Tw; return; }
+  let rem = Tw, guard = 0;
+  while (rem > 1e-6 && guard++ < 300) {
+    const b = body(), rm = len(S.r), vm = len(S.v), vr = dot(S.r, S.v) / rm, alt = rm - b.R, thr = b === TERRA ? b.atm : 4000;
+    let ch = Math.min(rem, 120);
+    if (vr < 0) ch = Math.min(ch, Math.max(.5, (alt - thr) / (-vr) * .5));
+    if (S.soi === 'terra') { const d = dist(S.r, lunaPos(T)) - LUNA.soi; ch = Math.min(ch, Math.max(.5, d / (vm + 700) * .8)); }
+    else ch = Math.min(ch, Math.max(.5, (LUNA.soi - rm) / (vm + 1) * .8));
+    const [r2, v2] = kepler(S.r, S.v, b.mu, ch); S.r = r2; S.v = v2; T += ch; rem -= ch;
+    checkSoi();
+    const b2 = body(), rm2 = len(S.r), vr2 = dot(S.r, S.v) / rm2;
+    if (rm2 - b2.R < (b2 === TERRA ? b2.atm : 4000) && vr2 < 0) { warpIdx = 0; toast(b2 === TERRA ? 'Вход в атмосферу — ускорение снято' : 'Сближение с поверхностью — ускорение снято'); break; }
+  }
+}
+
+// ================= prediction (patched conics)
+function predict() {
+  const segs = [], info = {};
+  if (!S || S.landed || S.dead) { pred = { segs, info }; return; }
+  let r = S.r.slice(), v = S.v.slice(), frame = S.soi, tAbs = T;
+  for (let patch = 0; patch < 3; patch++) {
+    const b = BODY[frame], el = elements(r, v, b.mu);
+    let horizon, N;
+    if (frame === 'terra') { horizon = el.e < 1 ? Math.min(el.T, 6e6) : 6e6; N = 520; }
+    else { const vinf = Math.sqrt(Math.max(0, dot(v, v) - 2 * b.mu / len(r))); horizon = Math.min(el.e < 1 ? el.T : Infinity, 4 * LUNA.soi / Math.max(60, vinf)); N = 320; }
+    const stopAt = (rr, tt) => {
+      const rm = len(rr); if (rm < b.R) return 'impact';
+      if (frame === 'terra') { if (patch < 2 && dist(rr, lunaPos(tAbs + tt)) < LUNA.soi) return 'enc'; if (rm > LUNA.orbitR * 4) return 'far'; }
+      else if (rm > LUNA.soi) return 'exit';
+      return null;
+    };
+    const pts = []; let stop = null, tS = 0, rs = null, vs = null, prevT = 0;
+    for (let i = 0; i <= N; i++) {
+      const tt = horizon * i / N, [rr, vv] = kepler(r, v, b.mu, tt), sc = i > 0 ? stopAt(rr, tt) : null;
+      if (sc) {
+        let lo = prevT, hi = tt;
+        for (let k = 0; k < 16; k++) { const mid = (lo + hi) / 2; if (stopAt(kepler(r, v, b.mu, mid)[0], mid)) hi = mid; else lo = mid; }
+        [rs, vs] = kepler(r, v, b.mu, hi); pts.push(rs); stop = sc; tS = hi; break;
+      }
+      pts.push(rr); prevT = tt;
+    }
+    segs.push({ frame, pts, color: patch === 0 ? '#6fd3ff' : frame === 'luna' ? '#b69cff' : '#ffb347', el, impact: stop === 'impact' });
+    if (stop === 'impact' && patch === 0) info.impact = b.name;
+    if (stop === 'enc') {
+      const tE = tAbs + tS, mp = lunaPos(tE), mv = lunaVel(tE);
+      r = [rs[0] - mp[0], rs[1] - mp[1]]; v = [vs[0] - mv[0], vs[1] - mv[1]]; tAbs = tE; frame = 'luna';
+      const e2 = elements(r, v, LUNA.mu); info.enc = { t: tE - T, pe: e2.rp - LUNA.R }; continue;
+    }
+    if (stop === 'exit') {
+      const tX = tAbs + tS, mp = lunaPos(tX), mv = lunaVel(tX);
+      r = [rs[0] + mp[0], rs[1] + mp[1]]; v = [vs[0] + mv[0], vs[1] + mv[1]]; tAbs = tX; frame = 'terra';
+      const e3 = elements(r, v, TERRA.mu); info.ret = { t: tX - T, pe: e3.rp - TERRA.R }; continue;
+    }
+    break;
+  }
+  pred = { segs, info };
+}
+
+// ================= main update
+function update(dtR) {
+  if (S.dead) { stepParticles(dtR); Sfx.update(0, 0, 0, 0, false); return; }
+  let w = WARPS[warpIdx];
+  if (w > 1 && isThrusting() && w > 4) { warpIdx = 3; w = 4; }
+  if (w > 4 && !railsAllowed()) { warpIdx = 0; w = 1; }
+  if (w <= 4) {
+    const tt = dtR * w, n = Math.ceil(tt / .02), h = tt / n;
+    for (let i = 0; i < n && !S.dead; i++) { physStep(h); stepDebris(h); T += h; }
+    if (!S.dead && S.fx.T > 0 && S.rho > .002) spawnSmoke(w);
+    stepParticles(tt);
+  } else { S.fx = { liq: 0, sol: 0, T: 0 }; debris = []; parts = []; railsAdvance(dtR * w); S.q = 0; S.heat = 0; }
+  // звук
+  const b = body(), alt = len(S.r) - b.R;
+  Sfx.update(S.fx.liq, S.fx.sol, clamp(S.q / 25000, 0, 1) + clamp(S.heat / 4e7, 0, .6), (b === LUNA || alt > 70000) ? 1 : 0, S.rho < .01);
+  goalClock += dtR;
+  if (goalClock > .25) {
+    goalClock = 0;
+    if (!S.landed) award('launch');
+    if (!S.landed) {
+      const el = elements(S.r, S.v, b.mu);
+      if (b === TERRA && alt > 70000) award('space');
+      if (b === TERRA && el.e < 1 && el.rp - b.R > 70000) award('orbit');
+      if (b === LUNA && el.e < 1 && el.ra < LUNA.soi && el.rp - b.R > 3500) award('lunaOrbit');
+    }
+  }
+}
+function spawnSmoke(w) {
+  const n = [Math.cos(S.th), Math.sin(S.th)], k = Math.min(3, Math.ceil(2 * (S.fx.liq + S.fx.sol)));
+  for (let i = 0; i < k; i++) {
+    if (parts.length > 380) parts.shift();
+    const sp = 25 + Math.random() * 25;
+    parts.push({ x: S.r[0] - n[0] * 1.5, y: S.r[1] - n[1] * 1.5, vx: S.v[0] - n[0] * sp + (Math.random() - .5) * 8, vy: S.v[1] - n[1] * sp + (Math.random() - .5) * 8, life: 0, max: 2.5 + Math.random() * 2, size: 1.2 + Math.random(), k: 'smoke', grow: 1 });
+  }
+}
+function stepParticles(dt) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.life += dt; if (p.life > p.max) { parts.splice(i, 1); continue; }
+    const damp = Math.exp(-dt * (p.k === 'smoke' ? 1.6 : .8)); p.vx *= damp; p.vy *= damp; p.x += p.vx * dt; p.y += p.vy * dt;
+    if (p.grow) p.size += dt * 2.2;
+  }
+}
+
+// ================= drawing parts (локальные координаты, ось y вверх, база = 0)
+function cyl(c, x, y, w, h, light, dark) {
+  const g = c.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, dark); g.addColorStop(.38, light); g.addColorStop(1, dark);
+  c.fillStyle = g; c.fillRect(x, y, w, h);
+}
+function drawPart(c, pt, y, secBottom, opt) {
+  const d = PART[pt.id], w = d.w, h = d.h, x = -w / 2; c.lineWidth = .035; c.strokeStyle = 'rgba(10,14,24,.85)';
+  switch (d.kind) {
+    case 'pod': {
+      c.fillStyle = '#3d2b23'; c.fillRect(x, y, w, h * .09);
+      const g = c.createLinearGradient(x, 0, x + w, 0); g.addColorStop(0, '#8d96a3'); g.addColorStop(.4, '#eef1f5'); g.addColorStop(1, '#7c8592');
+      c.beginPath(); c.moveTo(x, y + h * .09); c.lineTo(-x, y + h * .09); c.lineTo(w * .2, y + h); c.lineTo(-w * .2, y + h); c.closePath(); c.fillStyle = g; c.fill(); c.stroke();
+      c.beginPath(); c.arc(0, y + h * .5, w * .13, 0, TAU); c.fillStyle = '#16263d'; c.fill(); c.strokeStyle = '#ffb347'; c.lineWidth = .05; c.stroke();
+      c.fillStyle = 'rgba(111,211,255,.5)'; c.beginPath(); c.arc(-w * .04, y + h * .54, w * .045, 0, TAU); c.fill();
+      break;
+    }
+    case 'chute': {
+      if (!opt.chuteGone) { cyl(c, -w * .42, y, w * .84, h * .45, '#d9dee6', '#7d8794'); c.beginPath(); c.ellipse(0, y + h * .45, w * .42, h * .55, 0, 0, Math.PI); c.fillStyle = '#e56a2c'; c.fill(); c.stroke(); }
+      else cyl(c, -w * .42, y, w * .84, h * .45, '#d9dee6', '#7d8794');
+      break;
+    }
+    case 'dec': {
+      cyl(c, x, y, w, h, '#f2c14e', '#9a7420');
+      c.fillStyle = 'rgba(20,20,20,.75)'; for (let k = -3; k < 6; k++) { const sx = x + k * w / 5; c.beginPath(); c.moveTo(sx, y); c.lineTo(sx + w / 10, y); c.lineTo(sx + w / 10 + h, y + h); c.lineTo(sx + h, y + h); c.closePath(); c.save(); c.beginPath(); c.rect(x, y, w, h); c.clip(); c.beginPath(); c.moveTo(sx, y); c.lineTo(sx + w / 10, y); c.lineTo(sx + w / 10 + h, y + h); c.lineTo(sx + h, y + h); c.closePath(); c.fill(); c.restore(); }
+      break;
+    }
+    case 'tank': {
+      const big = w > 2; cyl(c, x, y, w, h, big ? '#f1ece0' : '#f2f4f7', big ? '#8f8a7e' : '#8a929e');
+      c.fillStyle = big ? '#2a2d33' : '#5d6672'; c.fillRect(x, y, w, Math.min(.12, h * .1)); c.fillRect(x, y + h - Math.min(.12, h * .1), w, Math.min(.12, h * .1));
+      if (h > 1.5) { c.fillStyle = big ? 'rgba(30,30,35,.85)' : 'rgba(80,90,105,.55)'; const bands = big ? 3 : 2; for (let k = 1; k <= bands; k++) c.fillRect(x, y + h * k / (bands + 1) - .07, w, .14); }
+      if (opt.fuelLevels && d.fuel) { const f = pt.fuel / d.fuel; c.fillStyle = 'rgba(255,179,71,.85)'; c.fillRect(x + w * .08, y + h * .15, .06, (h * .7) * f); }
+      c.strokeRect(x, y, w, h);
+      break;
+    }
+    case 'legs': {
+      cyl(c, x, y, w, h, '#b9c0ca', '#5b636f');
+      c.strokeStyle = '#3e4652'; c.lineWidth = .1;
+      for (const sgn of [-1, 1]) {
+        const fx = sgn * (w / 2 + .75), fy = secBottom - .02;
+        c.beginPath(); c.moveTo(sgn * w / 2, y + h * .6); c.lineTo(fx, fy + .1); c.stroke();
+        c.beginPath(); c.moveTo(sgn * w / 2, y - .5 > secBottom ? y - .5 : y); c.lineTo(fx * .8, fy + .4); c.stroke();
+        c.fillStyle = '#2e343d'; c.fillRect(fx - .2, fy, .4, .1);
+      }
+      break;
+    }
+    case 'eng': {
+      if (d.type === 'sol') {
+        cyl(c, x, y + h * .12, w, h * .88, '#f4f4f2', '#9a9a96');
+        c.fillStyle = '#c4382f'; c.fillRect(x, y + h * .8, w, h * .07); c.fillRect(x, y + h * .3, w, h * .07);
+        c.beginPath(); c.moveTo(-w * .22, y + h * .12); c.lineTo(w * .22, y + h * .12); c.lineTo(w * .32, y); c.lineTo(-w * .32, y); c.closePath(); c.fillStyle = '#3a3f47'; c.fill();
+        c.strokeRect(x, y + h * .12, w, h * .88);
+      } else {
+        const mh = h * .38; cyl(c, -w * .42, y + h - mh, w * .84, mh, '#9aa3b0', '#3f4752');
+        const g = c.createLinearGradient(-w / 2, 0, w / 2, 0); g.addColorStop(0, '#2b2f36'); g.addColorStop(.42, '#8b939e'); g.addColorStop(1, '#22262c');
+        c.beginPath(); c.moveTo(-w * .2, y + h - mh); c.lineTo(w * .2, y + h - mh); c.lineTo(w * .48, y); c.lineTo(-w * .48, y); c.closePath(); c.fillStyle = g; c.fill(); c.stroke();
+        c.fillStyle = 'rgba(255,140,60,.25)'; c.fillRect(-w * .44, y, w * .88, .05);
+      }
+      break;
+    }
+  }
+}
+function drawStack(c, ps, opt) {
+  opt = opt || {}; const lay = new Array(ps.length); let y = 0;
+  for (let i = ps.length - 1; i >= 0; i--) { lay[i] = { y0: y, h: PART[ps[i].id].h }; y += lay[i].h; }
+  const sec = sections(ps), secOf = new Array(ps.length);
+  sec.forEach(([a, b]) => { for (let i = a; i <= b; i++) secOf[i] = lay[b].y0; });
+  if (opt.flames) {
+    for (const f of opt.flames) {
+      const L = f.w * (1.6 + 5 * f.lvl) * (f.vac ? 1.7 : 1) * (0.9 + Math.random() * .2), y0 = lay[f.i].y0;
+      const g = c.createLinearGradient(0, y0, 0, y0 - L);
+      g.addColorStop(0, 'rgba(255,255,235,.95)'); g.addColorStop(.25, f.sol ? 'rgba(255,190,90,.9)' : 'rgba(255,200,120,.85)'); g.addColorStop(.6, 'rgba(255,110,40,.55)'); g.addColorStop(1, 'rgba(255,60,20,0)');
+      const wTop = f.w * .42, wBot = f.w * (f.vac ? 1.6 : .7);
+      c.beginPath(); c.moveTo(-wTop, y0); c.quadraticCurveTo(-wBot, y0 - L * .45, 0, y0 - L); c.quadraticCurveTo(wBot, y0 - L * .45, wTop, y0); c.closePath(); c.fillStyle = g; c.fill();
+    }
+  }
+  if (opt.canopy) {
+    const ci = ps.findIndex(p => p.id === 'chute');
+    if (ci >= 0) {
+      const top = lay[ci].y0 + lay[ci].h, d = opt.canopy, cy = top + 1.5 + 6 * d, r = .6 + 4.2 * d;
+      c.strokeStyle = 'rgba(230,230,230,.8)'; c.lineWidth = .04;
+      for (const k of [-1, -.4, .4, 1]) { c.beginPath(); c.moveTo(0, top); c.lineTo(k * r, cy); c.stroke(); }
+      c.beginPath(); c.moveTo(-r, cy); c.quadraticCurveTo(-r * .9, cy + r * 1.1, 0, cy + r * 1.05); c.quadraticCurveTo(r * .9, cy + r * 1.1, r, cy); c.quadraticCurveTo(0, cy + r * .3, -r, cy); c.closePath();
+      c.fillStyle = '#e56a2c'; c.fill(); c.fillStyle = '#f4efe6'; c.beginPath(); c.moveTo(-r * .35, cy + r * .18); c.quadraticCurveTo(0, cy + r * 1.25, r * .35, cy + r * .18); c.closePath(); c.fill();
+    }
+  }
+  for (let i = ps.length - 1; i >= 0; i--) {
+    drawPart(c, ps[i], lay[i].y0, secOf[i], opt);
+    if (opt.sel === i) { c.strokeStyle = '#6fd3ff'; c.lineWidth = .08; const w = PART[ps[i].id].w; c.strokeRect(-w / 2 - .12, lay[i].y0 - .05, w + .24, lay[i].h + .1); }
+  }
+  return lay;
+}
+
+// ================= rendering
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1); W = window.innerWidth; H = window.innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  $('rotateMsg').classList.toggle('hidden', W >= H);
+  const nb = $('nb'); nb.width = 108 * DPR; nb.height = 108 * DPR;
+  if (mode === 'vab') drawVab();
+}
+function drawStars(alpha, rot) {
+  if (alpha <= .01) return; const R = Math.hypot(W, H) * .55;
+  for (const s of STARS) { const a = s.a + rot; ctx.globalAlpha = alpha * s.b; ctx.fillStyle = '#fff'; ctx.fillRect(W / 2 + Math.cos(a) * s.d * R, H / 2 + Math.sin(a) * s.d * R, s.s, s.s); }
+  ctx.globalAlpha = 1;
+}
+function drawBodySurface(b, c, z) {
+  const R = b.R, dd = len(c), diag = Math.hypot(W, H) / z, ca = Math.atan2(-c[1], -c[0]);
+  let span = Math.min(Math.PI, diag / R * 1.3 + .0008);
+  if (dd > R) span = Math.max(span, Math.min(Math.PI, Math.acos(Math.min(1, R / dd)) + .05));
+  ctx.beginPath();
+  if (span >= Math.PI - 1e-6) {
+    const N = 360; for (let i = 0; i <= N; i++) { const a = i / N * TAU, rr = R + terrainH(b, a); const px = c[0] + rr * Math.cos(a), py = c[1] + rr * Math.sin(a); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+  } else {
+    const N = 220, depth = Math.min(R * .9, diag * 2 + 600);
+    for (let i = 0; i <= N; i++) { const a = ca - span + 2 * span * i / N, rr = R + terrainH(b, a); const px = c[0] + rr * Math.cos(a), py = c[1] + rr * Math.sin(a); i ? ctx.lineTo(px, py) : ctx.moveTo(px, py); }
+    for (let i = N; i >= 0; i--) { const a = ca - span + 2 * span * i / N, rr = R - depth; ctx.lineTo(c[0] + rr * Math.cos(a), c[1] + rr * Math.sin(a)); }
+  }
+  ctx.closePath();
+  ctx.fillStyle = z > .02 ? b.c2 : b.c1; ctx.fill();
+  if (z > .02) { ctx.strokeStyle = b.c1; ctx.lineWidth = Math.min(40, 3 / z); ctx.stroke(); }
+}
+function drawDisc(b, c, z, halo) {
+  if (b.R * z > 30000) return;
+  const sx = c[0], sy = c[1];
+  if (halo) { ctx.beginPath(); ctx.arc(sx, sy, b.R + b.atm, 0, TAU); ctx.fillStyle = 'rgba(110,170,255,.14)'; ctx.fill(); }
+  ctx.beginPath(); ctx.arc(sx, sy, b.R, 0, TAU); ctx.fillStyle = b.c1; ctx.fill();
+  if (b === TERRA) { ctx.fillStyle = b.sea; ctx.beginPath(); ctx.arc(sx, sy, b.R, 2.6, 4.4); ctx.fill(); ctx.beginPath(); ctx.arc(sx, sy, b.R, -.9, .3); ctx.fill(); }
+  if (b === LUNA) { ctx.fillStyle = b.c2; [[.3, .4, .18], [-.4, -.2, .12], [.1, -.5, .1], [-.3, .45, .08]].forEach(([x, y, r]) => { ctx.beginPath(); ctx.arc(sx + x * b.R, sy + y * b.R, r * b.R, 0, TAU); ctx.fill(); }); }
+}
+function engineFlames(ps, p) {
+  const out = [], [i0, i1] = bottomSec(ps);
+  for (let i = i0; i <= i1; i++) { const pt = ps[i], d = PART[pt.id]; if (d.kind !== 'eng' || !pt.ign) continue; const lvl = d.type === 'sol' ? S.fx.sol : S.fx.liq; if (lvl > 0) out.push({ i, w: d.w, lvl, vac: p < .1, sol: d.type === 'sol' }); }
+  return out;
+}
+function renderFlight() {
+  const b = body(), L = shipLen(S.parts), n = [Math.cos(S.th), Math.sin(S.th)];
+  const cam = [S.r[0] + n[0] * L / 2, S.r[1] + n[1] * L / 2], u = Math.atan2(cam[1], cam[0]), rot = Math.PI / 2 - u;
+  const alt = len(cam) - b.R;
+  const sk = b.atm ? clamp(alt / (b.atm * .7), 0, 1) : 1;
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, lerpCol('#2f74d6', '#02030a', Math.pow(sk, .55))); g.addColorStop(1, lerpCol('#a9d2f5', '#05070f', Math.pow(sk, .8)));
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  drawStars(clamp((sk - .35) * 1.6, 0, 1), rot);
+  const z = zoom, cr = Math.cos(rot), sr = Math.sin(rot);
+  ctx.setTransform(DPR * z * cr, -DPR * z * sr, -DPR * z * sr, -DPR * z * cr, DPR * W / 2, DPR * H / 2);
+  // другие тела
+  if (S.soi === 'terra') { const m = lunaPos(T); drawDisc(LUNA, [m[0] - cam[0], m[1] - cam[1]], z, false); }
+  else { const m = lunaPos(T); drawDisc(TERRA, [-m[0] - cam[0], -m[1] - cam[1]], z, true); }
+  if (b === TERRA && b.R * z < 30000) { ctx.beginPath(); ctx.arc(-cam[0], -cam[1], b.R + b.atm, 0, TAU); ctx.fillStyle = 'rgba(110,170,255,.12)'; ctx.fill(); }
+  drawBodySurface(b, [-cam[0], -cam[1]], z);
+  // стартовый стол
+  if (b === TERRA && z > .2) {
+    const pr = TERRA.R + PAD_H, px = pr * Math.cos(PAD_ANG) - cam[0], py = pr * Math.sin(PAD_ANG) - cam[1];
+    if (Math.hypot(px, py) < 4000) {
+      ctx.save(); ctx.translate(px, py); ctx.rotate(PAD_ANG - Math.PI / 2);
+      ctx.fillStyle = '#5a5f66'; ctx.fillRect(-14, -3, 28, 3); ctx.fillStyle = '#3a3e44'; ctx.fillRect(-4, -3, 8, 3);
+      ctx.fillStyle = '#c4382f'; ctx.fillRect(-10, 0, 1.6, 28); ctx.fillStyle = '#a02e27';
+      for (let k = 0; k < 28; k += 3) { ctx.fillRect(-10, k, 4, .35); }
+      ctx.fillStyle = '#ffb347'; ctx.fillRect(-9.8, 28, 1.2, .8);
+      ctx.restore();
+    }
+  }
+  // частицы
+  for (const p of parts) {
+    const t = p.life / p.max; ctx.globalAlpha = (1 - t) * (p.k === 'smoke' ? .35 : .9);
+    ctx.fillStyle = p.k === 'smoke' ? '#cfd3d8' : (t < .3 ? '#fff3b0' : '#ff7a2a');
+    ctx.beginPath(); ctx.arc(p.x - cam[0], p.y - cam[1], p.size * (p.k === 'fire' ? 1 + t * 2 : 1), 0, TAU); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  for (const d of debris) { ctx.save(); ctx.translate(d.r[0] - cam[0], d.r[1] - cam[1]); ctx.rotate(d.th - Math.PI / 2); drawStack(ctx, d.parts, { chuteGone: true }); ctx.restore(); }
+  if (!S.dead) {
+    const p = b.atm ? density(b, len(S.r) - b.R) / b.rho0 : 0;
+    // нагрев
+    if (S.heat > 4e6 && len(S.v) > 1) {
+      const k = clamp((S.heat - 4e6) / 4e7, 0, 1), va = Math.atan2(S.v[1], S.v[0]);
+      ctx.save(); ctx.rotate(va - Math.PI / 2);
+      const gr = ctx.createRadialGradient(0, L * .35, 0, 0, L * .35, L * 1.1); gr.addColorStop(0, `rgba(255,220,150,${.7 * k})`); gr.addColorStop(.5, `rgba(255,110,40,${.35 * k})`); gr.addColorStop(1, 'rgba(255,60,20,0)');
+      ctx.fillStyle = gr; ctx.beginPath(); ctx.ellipse(0, -L * .2, L * .9, L * 1.6, 0, 0, TAU); ctx.fill(); ctx.restore();
+    }
+    ctx.save(); ctx.translate(S.r[0] - cam[0], S.r[1] - cam[1]); ctx.rotate(S.th - Math.PI / 2);
+    drawStack(ctx, S.parts, { flames: engineFlames(S.parts, p), canopy: S.chuteOpen ? S.chuteDep : 0, chuteGone: S.chuteUsed || S.chuteOpen, fuelLevels: false });
+    ctx.restore();
+    // маркер, если корабль слишком мелкий
+    if (L * z < 6) { ctx.setTransform(DPR, 0, 0, DPR, 0, 0); ctx.strokeStyle = '#6fd3ff'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(W / 2, H / 2, 7, 0, TAU); ctx.stroke(); }
+  }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+function mapFocusPos() {
+  const f = mapFocus || S.soi;
+  if (f === 'ship') return S.soi === 'terra' ? S.r : [S.r[0] + lunaPos(T)[0], S.r[1] + lunaPos(T)[1]];
+  if (f === 'luna') return lunaPos(T);
+  return [0, 0];
+}
+function renderMap() {
+  ctx.fillStyle = '#03050c'; ctx.fillRect(0, 0, W, H); drawStars(.8, 0);
+  const F = mapFocusPos(), cx = F[0] + mapPan[0], cy = F[1] + mapPan[1], s = mapScale;
+  const P = (x, y) => [W / 2 + (x - cx) * s, H / 2 - (y - cy) * s];
+  const lp = lunaPos(T);
+  // орбита Луны
+  const oc = P(0, 0);
+  if (LUNA.orbitR * s < 2e6) { ctx.strokeStyle = 'rgba(169,167,161,.28)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(oc[0], oc[1], LUNA.orbitR * s, 0, TAU); ctx.stroke(); }
+  // Терра
+  if (TERRA.R * s < 2e6) {
+    ctx.beginPath(); ctx.arc(oc[0], oc[1], (TERRA.R + TERRA.atm) * s, 0, TAU); ctx.fillStyle = 'rgba(110,170,255,.18)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(oc[0], oc[1], Math.max(2, TERRA.R * s), 0, TAU); ctx.fillStyle = TERRA.c1; ctx.fill();
+    ctx.save(); ctx.beginPath(); ctx.arc(oc[0], oc[1], Math.max(2, TERRA.R * s), 0, TAU); ctx.clip(); ctx.fillStyle = TERRA.sea; ctx.fillRect(oc[0] - TERRA.R * s, oc[1] + TERRA.R * s * .2, TERRA.R * s * .9, TERRA.R * s); ctx.restore();
+  }
+  // Луна
+  const lc = P(lp[0], lp[1]);
+  if (LUNA.soi * s < 2e6) { ctx.setLineDash([4, 5]); ctx.strokeStyle = 'rgba(182,156,255,.35)'; ctx.beginPath(); ctx.arc(lc[0], lc[1], LUNA.soi * s, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
+  if (LUNA.R * s < 2e6) { ctx.beginPath(); ctx.arc(lc[0], lc[1], Math.max(2.5, LUNA.R * s), 0, TAU); ctx.fillStyle = LUNA.c1; ctx.fill(); }
+  ctx.fillStyle = '#8ea2c2'; ctx.font = '11px "IBM Plex Sans Condensed",sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Терра', oc[0], oc[1] + Math.max(2, TERRA.R * s) + 14); ctx.fillText('Луна', lc[0], lc[1] + Math.max(2.5, LUNA.R * s) + 14);
+  // траектории
+  if (pred) {
+    for (const sg of pred.segs) {
+      const off = sg.frame === 'luna' ? lp : [0, 0];
+      ctx.strokeStyle = sg.color; ctx.lineWidth = 2; ctx.beginPath();
+      sg.pts.forEach((p, i) => { const q = P(p[0] + off[0], p[1] + off[1]); i ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]); });
+      ctx.stroke();
+      const el = sg.el, bb = BODY[sg.frame];
+      const mark = (rr, ang, lbl) => { const q = P(off[0] + rr * Math.cos(ang), off[1] + rr * Math.sin(ang)); ctx.fillStyle = sg.color; ctx.beginPath(); ctx.arc(q[0], q[1], 4, 0, TAU); ctx.fill(); ctx.fillStyle = '#e6edf8'; ctx.textAlign = 'left'; ctx.fillText(lbl, q[0] + 7, q[1] - 6); };
+      if (sg === pred.segs[0] || sg.frame === 'luna') {
+        if (el.rp > bb.R) mark(el.rp, el.w, 'Пе ' + fmtD(el.rp - bb.R));
+        if (el.e < 1 && el.ra < (sg.frame === 'luna' ? LUNA.soi : LUNA.orbitR * 4)) mark(el.ra, el.w + Math.PI, 'Ап ' + fmtD(el.ra - bb.R));
+      }
+    }
+  }
+  // корабль
+  const sp = S.soi === 'terra' ? S.r : [S.r[0] + lp[0], S.r[1] + lp[1]], q = P(sp[0], sp[1]);
+  ctx.save(); ctx.translate(q[0], q[1]); ctx.rotate(-S.th + Math.PI / 2);
+  ctx.fillStyle = '#ffb347'; ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(5, 6); ctx.lineTo(0, 3); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+function drawNavball() {
+  const nb = $('nb'), c = nb.getContext('2d'), r = 50;
+  c.setTransform(DPR, 0, 0, DPR, 0, 0); c.clearRect(0, 0, 108, 108);
+  if (!S) return;
+  const up = Math.atan2(S.r[1], S.r[0]);
+  c.save(); c.translate(54, 54);
+  c.beginPath(); c.arc(0, 0, r, 0, TAU); c.clip();
+  c.fillStyle = '#2f6db3'; c.fillRect(-r, -r, 2 * r, r); c.fillStyle = '#8a5a2b'; c.fillRect(-r, 0, 2 * r, r);
+  c.strokeStyle = 'rgba(255,255,255,.7)'; c.lineWidth = 1.2; c.beginPath(); c.moveTo(-r, 0); c.lineTo(r, 0); c.stroke();
+  c.strokeStyle = 'rgba(255,255,255,.25)'; for (let k = 15; k < 90; k += 15) { const a = k * Math.PI / 180, y = Math.sin(a) * r * .95; c.beginPath(); c.moveTo(-10, -y); c.lineTo(10, -y); c.moveTo(-10, y); c.lineTo(10, y); c.stroke(); }
+  const toScr = a => { const rel = wrapPi(a - up); return [-Math.sin(rel) * r * .78, -Math.cos(rel) * r * .78]; };
+  if (len(S.v) > .5) {
+    const va = Math.atan2(S.v[1], S.v[0]);
+    const [px, py] = toScr(va); c.strokeStyle = '#5ee08a'; c.lineWidth = 2; c.beginPath(); c.arc(px, py, 6, 0, TAU); c.stroke(); c.beginPath(); c.moveTo(px, py - 6); c.lineTo(px, py - 10); c.moveTo(px - 6, py); c.lineTo(px - 10, py); c.moveTo(px + 6, py); c.lineTo(px + 10, py); c.stroke();
+    const [rx, ry] = toScr(va + Math.PI); c.beginPath(); c.arc(rx, ry, 6, 0, TAU); c.stroke(); c.beginPath(); c.moveTo(rx - 4, ry - 4); c.lineTo(rx + 4, ry + 4); c.moveTo(rx + 4, ry - 4); c.lineTo(rx - 4, ry + 4); c.stroke();
+  }
+  const rel = wrapPi(S.th - up);
+  c.rotate(-rel); c.fillStyle = '#ffb347'; c.beginPath(); c.moveTo(0, -r * .62); c.lineTo(6, -r * .3); c.lineTo(-6, -r * .3); c.closePath(); c.fill();
+  c.strokeStyle = '#ffb347'; c.lineWidth = 3; c.beginPath(); c.moveTo(0, -r * .3); c.lineTo(0, 8); c.stroke();
+  c.restore();
+  c.strokeStyle = 'rgba(120,160,230,.5)'; c.lineWidth = 2; c.beginPath(); c.arc(54, 54, r, 0, TAU); c.stroke();
+}
+function renderMenuBg() {
+  ctx.fillStyle = '#070b16'; ctx.fillRect(0, 0, W, H);
+  if (mode === 'vab') return;
+  const t = performance.now() / 1000; drawStars(.9, t * .004);
+  const R = Math.max(W, H) * 1.1, cx = W * .62, cy = H + R * .78;
+  const g = ctx.createRadialGradient(cx, cy, R * .98, cx, cy, R * 1.08); g.addColorStop(0, 'rgba(110,170,255,.35)'); g.addColorStop(1, 'rgba(110,170,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, R * 1.08, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#2d6a3e'; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#2a5d9e'; ctx.beginPath(); ctx.arc(cx, cy, R, -2.0, -1.75); ctx.lineTo(cx, cy); ctx.fill();
+  const ma = t * .03, mx = W * .82 + Math.cos(ma) * 20, my = H * .22 + Math.sin(ma) * 6;
+  ctx.fillStyle = '#a9a7a1'; ctx.beginPath(); ctx.arc(mx, my, Math.min(W, H) * .07, 0, TAU); ctx.fill();
+  ctx.fillStyle = '#77756f'; ctx.beginPath(); ctx.arc(mx + 8, my - 5, Math.min(W, H) * .018, 0, TAU); ctx.fill();
+}
+
+// ================= HUD
+function stageFuelFrac() {
+  const [i0, i1] = bottomSec(S.parts); let f = 0, cap = 0;
+  for (let i = i0; i <= i1; i++) { const p = S.parts[i], d = PART[p.id]; if (d.fuel) { f += p.fuel; cap += d.fuel; } }
+  return cap ? f / cap : 0;
+}
+function updHud() {
+  const b = body(), rm = len(S.r), alt = rm - b.R, ang = Math.atan2(S.r[1], S.r[0]), radar = alt - terrainH(b, ang);
+  const vm = len(S.v), vr = dot(S.r, S.v) / rm, el = S.landed ? null : elements(S.r, S.v, b.mu);
+  $('hAlt').textContent = fmtD(alt); $('hSpd').textContent = fmtV(vm); $('hVs').textContent = fmtV(vr); $('hRad').textContent = fmtD(Math.max(0, radar));
+  $('hAp').textContent = el ? (el.e < 1 ? fmtD(el.ra - b.R) : '∞') : '—';
+  $('hPe').textContent = el ? fmtD(el.rp - b.R) : '—';
+  $('hTap').textContent = el && el.e < 1 ? fmtT(el.tAp) : '—';
+  $('hTpe').textContent = el && isFinite(el.tPe) ? fmtT(el.tPe) : '—';
+  let st = S.landed ? 'на поверхности' : (b.atm && alt < b.atm ? 'в атмосфере' : (el && el.e < 1 && el.rp - b.R > (b.atm || 3500) ? 'на орбите' : (el && el.e >= 1 ? 'гиперболическая траектория' : 'суборбитальный полёт')));
+  if (S.chuteArmed) st += ' · парашют взведён';
+  $('hSt').textContent = b.name + ' · ' + st;
+  const w = WARPS[warpIdx]; $('warpLbl').textContent = '×' + grp(w); $('mt').textContent = 'T+ ' + fmtT(T) + (w > 1 && w <= 4 ? ' · физ.' : '');
+  const ns = nextStage(); $('stageBtn').innerHTML = ns + '<small>' + (ns === '—' ? 'ступеней нет' : 'следующая ступень') + '</small>';
+  $('thrFill').style.height = (S.thr * 100) + '%'; $('thrLbl').textContent = Math.round(S.thr * 100) + '%';
+  $('sasT').classList.toggle('on', S.sas);
+  document.querySelectorAll('#sas [data-m]').forEach(e => e.classList.toggle('on', S.sas && S.sasMode === e.dataset.m));
+  const p = b.atm ? density(b, alt) / b.rho0 : 0, g = b.mu / (rm * rm);
+  const dv = dvStages(S.parts, () => p, g);
+  $('fuelBar').style.width = (stageFuelFrac() * 100) + '%';
+  $('sDv').textContent = 'Δv ступени ' + grp(dv[0] ? dv[0].dv : 0) + ' м/с';
+  $('sTot').textContent = 'Δv всего ' + grp(dv.reduce((a, x) => a + x.dv, 0)) + ' м/с';
+  $('sTwr').textContent = 'TWR ' + (dv[0] ? dv[0].twr.toFixed(2) : '0') + ' · масса ' + massOf(S.parts).toFixed(1) + ' т';
+  const pitch = 90 - Math.abs(wrapPi(S.th - ang)) * 180 / Math.PI;
+  $('nbTxt').textContent = 'тангаж ' + pitch.toFixed(0) + '°';
+  $('bFocus').classList.toggle('hidden', !mapOn);
+  if (mapOn) {
+    let h = '';
+    if (el && el.e < 1) h += `Период ${fmtT(el.T)}<br>`;
+    if (pred && pred.info.enc) h += `<span class="enc">Встреча с Луной через ${fmtT(pred.info.enc.t)}, Пе ${fmtD(pred.info.enc.pe)}</span><br>`;
+    else if (S.soi === 'terra') h += 'Встречи с Луной нет<br>';
+    if (pred && pred.info.ret) h += `<span class="ret">Возврат к Терре, Пе ${fmtD(pred.info.ret.pe)}</span><br>`;
+    if (pred && pred.info.impact) h += `Траектория пересекает поверхность (${pred.info.impact})<br>`;
+    if (S.soi === 'terra' && el && el.e < 1 && el.ra < 3e6) {
+      const shipA = Math.atan2(S.r[1], S.r[0]), mp = lunaPos(T), mA = Math.atan2(mp[1], mp[0]);
+      const cw = el.h < 0; const ph = wrap2(cw ? shipA - mA : mA - shipA) * 180 / Math.PI;
+      const r1 = (el.rp + el.ra) / 2, th = Math.PI * Math.sqrt(((r1 + LUNA.orbitR) / 2) ** 3 / TERRA.mu), need = (Math.PI - LUNA.omega * th) * 180 / Math.PI;
+      h += cw ? `Фаза к Луне ${ph.toFixed(0)}° · нужно ≈ ${need.toFixed(0)}°` : 'Орбита против хода Луны — перелёт дороже';
+    }
+    $('mapInfo').innerHTML = h || '—';
+  }
+}
+
+// ================= screens
+function show(id, on) { $(id).classList.toggle('hidden', !on); }
+function toMenu() {
+  mode = 'menu'; show('menu', true); show('vab', false); show('hud', false); show('mapInfo', false);
+  $('mCont').classList.toggle('hidden', !store.get('orbita.save'));
+  $('mSound').textContent = Sfx.on ? 'Звук включён' : 'Звук выключен';
+  const n = GOALS.filter(g => goals[g[0]]).length; $('goalsMini').textContent = `Цели: ${n} из ${GOALS.length}`;
+  Sfx.update(0, 0, 0, 0, false);
+}
+function toVab() { mode = 'vab'; show('menu', false); show('vab', true); show('hud', false); Sfx.update(0, 0, 0, 0, false); buildPalette(); requestAnimationFrame(drawVab); }
+function fitZoom() { zoom = clamp(.5 * H / Math.max(4, shipLen(S.parts)), .5, 18); }
+function startFlight(ids) {
+  S = newShip(ids); T = 0; warpIdx = 0; debris = []; parts = []; pred = null; mapOn = false; mapFocus = null; mapPan = [0, 0]; paused = false;
+  mode = 'flight'; show('menu', false); show('vab', false); show('hud', true); show('mapInfo', false); fitZoom(); store.set('orbita.design', ids);
+  $('bMap').classList.remove('on');
+}
+function saveGame() {
+  if (!S || S.dead) return toast('Нечего сохранять');
+  const ok = store.set('orbita.save', { S, T, design }); toast(ok ? 'Полёт сохранён' : 'Не удалось сохранить — память браузера недоступна');
+}
+function loadGame() {
+  const d = store.get('orbita.save'); if (!d) { toast('Сохранения нет'); return; }
+  S = d.S; T = d.T; design = d.design || design; S.dead = false; warpIdx = 0; debris = []; parts = []; pred = null; mapOn = false; paused = false;
+  mode = 'flight'; show('menu', false); show('vab', false); show('hud', true); show('mapInfo', false); fitZoom(); $('bMap').classList.remove('on');
+}
+function pause() {
+  if (mode !== 'flight') return; paused = true; Sfx.update(0, 0, 0, 0, false);
+  overlay(`<h2>Пауза</h2>${goalsHtml()}`, [['Продолжить', () => { paused = false; closeOv(); }, 'amber'], ['Сохранить полёт', () => { saveGame(); }], ['Загрузить', () => { closeOv(); loadGame(); }], ['Перезапуск с площадки', () => { closeOv(); startFlight(design); }], ['В ангар', () => { closeOv(); paused = false; toVab(); }], ['Как играть', () => overlay(HELP, [['Назад', () => pause()]])], ['Главное меню', () => { closeOv(); paused = false; toMenu(); }]]);
+}
+
+// ================= VAB
+let sel = -1, vabLay = null;
+function buildPalette() {
+  const pal = $('palette'); if (pal.childElementCount) return;
+  PART_ORDER.forEach(id => {
+    const d = PART[id], el = document.createElement('div'); el.className = 'pi';
+    const c = document.createElement('canvas'); c.width = 68; c.height = 80; const x = c.getContext('2d');
+    const sc = Math.min(64 / Math.max(d.h, .5), 60 / (d.w + (d.kind === 'legs' ? 1.6 : 0)), 38);
+    x.setTransform(sc, 0, 0, -sc, 34, 40 + d.h * sc / 2); drawStack(x, [mkInst(id)], {});
+    const info = d.kind === 'eng' ? `${d.thrust} кН · Isp ${d.ispV} с` : d.fuel ? `топливо ${d.fuel} т` : d.desc;
+    el.innerHTML = `<div><b>${d.name}</b><small>${(d.dry + (d.fuel || 0)).toFixed(2)} т · ${info}</small></div>`;
+    el.prepend(c);
+    el.onclick = () => { Sfx.init(); Sfx.click(); const at = sel >= 0 ? sel + 1 : design.length; design.splice(at, 0, id); sel = at; drawVab(); };
+    pal.appendChild(el);
+  });
+}
+function drawVab() {
+  const c = $('vabCv'), x = c.getContext('2d'), cw = c.clientWidth, ch = c.clientHeight; if (!cw || !ch) return;
+  c.width = Math.round(cw * DPR); c.height = Math.round(ch * DPR); x.setTransform(DPR, 0, 0, DPR, 0, 0); x.clearRect(0, 0, cw, ch);
+  x.strokeStyle = 'rgba(120,160,230,.08)'; x.lineWidth = 1; for (let gx = 0; gx < cw; gx += 24) { x.beginPath(); x.moveTo(gx, 0); x.lineTo(gx, ch); x.stroke(); }
+  const inst = design.map(mkInst), Lt = shipLen(inst) || 1, mw = maxW(inst) || 1.25;
+  const sc = Math.min((ch - 28) / Lt, (cw - 110) / (mw + 1.8), 46), base = ch - 12, cx = cw / 2;
+  x.fillStyle = 'rgba(120,160,230,.18)'; x.fillRect(cx - (mw / 2 + 1.5) * sc, base, (mw + 3) * sc, 3);
+  x.setTransform(DPR * sc, 0, 0, -DPR * sc, DPR * cx, DPR * base);
+  const lay = drawStack(x, inst, { sel });
+  vabLay = { sc, base, cx, lay };
+  x.setTransform(DPR, 0, 0, DPR, 0, 0);
+  const sec = sections(inst); x.font = '12px "IBM Plex Sans Condensed",sans-serif'; x.textAlign = 'left';
+  sec.forEach(([a, b], k) => {
+    const n = sec.length - k, yTop = base - (lay[a].y0 + lay[a].h) * sc, yBot = base - lay[b].y0 * sc, xx = cx + (mw / 2 + .9) * sc;
+    x.strokeStyle = 'rgba(255,179,71,.6)'; x.beginPath(); x.moveTo(xx, yTop + 2); x.lineTo(xx + 5, yTop + 2); x.lineTo(xx + 5, yBot - 2); x.lineTo(xx, yBot - 2); x.stroke();
+    x.fillStyle = '#ffb347'; x.fillText('Ступень ' + n, xx + 9, (yTop + yBot) / 2 + 4);
+  });
+  if (!design.length) { x.fillStyle = '#8ea2c2'; x.textAlign = 'center'; x.fillText('Выберите пресет справа или добавьте детали слева — начните с капсулы', cx, ch / 2); }
+  updStats(inst);
+}
+function updStats(inst) {
+  const dv = dvStages(inst, k => k === 0 ? 1 : 0, G0), tot = dv.reduce((a, s) => a + s.dv, 0);
+  let h = `Масса ${massOf(inst).toFixed(1)} т · высота ${shipLen(inst).toFixed(1)} м<br>`;
+  for (let k = dv.length - 1; k >= 0; k--) h += `Ступень ${k + 1}: Δv ${grp(dv[k].dv)} м/с · TWR ${dv[k].twr.toFixed(2)}${k === 0 ? ' (у земли)' : ''}<br>`;
+  h += `<b>Δv всего ≈ ${grp(tot)} м/с</b>`;
+  const warn = [];
+  if (!inst.some(p => p.id === 'pod')) warn.push('Нужна капсула — без неё нет управления');
+  if (!inst.some(p => PART[p.id].kind === 'eng')) warn.push('Нет двигателя');
+  if (dv[0] && dv[0].twr < 1.05 && dv[0].dv > 0) warn.push('TWR первой ступени меньше 1 — ракета не взлетит');
+  if (warn.length) h += '<div class="w">' + warn.join('<br>') + '</div>';
+  h += '<div class="hint">Ориентиры: орбита Терры ≈ 3400 м/с, посадка на Луну ≈ +1700, возврат ≈ +900.</div>';
+  $('stats').innerHTML = h;
+}
+
+// ================= input
+function holdBtn(el, on, off) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); try { el.setPointerCapture(e.pointerId); } catch (_) { } el.classList.add('down'); on(); });
+  const up = () => { el.classList.remove('down'); off(); };
+  ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => el.addEventListener(t, up));
+}
+function wire() {
+  document.addEventListener('pointerdown', () => Sfx.init(), true);
+  document.addEventListener('gesturestart', e => e.preventDefault());
+  $('mVab').onclick = () => { Sfx.click(); toVab(); };
+  $('mCont').onclick = () => { Sfx.click(); loadGame(); };
+  $('mHelp').onclick = () => { Sfx.click(); overlay(HELP, [['Понятно', closeOv, 'amber']]); };
+  $('mSound').onclick = () => { Sfx.setOn(!Sfx.on); $('mSound').textContent = Sfx.on ? 'Звук включён' : 'Звук выключен'; };
+  document.querySelectorAll('[data-pre]').forEach(b => b.onclick = () => { Sfx.click(); design = PRESETS[b.dataset.pre].slice(); sel = -1; drawVab(); });
+  $('vUp').onclick = () => { if (sel > 0) { [design[sel - 1], design[sel]] = [design[sel], design[sel - 1]]; sel--; drawVab(); } };
+  $('vDn').onclick = () => { if (sel >= 0 && sel < design.length - 1) { [design[sel + 1], design[sel]] = [design[sel], design[sel + 1]]; sel++; drawVab(); } };
+  $('vDel').onclick = () => { if (sel >= 0) { design.splice(sel, 1); sel = Math.min(sel, design.length - 1); drawVab(); } };
+  $('vClr').onclick = () => { design = []; sel = -1; drawVab(); };
+  $('vBack').onclick = () => { Sfx.click(); store.set('orbita.design', design); toMenu(); };
+  $('btnLaunch').onclick = () => {
+    if (!design.includes('pod')) { toast('Добавьте капсулу К-1'); return; }
+    Sfx.click(); startFlight(design.slice());
+  };
+  $('vabCv').addEventListener('pointerdown', e => {
+    if (!vabLay) return; const rc = e.currentTarget.getBoundingClientRect(), y = (vabLay.base - (e.clientY - rc.top)) / vabLay.sc, xx = (e.clientX - rc.left - vabLay.cx) / vabLay.sc;
+    sel = -1; vabLay.lay.forEach((l, i) => { if (y >= l.y0 && y < l.y0 + l.h && Math.abs(xx) < PART[design[i]].w / 2 + .9) sel = i; });
+    drawVab();
+  });
+  // throttle
+  const tr = $('thrTrack'); let thrDrag = false;
+  const setT = y => { const rc = tr.getBoundingClientRect(); let v = clamp(1 - (y - rc.top) / rc.height, 0, 1); if (v < .03) v = 0; if (v > .97) v = 1; S.thr = v; };
+  tr.addEventListener('pointerdown', e => { thrDrag = true; tr.setPointerCapture(e.pointerId); setT(e.clientY); });
+  tr.addEventListener('pointermove', e => { if (thrDrag) setT(e.clientY); });
+  ['pointerup', 'pointercancel'].forEach(t => tr.addEventListener(t, () => thrDrag = false));
+  $('tMax').onclick = () => { S.thr = 1; };
+  $('tCut').onclick = () => { S.thr = 0; };
+  holdBtn($('rL'), () => input.rot = 1, () => input.rot = 0);
+  holdBtn($('rR'), () => input.rot = -1, () => input.rot = 0);
+  $('stageBtn').onclick = () => stage();
+  $('sasT').onclick = () => { S.sas = !S.sas; S.hold = S.th; Sfx.click(); };
+  document.querySelectorAll('#sas [data-m]').forEach(b => b.onclick = () => { S.sas = true; S.sasMode = b.dataset.m; S.hold = S.th; Sfx.click(); });
+  $('wUp').onclick = () => setWarp(warpIdx + 1);
+  $('wDn').onclick = () => setWarp(warpIdx - 1);
+  $('bMap').onclick = () => toggleMap();
+  $('bFocus').onclick = () => { const order = ['terra', 'luna', 'ship']; const cur = mapFocus || S.soi; mapFocus = order[(order.indexOf(cur) + 1) % 3]; mapPan = [0, 0]; fitMap(); toast('Фокус: ' + ({ terra: 'Терра', luna: 'Луна', ship: 'корабль' })[mapFocus]); };
+  $('bPause').onclick = () => pause();
+  // gestures on canvas
+  const ptrs = new Map(); let pinch = null, lastTap = 0;
+  const pd = () => { const a = [...ptrs.values()]; return Math.hypot(a[0][0] - a[1][0], a[0][1] - a[1][1]); };
+  cv.addEventListener('pointerdown', e => {
+    ptrs.set(e.pointerId, [e.clientX, e.clientY]); try { cv.setPointerCapture(e.pointerId); } catch (_) { }
+    if (ptrs.size === 2) pinch = { d: pd(), z: mapOn ? mapScale : zoom };
+    const now = performance.now(); if (ptrs.size === 1) { if (now - lastTap < 280 && mode === 'flight') { if (mapOn) { mapPan = [0, 0]; fitMap(); } else fitZoom(); } lastTap = now; }
+  });
+  cv.addEventListener('pointermove', e => {
+    if (!ptrs.has(e.pointerId)) return; const pr = ptrs.get(e.pointerId); ptrs.set(e.pointerId, [e.clientX, e.clientY]);
+    if (ptrs.size === 2 && pinch) { const k = pd() / pinch.d; if (mapOn) mapScale = clamp(pinch.z * k, 1e-7, .05); else zoom = clamp(pinch.z * k, 2e-5, 40); }
+    else if (ptrs.size === 1 && mapOn) { mapPan[0] -= (e.clientX - pr[0]) / mapScale; mapPan[1] += (e.clientY - pr[1]) / mapScale; }
+  });
+  const pu = e => { ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch = null; };
+  cv.addEventListener('pointerup', pu); cv.addEventListener('pointercancel', pu);
+  cv.addEventListener('wheel', e => { e.preventDefault(); const k = Math.exp(-e.deltaY * .0015); if (mapOn) mapScale = clamp(mapScale * k, 1e-7, .05); else zoom = clamp(zoom * k, 2e-5, 40); }, { passive: false });
+  // keyboard
+  const keys = {};
+  addEventListener('keydown', e => {
+    if (mode !== 'flight' || paused || keys[e.code]) return; keys[e.code] = true;
+    if (e.code === 'Space') { e.preventDefault(); stage(); }
+    else if (e.code === 'KeyZ') S.thr = 1; else if (e.code === 'KeyX') S.thr = 0;
+    else if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.thrUp = 1; else if (e.code === 'ControlLeft' || e.code === 'ControlRight') input.thrUp = -1;
+    else if (e.code === 'KeyA') input.rot = 1; else if (e.code === 'KeyD') input.rot = -1;
+    else if (e.code === 'KeyM') toggleMap(); else if (e.code === 'KeyT') { S.sas = !S.sas; S.hold = S.th; }
+    else if (e.code === 'Period') setWarp(warpIdx + 1); else if (e.code === 'Comma') setWarp(warpIdx - 1);
+    else if (e.code === 'Escape') pause();
+  });
+  addEventListener('keyup', e => { keys[e.code] = false; if (/Shift|Control/.test(e.code)) input.thrUp = 0; if (e.code === 'KeyA' || e.code === 'KeyD') input.rot = 0; });
+  addEventListener('resize', resize); addEventListener('orientationchange', () => setTimeout(resize, 200));
+  document.addEventListener('visibilitychange', () => { if (document.hidden && mode === 'flight' && !paused && S && !S.dead) pause(); if (document.hidden && Sfx.c) Sfx.c.suspend(); });
+}
+function fitMap() {
+  const el = S && !S.landed ? elements(S.r, S.v, body().mu) : null, f = mapFocus || S.soi;
+  let ext;
+  if (f === 'luna') ext = LUNA.soi * 1.15;
+  else if (f === 'ship') ext = 300000;
+  else if (S.soi === 'luna') ext = LUNA.soi * 1.2;
+  else ext = el && el.e < 1 && el.ra < 2 * LUNA.orbitR ? el.ra * 1.25 : (el && el.e < 1 ? LUNA.orbitR * 1.25 : TERRA.R * 2.2);
+  ext = Math.max(ext, (f === 'luna' || S.soi === 'luna' ? LUNA.R : TERRA.R) * 1.6);
+  mapScale = Math.min(W, H) / 2 / ext;
+}
+function toggleMap() { mapOn = !mapOn; $('bMap').classList.toggle('on', mapOn); show('mapInfo', mapOn); if (mapOn) { mapFocus = null; mapPan = [0, 0]; predict(); fitMap(); } }
+
+// ================= loop
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(.05, (now - last) / 1000); last = now;
+  if (mode === 'flight' && S && !paused) {
+    if (input.thrUp) S.thr = clamp(S.thr + input.thrUp * dt * .8, 0, 1);
+    update(dt);
+    predClock += dt; if (mapOn && predClock > .25) { predClock = 0; predict(); }
+    hudClock += dt; if (hudClock > .1) { hudClock = 0; updHud(); }
+    drawNavball();
+  }
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (mode === 'flight' && S) { mapOn ? renderMap() : renderFlight(); } else renderMenuBg();
+  requestAnimationFrame(frame);
+}
+wire(); resize(); toMenu(); requestAnimationFrame(frame);
+if ('serviceWorker' in navigator && location.protocol === 'https:' && !/claude/.test(location.hostname)) navigator.serviceWorker.register('./sw.js').catch(() => { });
+window.__orbita = { predict, get pred() { return pred; }, update, setWarpIdx: i => warpIdx = i, get T() { return T; }, lunaPos, kepler, elements, physStep: (dt) => physStep(dt), get S() { return S; }, set S(v) { S = v; }, newShip, stage, PRESETS, dvStages, mkInst, G0, setT: v => T = v };
+})();
+</script>
+</body>
+</html>

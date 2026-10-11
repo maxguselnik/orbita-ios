@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  physics-linux:
+    name: OrbitPhysics (Linux)
+    runs-on: ubuntu-latest
+    container: swift:6.0-noble
+    steps:
+      - uses: actions/checkout@v4
+      - name: Тесты
+        run: swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors
+
+  ios:
+    name: iOS (macOS)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Версии
+        run: xcodebuild -version && swift --version
+      - name: Тесты OrbitPhysics
+        run: swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors
+      - name: XcodeGen
+        run: brew install xcodegen && xcodegen generate
+      - name: Сборка под симулятор
+        run: |
+          set -o pipefail
+          xcodebuild -project Orbita.xcodeproj -scheme Orbita \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug build \
+            CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
