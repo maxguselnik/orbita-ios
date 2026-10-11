@@ -11,6 +11,8 @@
 6. Вверху выбрать свой iPhone
 7. Run (⌘R)
 
+Чтобы `xcodegen generate` не сбрасывал Team: один раз `echo 'export ORBITA_TEAM=<твой Team ID>' >> ~/.zshrc` (Team ID — в Xcode → Settings → Accounts).
+
 Первый запуск на телефоне: Настройки → Основные → VPN и управление устройством → доверять своему профилю разработчика.
 
 ## Скрипт
