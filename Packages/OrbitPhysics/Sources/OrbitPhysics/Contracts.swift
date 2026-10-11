@@ -104,6 +104,28 @@ public struct OrbitSummary: Sendable, Hashable {
     }
 }
 
+/// Сводка по ступени для HUD и ангара. Индекс 0 — текущая (нижняя) ступень.
+public struct StageInfo: Sendable, Hashable {
+    /// Δv ступени, м/с (текущая — по текущему давлению, остальные — вакуум).
+    public var deltaV: Double
+    /// Тяговооружённость относительно g текущего тела.
+    public var twr: Double
+    /// Остаток топлива 0…1.
+    public var fuelFraction: Double
+    /// Время работы на полной тяге, с.
+    public var burnTime: Double
+    /// Есть ли РДТТ (нельзя дросселировать).
+    public var hasSolid: Bool
+
+    public init(deltaV: Double, twr: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool) {
+        self.deltaV = deltaV
+        self.twr = twr
+        self.fuelFraction = fuelFraction
+        self.burnTime = burnTime
+        self.hasSolid = hasSolid
+    }
+}
+
 /// Готовые для HUD величины активного корабля.
 public struct FlightTelemetry: Sendable, Hashable {
     public var altitude: Double
@@ -120,11 +142,30 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var missionTime: Double
     /// Номер текущей ступени (0 — последняя).
     public var stage: Int
+    /// Ступени сверху вниз по порядку срабатывания: [0] — текущая.
+    public var stages: [StageInfo]
+    /// Текущая суммарная тяга, Н, и максимум при полной тяге.
+    public var thrust: Double
+    public var maxThrust: Double
+    /// Работает ли РДТТ (для звука треска).
+    public var solidBurning: Bool
+    /// Плотность атмосферы вокруг, кг/м³ (0 — вакуум).
+    public var atmosphereDensity: Double
+    /// Нагрев при входе 0…1 (плазма, звук).
+    public var heating: Double
+    /// Перегрузка, g.
+    public var gForce: Double
+    /// Тело текущей SOI.
+    public var body: BodyID
+    public var situation: VesselSituation
 
     public init(altitude: Double = 0, heightAboveTerrain: Double = 0, speed: Double = 0,
                 surfaceSpeed: Double = 0, verticalSpeed: Double = 0, dynamicPressure: Double = 0,
                 mach: Double = 0, orbit: OrbitSummary? = nil, sas: SASMode = .off,
-                warpFactor: Double = 1, missionTime: Double = 0, stage: Int = 0) {
+                warpFactor: Double = 1, missionTime: Double = 0, stage: Int = 0,
+                stages: [StageInfo] = [], thrust: Double = 0, maxThrust: Double = 0,
+                solidBurning: Bool = false, atmosphereDensity: Double = 0, heating: Double = 0,
+                gForce: Double = 0, body: BodyID = .terra, situation: VesselSituation = .prelaunch) {
         self.altitude = altitude
         self.heightAboveTerrain = heightAboveTerrain
         self.speed = speed
@@ -137,6 +178,15 @@ public struct FlightTelemetry: Sendable, Hashable {
         self.warpFactor = warpFactor
         self.missionTime = missionTime
         self.stage = stage
+        self.stages = stages
+        self.thrust = thrust
+        self.maxThrust = maxThrust
+        self.solidBurning = solidBurning
+        self.atmosphereDensity = atmosphereDensity
+        self.heating = heating
+        self.gForce = gForce
+        self.body = body
+        self.situation = situation
     }
 }
 
@@ -178,6 +228,8 @@ public enum SimEvent: Sendable, Hashable {
     case flameout(stage: Int)
     case separation(stage: Int)
     case chuteDeployed
+    /// Купол полностью раскрылся.
+    case chuteOpened
     case maxQ(pascals: Double)
     case touchdown(speed: Double)
     case splashdown(speed: Double)
