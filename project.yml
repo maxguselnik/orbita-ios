@@ -43,6 +43,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.maxguselnik.orbita
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
+        # Team ID из переменной окружения, чтобы xcodegen generate не сбрасывал выбор.
+        DEVELOPMENT_TEAM: ${ORBITA_TEAM}
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         ENABLE_USER_SCRIPT_SANDBOXING: YES

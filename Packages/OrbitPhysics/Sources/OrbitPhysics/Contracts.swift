@@ -82,18 +82,21 @@ public struct VesselState: Sendable, Hashable {
 
 /// Кеплеровы элементы относительно тела. Высоты — над уровнем моря, м.
 public struct OrbitSummary: Sendable, Hashable {
+    public var body: BodyID
     public var apoapsisAltitude: Double   // .infinity для гиперболы
     public var periapsisAltitude: Double
-    public var timeToApoapsis: Double     // с; .nan, если нет
-    public var timeToPeriapsis: Double
+    /// с; nil, если апоцентра нет (гипербола).
+    public var timeToApoapsis: Double?
+    public var timeToPeriapsis: Double?
     public var eccentricity: Double
     /// Наклонение, рад.
     public var inclination: Double
     /// Период, с; .infinity для незамкнутой орбиты.
     public var period: Double
 
-    public init(apoapsisAltitude: Double, periapsisAltitude: Double, timeToApoapsis: Double,
-                timeToPeriapsis: Double, eccentricity: Double, inclination: Double, period: Double) {
+    public init(body: BodyID, apoapsisAltitude: Double, periapsisAltitude: Double, timeToApoapsis: Double?,
+                timeToPeriapsis: Double?, eccentricity: Double, inclination: Double, period: Double) {
+        self.body = body
         self.apoapsisAltitude = apoapsisAltitude
         self.periapsisAltitude = periapsisAltitude
         self.timeToApoapsis = timeToApoapsis
@@ -117,13 +120,48 @@ public struct StageInfo: Sendable, Hashable {
     /// Есть ли РДТТ (нельзя дросселировать).
     public var hasSolid: Bool
 
-    public init(deltaV: Double, twr: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool) {
+    /// Тяговооружённость в вакууме.
+    public var twrVacuum: Double
+
+    public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool) {
         self.deltaV = deltaV
         self.twr = twr
+        self.twrVacuum = twrVacuum
         self.fuelFraction = fuelFraction
         self.burnTime = burnTime
         self.hasSolid = hasSolid
     }
+}
+
+/// Направления (единичные векторы) в осях корабля: нос = +Y. nil — не определено.
+public struct NavballVectors: Sendable, Hashable {
+    public var prograde: Vec3?
+    public var normal: Vec3?
+    public var radialOut: Vec3?
+    public var surfacePrograde: Vec3?
+    public var target: Vec3?
+    public var maneuver: Vec3?
+
+    public init(prograde: Vec3? = nil, normal: Vec3? = nil, radialOut: Vec3? = nil,
+                surfacePrograde: Vec3? = nil, target: Vec3? = nil, maneuver: Vec3? = nil) {
+        self.prograde = prograde
+        self.normal = normal
+        self.radialOut = radialOut
+        self.surfacePrograde = surfacePrograde
+        self.target = target
+        self.maneuver = maneuver
+    }
+}
+
+public enum ChuteState: String, Sendable, Hashable, Codable {
+    /// none — парашюта нет.
+    case none, stowed, armed, deploying, open, cut
+}
+
+/// Уровни ускорения времени. Первые `physicalCount` — физические, остальные — «на рельсах».
+public enum TimeWarp {
+    public static let levels: [Double] = [1, 2, 3, 4, 10, 100, 1_000, 10_000, 100_000]
+    public static let physicalCount = 4
 }
 
 /// Готовые для HUD величины активного корабля.
@@ -140,9 +178,7 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var sas: SASMode
     public var warpFactor: Double
     public var missionTime: Double
-    /// Номер текущей ступени (0 — последняя).
-    public var stage: Int
-    /// Ступени сверху вниз по порядку срабатывания: [0] — текущая.
+    /// Оставшиеся ступени по порядку срабатывания: [0] — текущая, последний — капсула.
     public var stages: [StageInfo]
     /// Текущая суммарная тяга, Н, и максимум при полной тяге.
     public var thrust: Double
@@ -158,14 +194,31 @@ public struct FlightTelemetry: Sendable, Hashable {
     /// Тело текущей SOI.
     public var body: BodyID
     public var situation: VesselSituation
+    /// Статическое давление, атм (1 — уровень моря Терры).
+    public var staticPressure: Double
+    /// Ориентация относительно местного горизонта, рад: тангаж (+ вверх), курс (0 — север, π/2 — восток), крен.
+    public var pitch: Double
+    public var heading: Double
+    public var roll: Double
+    /// Маркеры навбола в осях корабля.
+    public var navball: NavballVectors
+    public var chute: ChuteState
+    /// Безопасно ли раскрывать парашют сейчас (ниже 34 км и < 450 м/с).
+    public var chuteSafe: Bool
+    /// Индекс в `TimeWarp.levels` и почему выше нельзя (nil — можно).
+    public var warpIndex: Int
+    public var warpBlocked: WarpResetReason?
 
     public init(altitude: Double = 0, heightAboveTerrain: Double = 0, speed: Double = 0,
                 surfaceSpeed: Double = 0, verticalSpeed: Double = 0, dynamicPressure: Double = 0,
                 mach: Double = 0, orbit: OrbitSummary? = nil, sas: SASMode = .off,
-                warpFactor: Double = 1, missionTime: Double = 0, stage: Int = 0,
+                warpFactor: Double = 1, missionTime: Double = 0,
                 stages: [StageInfo] = [], thrust: Double = 0, maxThrust: Double = 0,
                 solidBurning: Bool = false, atmosphereDensity: Double = 0, heating: Double = 0,
-                gForce: Double = 0, body: BodyID = .terra, situation: VesselSituation = .prelaunch) {
+                gForce: Double = 0, body: BodyID = .terra, situation: VesselSituation = .prelaunch,
+                staticPressure: Double = 0, pitch: Double = 0, heading: Double = 0, roll: Double = 0,
+                navball: NavballVectors = NavballVectors(), chute: ChuteState = .none, chuteSafe: Bool = false,
+                warpIndex: Int = 0, warpBlocked: WarpResetReason? = nil) {
         self.altitude = altitude
         self.heightAboveTerrain = heightAboveTerrain
         self.speed = speed
@@ -177,7 +230,6 @@ public struct FlightTelemetry: Sendable, Hashable {
         self.sas = sas
         self.warpFactor = warpFactor
         self.missionTime = missionTime
-        self.stage = stage
         self.stages = stages
         self.thrust = thrust
         self.maxThrust = maxThrust
@@ -187,6 +239,15 @@ public struct FlightTelemetry: Sendable, Hashable {
         self.gForce = gForce
         self.body = body
         self.situation = situation
+        self.staticPressure = staticPressure
+        self.pitch = pitch
+        self.heading = heading
+        self.roll = roll
+        self.navball = navball
+        self.chute = chute
+        self.chuteSafe = chuteSafe
+        self.warpIndex = warpIndex
+        self.warpBlocked = warpBlocked
     }
 }
 
@@ -196,19 +257,21 @@ public struct WorldSnapshot: Sendable {
     public var time: Double
     public var activeVessel: VesselID?
     public var vessels: [VesselState]
-    /// Положение Луны относительно Терры, м.
+    /// Положение и скорость Луны относительно Терры, м и м/с.
     public var lunaPosition: Vec3
+    public var lunaVelocity: Vec3
     /// Угол поворота Терры вокруг оси +Z, рад.
     public var terraRotation: Double
     public var telemetry: FlightTelemetry
 
     public init(time: Double = 0, activeVessel: VesselID? = nil, vessels: [VesselState] = [],
-                lunaPosition: Vec3 = Vec3(Bodies.luna.orbitRadius, 0, 0), terraRotation: Double = 0,
+                lunaPosition: Vec3 = Vec3(Bodies.luna.orbitRadius, 0, 0), lunaVelocity: Vec3 = .zero, terraRotation: Double = 0,
                 telemetry: FlightTelemetry = FlightTelemetry()) {
         self.time = time
         self.activeVessel = activeVessel
         self.vessels = vessels
         self.lunaPosition = lunaPosition
+        self.lunaVelocity = lunaVelocity
         self.terraRotation = terraRotation
         self.telemetry = telemetry
     }
@@ -224,8 +287,8 @@ public enum WarpResetReason: String, Sendable, Hashable, Codable {
 
 /// Одноразовые события шага; звук, вибрация, эффекты и подсказки реагируют на них.
 public enum SimEvent: Sendable, Hashable {
-    case ignition(stage: Int)
-    case flameout(stage: Int)
+    case ignition(stage: Int, solid: Bool)
+    case flameout(stage: Int, solid: Bool)
     case separation(stage: Int)
     case chuteDeployed
     /// Купол полностью раскрылся.
