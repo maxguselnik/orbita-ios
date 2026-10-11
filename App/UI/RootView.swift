@@ -1,9 +1,10 @@
+import OrbitPhysics
 import SwiftUI
 
 struct RootView: View {
-    /// Этап 1: HUD на моковом полёте; физика потока A подключится при интеграции.
     @Environment(GameSettings.self) private var settings
-    @State private var flight = FlightHUDModel()
+    /// Пока без ангара: полёт пресета «Орбита» на настоящей физике. MockFlight — для превью.
+    @State private var flight = FlightHUDModel(makeSimulation: { FlightSim(design: .orbit) })
 
     var body: some View {
         ZStack {
