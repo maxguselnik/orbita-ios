@@ -137,21 +137,17 @@ struct FlightLayer: View {
     let guide: HUDAction?
     let hintsEnabled: Bool
 
-    /// Центр группы РСУ по горизонтали на кадре 852 pt: свободное место между кнопкой ступени и кольцом навбола.
-    static let rcsCenterX: CGFloat = 250
-    private static let designWidth: CGFloat = 852
-
     var body: some View {
         ZStack {
             topLeft
             topCenter
             topRight
-            leftColumn
-            rcsControls
-            bottomCenter
             bottomRight
+            bottomCenter
+            bottomLeft
+            leftColumn
         }
-        // Кольцо навбола уходит за нижний край, поэтому нижняя безопасная зона не сдвигает его.
+        // Элементы нижнего ряда считаются от физического низа экрана.
         .ignoresSafeArea(.container, edges: .bottom)
     }
 
@@ -185,45 +181,61 @@ struct FlightLayer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
-    /// Стопка ступеней под строкой времени, внизу — кнопка действия.
+    /// Центр капсулы «Пуск» и круга крестовины по высоте — 120 pt от низа; отступы от физических краёв зеркальны:
+    /// левый край капсулы и внешний край круга — по 66 pt.
+    static let controlCenterFromBottom: CGFloat = 120
+    static let stageLeading: CGFloat = 66
+
+    /// Стопка ступеней под строкой времени и карточка миссии под ней. Карточка выше остальных слоёв: развёрнутая (по тапу)
+    /// перекрывает их и перехватывает касания. По умолчанию развёрнута, только если помещается над капсулой «Пуск».
     private var leftColumn: some View {
-        ZStack {
-            StageStackView(model: model)
-                .padding(.top, 36)
-                .padding(.leading, 6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            StageButton(model: model, highlighted: guide == .stage)
-                .padding(.leading, 6)
-                .padding(.bottom, 10)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        GeometryReader { geo in
+            let capsuleTop = geo.size.height - Self.controlCenterFromBottom - StageButton.height / 2
+            let rows = CGFloat(StageStackView.rowCount(model: model))
+            let stackHeight = rows > 0 ? rows * StageGroupRow.height + (rows - 1) * 3 : 0
+            let fits = MissionCard.fitsExpanded(stackHeight: stackHeight, blockTop: capsuleTop)
+            VStack(alignment: .leading, spacing: MissionCard.gap) {
+                StageStackView(model: model)
+                MissionCard(model: model, enabled: hintsEnabled, autoExpand: fits)
+            }
+            .padding(.top, 36)
+            .padding(.leading, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
     }
 
-    /// Поступательный джойстик РСУ: между кнопкой ступени и кольцом навбола.
-    private var rcsControls: some View {
-        RCSControlsHost(model: model)
-            .offset(x: Self.rcsCenterX - Self.designWidth / 2)
-            .padding(.bottom, 10)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    /// Левый нижний угол: капсула «Пуск» от физического края (66 pt), над ней плашка узла манёвра.
+    private var bottomLeft: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            ManeuverBadgeHost(model: model)
+            StageButton(model: model, highlighted: guide == .stage)
+        }
+        .padding(.leading, Self.stageLeading)
+        .padding(.bottom, Self.controlCenterFromBottom - StageButton.height / 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .ignoresSafeArea(.container, edges: .horizontal)
     }
 
     private var bottomCenter: some View {
-        NavballCluster(model: model, ascentEnabled: hintsEnabled)
-            .offset(y: NavballCluster.overhang)
+        NavballCluster(model: model, ascentEnabled: hintsEnabled, guide: guide)
+            .padding(.bottom, NavballCluster.lift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
+    /// Правый нижний угол: круглая крестовина, крен и «ТОЧНО» от физического края; над кнопкой крена — джойстик РСУ.
+    static let rcsTrailing: CGFloat = 50
+
     private var bottomRight: some View {
-        ZStack {
-            ManeuverBadgeHost(model: model)
-                .padding(.trailing, 8)
-                .padding(.bottom, 94)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-            ControlsCluster(model: model, guide: guide)
-                .padding(.trailing, 4)
-                .padding(.bottom, 8)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        ZStack(alignment: .bottomTrailing) {
+            AttitudeControls(model: model)
+                .padding(.trailing, AttitudeControls.trailingInset)
+                .padding(.bottom, AttitudeControls.bottomInset)
+            RCSControlsHost(model: model)
+                .padding(.trailing, Self.rcsTrailing)
+                .padding(.bottom, AttitudeControls.bottomInset + AttitudeControls.frameSize.height + 6)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .ignoresSafeArea(.container, edges: .horizontal)
     }
 }
 
@@ -239,7 +251,7 @@ struct RCSControlsHost: View {
     }
 }
 
-/// Плашка узла манёвра над джойстиком (тап — карта); читает телеметрию узла каждый кадр.
+/// Плашка узла манёвра над блоком кнопок ориентации (тап — карта); читает телеметрию узла каждый кадр.
 struct ManeuverBadgeHost: View {
     let model: FlightHUDModel
 

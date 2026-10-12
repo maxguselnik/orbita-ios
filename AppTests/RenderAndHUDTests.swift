@@ -126,7 +126,7 @@ struct RenderAndHUDTests {
     @Test func ascentAdviceFollowsFlightPhases() {
         var t = FlightTelemetry(situation: .prelaunch)
         t.nextStageAction = .ignite
-        #expect(AscentGuide.advice(t)?.text == "Зажигание → Тяга MAX")
+        #expect(AscentGuide.advice(t)?.text == "Пуск → Тяга MAX")
 
         t = FlightTelemetry(altitude: 20_000, situation: .suborbital, pitch: 1.0, heading: .pi / 2)
         t.mission.launched = true
@@ -235,33 +235,176 @@ struct RenderAndHUDTests {
         #expect(HangarFormat.details(PartCatalog.spec(.m100)).first == "Монотопливо 160 кг")
     }
 
+    @Test func attitudeCurveTapRampAndFine() {
+        typealias C = AttitudeInputCurve
+        #expect(C.value(heldFor: 0, fine: false) == 0.15)
+        #expect(abs(C.value(heldFor: 0.4, fine: false) - 0.575) < 1e-9)
+        #expect(C.value(heldFor: 0.8, fine: false) == 1)
+        #expect(C.value(heldFor: 5, fine: false) == 1)
+        #expect(C.value(heldFor: -1, fine: false) == 0.15)
+        #expect(abs(C.value(heldFor: 5, fine: true) - 0.3) < 1e-9)
+        #expect(abs(C.value(heldFor: 0, fine: true) - 0.045) < 1e-9)
+    }
+
+    @Test func attitudeButtonsFeedControlInput() {
+        let flight = RecordingFlight()
+        let model = FlightHUDModel(makeSimulation: { flight })
+        model.setAttitude(.pitchUp, pressed: true, now: 10)
+        model.setAttitude(.rollRight, pressed: true, now: 10)
+        model.tick(now: 10)
+        model.tick(now: 11)
+        #expect(flight.lastInput.pitch == 1 && flight.lastInput.roll == 1 && flight.lastInput.yaw == 0)
+        // Противоположные кнопки вместе дают 0, отпускание одной возвращает ввод другой.
+        model.setAttitude(.yawLeft, pressed: true, now: 11)
+        model.setAttitude(.yawRight, pressed: true, now: 11)
+        #expect(model.attitudeAxes(now: 12).yaw == 0)
+        model.setAttitude(.yawLeft, pressed: false)
+        #expect(model.attitudeAxes(now: 12).yaw == 1)
+        // Повторное нажатие не сбрасывает разгон; «ТОЧНО» масштабирует и сбрасывается при перезапуске.
+        model.setAttitude(.yawRight, pressed: true, now: 12)
+        #expect(model.attitudeAxes(now: 12).yaw == 1)
+        model.fineControl = true
+        #expect(abs(model.attitudeAxes(now: 12).pitch - 0.3) < 1e-9)
+        model.restart()
+        #expect(!model.fineControl)
+        #expect(model.attitudeAxes(now: 20) == (0, 0, 0))
+    }
+
+    @Test func dpadSectorsDeadZoneAndDiagonal() {
+        typealias S = DPadSector
+        let r: CGFloat = 75
+        #expect(S.sector(for: CGPoint(x: 0, y: -50), radius: r) == .up)
+        #expect(S.sector(for: CGPoint(x: 0, y: 50), radius: r) == .down)
+        #expect(S.sector(for: CGPoint(x: -50, y: 0), radius: r) == .left)
+        #expect(S.sector(for: CGPoint(x: 50, y: 0), radius: r) == .right)
+        // Мёртвая зона 18 % радиуса (13.5 pt).
+        #expect(S.sector(for: .zero, radius: r) == nil)
+        #expect(S.sector(for: CGPoint(x: 9, y: 9), radius: r) == nil)
+        #expect(S.sector(for: CGPoint(x: 0, y: -14), radius: r) == .up)
+        // Диагональ: побеждает вертикаль; чуть в сторону от диагонали — горизонталь.
+        #expect(S.sector(for: CGPoint(x: 30, y: -30), radius: r) == .up)
+        #expect(S.sector(for: CGPoint(x: -30, y: 30), radius: r) == .down)
+        #expect(S.sector(for: CGPoint(x: 31, y: -30), radius: r) == .right)
+        #expect(S.sector(for: CGPoint(x: -31, y: -30), radius: r) == .left)
+        // За краем круга сектор сохраняется.
+        #expect(S.sector(for: CGPoint(x: 200, y: 10), radius: r) == .right)
+        #expect(Set(S.allCases.map(\.button)).count == 4)
+    }
+
     @Test func compactLayoutFitsScreenWithoutOverlaps() {
         let model = FlightHUDModel()
         func fitted<V: View>(_ view: V) -> CGSize {
             UIHostingController(rootView: view).sizeThatFits(in: CGSize(width: 852, height: 393))
         }
-        let ring = fitted(NavballCluster(model: model))
-        #expect(ring == CGSize(width: 184, height: 184))
-        #expect(ring.height - NavballCluster.overhang <= 150)
-        let stage = fitted(StageButton(model: model))
-        #expect(stage.height == 40)
-        let controls = fitted(ControlsCluster(model: model, guide: nil))
-        let rcs = fitted(RCSControls(model: model))
-        let stack = fitted(StageStackView(model: model))
-        #expect(stack.height <= CGFloat(StageStackView.maxRows) * 22 + 9)
+        func rect(_ c: CGPoint, _ size: CGSize) -> CGRect {
+            CGRect(x: c.x - size.width / 2, y: c.y - size.height / 2, width: size.width, height: size.height)
+        }
+        // Кадр 852×393: все координаты от физических краёв экрана (боковая безопасная зона не учитывается).
+        let screen = CGRect(x: 0, y: 0, width: 852, height: 393)
+        let island = CGRect(x: 0, y: 393 / 2 - 60, width: 50, height: 120)   // Dynamic Island у бокового края
+        let islandRight = CGRect(x: 852 - 44, y: 393 / 2 - 60, width: 44, height: 120)
+        let homeZone: CGFloat = 40   // системный жест «домой»: ничего интерактивного ближе 40 pt к низу
 
-        // По горизонтали на кадре 852 pt (боковые безопасные зоны ≈ 59 pt): кнопка ступени, группа РСУ, кольцо, джойстик.
+        let cluster = fitted(NavballCluster(model: model))
+        #expect(cluster == CGSize(width: NavballCluster.width, height: NavballCluster.height))
+        #expect(NavballCluster.size == 156)
+        let stage = fitted(StageButton(model: model))
+        #expect(stage.height == 44)
+        let rcs = fitted(RCSControls(model: model))
+        let block = fitted(AttitudeControls(model: model))
+        #expect(block == AttitudeControls.frameSize)
+
+        // Навбол по центру, поднят на `lift`.
+        let clusterOrigin = CGPoint(x: (852 - cluster.width) / 2, y: 393 - NavballCluster.lift - cluster.height)
+        let clusterRect = CGRect(origin: clusterOrigin, size: cluster)
+        let ringRect = CGRect(x: clusterOrigin.x + NavballCluster.ringOrigin.x, y: clusterOrigin.y + NavballCluster.ringOrigin.y,
+                              width: NavballCluster.size, height: NavballCluster.size)
+        #expect(screen.contains(clusterRect))
+        // Интерактивные части навбола не ниже 40 pt от низа: зона дуги тяги, ручка при 0 и 100 %, метки MAX и 0.
+        let touch = ThrottleGauge.touchRect.offsetBy(dx: clusterOrigin.x, dy: clusterOrigin.y)
+        func labelRect(_ c: CGPoint) -> CGRect {
+            rect(CGPoint(x: clusterOrigin.x + c.x, y: clusterOrigin.y + c.y), ThrottleGauge.labelTouch)
+        }
+        let maxLabel = labelRect(ThrottleGauge.maxLabelCenter), zeroLabel = labelRect(ThrottleGauge.zeroLabelCenter)
+        let knobLow = GaugeMath.point(center: NavballCluster.center, radius: NavballCluster.arcRadius, side: .left, fraction: 0)
+        let knobHigh = GaugeMath.point(center: NavballCluster.center, radius: NavballCluster.arcRadius, side: .left, fraction: 1)
+        for y in [touch.maxY, maxLabel.maxY, zeroLabel.maxY, clusterOrigin.y + knobLow.y + ThrottleGauge.knobRadius,
+                  clusterOrigin.y + knobHigh.y + ThrottleGauge.knobRadius] {
+            #expect(393 - y >= homeZone)
+        }
+        #expect(maxLabel.width >= 44 && maxLabel.height >= 44 && zeroLabel.width >= 44 && zeroLabel.height >= 44)
+        #expect(!maxLabel.intersects(zeroLabel) && screen.contains(maxLabel) && screen.contains(zeroLabel))
+        // Подпись «ТЯГА» (видимая часть) не пересекается с видимыми метками.
+        let caption = rect(CGPoint(x: clusterOrigin.x + ThrottleGauge.captionCenter.x,
+                                   y: clusterOrigin.y + ThrottleGauge.captionCenter.y), CGSize(width: 30, height: 22))
+        for c in [ThrottleGauge.maxLabelCenter, ThrottleGauge.zeroLabelCenter] {
+            #expect(!rect(CGPoint(x: clusterOrigin.x + c.x, y: clusterOrigin.y + c.y), CGSize(width: 30, height: 16)).intersects(caption))
+        }
+
+        // Правая группа: круг 140 pt, центр 120 pt от низа, внешний край 66 pt от правого края.
+        let origin = CGPoint(x: 852 - AttitudeControls.trailingInset - block.width, y: 393 - AttitudeControls.bottomInset - block.height)
+        func onScreen(_ r: CGRect) -> CGRect { r.offsetBy(dx: origin.x, dy: origin.y) }
+        let circle = onScreen(AttitudeControls.circleRect)
+        let rollL = onScreen(AttitudeControls.rollLeftRect)
+        let rollR = onScreen(AttitudeControls.rollRightRect)
+        let pill = onScreen(AttitudeControls.pillRect)
+        let rcsRect = CGRect(x: 852 - FlightLayer.rcsTrailing - rcs.width,
+                             y: origin.y - 6 - rcs.height, width: rcs.width, height: rcs.height)
+        #expect(circle.width == 140 && abs(393 - circle.midY - 120) <= 2 && abs(852 - circle.maxX - 66) <= 2)
+        #expect(393 - circle.maxY >= homeZone && 393 - pill.maxY >= homeZone)
+        // Крен: над «плечами», зазор до круга ≥ 6 pt, правая кнопка ≥ 44 pt от края и вне зоны острова.
+        for c in [rollL, rollR] {
+            let d = ((c.midX - circle.midX) * (c.midX - circle.midX) + (c.midY - circle.midY) * (c.midY - circle.midY)).squareRoot()
+            #expect(d >= AttitudeControls.radius + c.width / 2 + 6)
+            #expect(c.midY < circle.midY && c.width >= 44)
+            #expect(!c.intersects(island) && !c.intersects(islandRight))
+        }
+        #expect(852 - rollR.maxX >= 44 && rollL.midX < circle.midX && rollR.midX > circle.midX)
+        #expect(!rollL.intersects(rollR) && !rollL.intersects(pill) && !rollR.intersects(pill))
+        // «Точно» — снизу-слева, со стороны навбола; круг его не задевает.
+        func gap(_ r: CGRect, toCenterOf c: CGRect) -> CGFloat {
+            let dx = max(r.minX - c.midX, 0, c.midX - r.maxX), dy = max(r.minY - c.midY, 0, c.midY - r.maxY)
+            return (dx * dx + dy * dy).squareRoot()
+        }
+        #expect(gap(pill, toCenterOf: circle) >= AttitudeControls.radius)
+        #expect(pill.midX < circle.midX && pill.midY > circle.midY && pill.width >= 44 && pill.height >= 44)
+        #expect(!circle.intersects(island) && !circle.intersects(islandRight))
+
+        // Левая группа: капсула «Пуск» зеркальна кругу — тот же центр по высоте (±2), тот же отступ от края (±4).
+        let stageRect = CGRect(x: FlightLayer.stageLeading, y: 393 - FlightLayer.controlCenterFromBottom - stage.height / 2,
+                               width: stage.width, height: stage.height)
+        #expect(abs(stageRect.midY - circle.midY) <= 2)
+        #expect(abs(stageRect.minX - (852 - circle.maxX)) <= 4)
+        #expect(!stageRect.intersects(island) && stageRect.height >= 44)
+
+        let all: [(String, CGRect)] = [("ring", clusterRect), ("maxLabel", maxLabel), ("zeroLabel", zeroLabel), ("circle", circle),
+                                       ("rollL", rollL), ("rollR", rollR), ("pill", pill), ("stage", stageRect), ("rcs", rcsRect)]
+        for r in all { #expect(screen.contains(r.1), "\(r.0) вне экрана") }
+        // Навбол (кольцо и строка над ним) не пересекается ни с правой, ни с левой группой; метки — тоже.
+        let center = clusterRect.union(maxLabel).union(zeroLabel)
+        #expect(clusterRect.contains(ringRect))
+        #expect(!stageRect.intersects(center) && !rcsRect.intersects(center))
+        for r in [circle, rollL, rollR] { #expect(!r.intersects(clusterRect), "правая группа задевает навбол") }
+        #expect(!rcsRect.intersects(rollL) && !rcsRect.intersects(rollR) && !rcsRect.intersects(circle))
+        #expect(!rcsRect.intersects(island) && !rcsRect.intersects(islandRight))
+        #expect(rcsRect.minY > 75)   // под кнопками экипажа и карты
+
+        // Левая колонка: стопка и под ней карточка миссии не пересекаются с капсулой; не помещается — свёрнута по умолчанию.
         let safe: CGFloat = 59
-        let stageRight = safe + 6 + stage.width
-        let rcsLeft = FlightLayer.rcsCenterX - rcs.width / 2
-        let rcsRight = FlightLayer.rcsCenterX + rcs.width / 2
-        let ringLeft = (852 - ring.width) / 2
-        let ringRight = ringLeft + ring.width
-        let controlsLeft = 852 - safe - 4 - controls.width
-        #expect(stageRight < rcsLeft)
-        #expect(rcsRight < ringLeft - 4)
-        #expect(ringRight + 30 < controlsLeft)
-        #expect(controls.height <= 80 && rcs.height <= 80)
+        let expandedCard = fitted(MissionCard(model: model, autoExpand: true))
+        #expect(expandedCard.height <= MissionCard.expandedHeight)
+        for rows in [3, 5] {
+            let shown = min(rows, StageStackView.maxRows)
+            let stackH = CGFloat(shown) * 22 + CGFloat(shown - 1) * 3
+            let fits = MissionCard.fitsExpanded(stackHeight: stackH, blockTop: stageRect.minY)
+            let card = fitted(MissionCard(model: model, autoExpand: fits))
+            #expect(card.width <= MissionCard.width)
+            // По умолчанию: развёрнутая — только если помещается, иначе одна строка; в обоих случаях над капсулой.
+            let cardRect = CGRect(x: safe + 6, y: 36 + stackH + MissionCard.gap, width: card.width, height: card.height)
+            #expect(cardRect.maxY <= stageRect.minY)
+            #expect(fits == (rows == 3))
+            if !fits { #expect(card.height < 40) }
+        }
     }
 }
 

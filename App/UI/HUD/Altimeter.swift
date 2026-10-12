@@ -23,7 +23,10 @@ struct AltimeterPanel: View {
     var body: some View {
         let t = model.telemetry
         VStack(spacing: 4) {
-            OdometerRow(reading: AltimeterReading(altitude: t.altitude))
+            OdometerRow(reading: AltimeterReading(altitude: shownAltitude(t)))
+            Text(AltimeterMode.label(overTerrain: model.altimeterOverTerrain))
+                .font(.system(size: 8, weight: .semibold))
+                .foregroundStyle(HUDPalette.muted)
             if t.body == .terra {
                 AtmosphereScale(altitude: t.altitude)
             }
@@ -37,7 +40,11 @@ struct AltimeterPanel: View {
         .overlay(shape.strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 5, y: 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Высота \(HUDFormat.distance(t.altitude))")
+        .accessibilityLabel("Высота \(HUDFormat.distance(shownAltitude(t))) \(AltimeterMode.label(overTerrain: model.altimeterOverTerrain))")
+    }
+
+    private func shownAltitude(_ t: FlightTelemetry) -> Double {
+        model.altimeterOverTerrain ? t.heightAboveTerrain : t.altitude
     }
 
     private var shape: UnevenRoundedRectangle {

@@ -50,7 +50,7 @@ struct FlightStatusView: View {
         if t.situation == .crashed { return "Перезапустите полёт или вернитесь в ангар" }
         if t.situation == .prelaunch {
             if t.nextStageAction == .ignite {
-                return t.stages.first?.hasSolid == true ? "Зажигание сразу запустит РДТТ" : "1. Зажигание  →  2. Тяга MAX"
+                return t.stages.first?.hasSolid == true ? "Пуск сразу запустит РДТТ" : "1. Пуск  →  2. Тяга MAX"
             }
             if t.thrust < 1 { return "Установите тягу слева; РДТТ работает без регулировки" }
             if let stage = t.stages.first, stage.twr < 1 { return "Тяги недостаточно для взлёта · TWR < 1" }

@@ -42,7 +42,7 @@ enum AscentGuide {
         guard t.body == .terra else { return nil }
         switch t.situation {
         case .prelaunch:
-            let text = t.nextStageAction == .ignite ? "Зажигание → Тяга MAX"
+            let text = t.nextStageAction == .ignite ? "Пуск → Тяга MAX"
                 : (t.thrust < 1 ? "Тяга MAX" : "Тяга MAX · ждите отрыва")
             let action: HUDAction? = t.nextStageAction == .ignite ? .stage : (t.thrust < 1 ? .fullThrottle : nil)
             return AscentAdvice(text: text, targetPitch: .pi / 2, action: action)

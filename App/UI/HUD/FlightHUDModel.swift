@@ -16,6 +16,10 @@ struct StageStatus: Equatable {
     var chute: ChuteState
     var action: StageAction
     var hasSolid: Bool
+
+    /// Номер ступени, которую затронет нажатие, — как в стопке ступеней: пуск и отделение — текущая (1),
+    /// парашют — верхняя строка стопки.
+    var number: Int { action == .armChute ? max(remaining, 1) : 1 }
 }
 
 /// Ускорение времени для меню: меняется редко.
@@ -51,6 +55,12 @@ final class FlightHUDModel {
     private(set) var onPad: Bool
     /// Главное следующее действие (подсветка кнопки); меняется редко.
     private(set) var guide: HUDAction?
+    /// Миссия «Выход на орбиту» применима: Терра, полёт начат с площадки.
+    private(set) var missionActive = false
+    /// Наибольший достигнутый шаг миссии (0…5): не откатывается.
+    private(set) var missionProgress = 0
+    /// Высотомер показывает высоту над рельефом (у поверхности), иначе над уровнем моря.
+    private(set) var altimeterOverTerrain = false
     /// Детали активного корабля сверху вниз: стек ступеней и экипаж в HUD. Меняется при отделении.
     private(set) var parts: [PartID]
     private(set) var toast: HUDToast?
@@ -87,13 +97,38 @@ final class FlightHUDModel {
     /// «К узлу» имеет смысл: узел есть и до прожига больше `ManeuverStatus.warpLead`. Меняется редко.
     private(set) var canWarpToManeuver = false
 
-    /// Оси джойстика и кнопки крена; пишутся жестами, читаются в `tick`, перерисовки не вызывают.
-    @ObservationIgnored var pitchInput = 0.0
-    @ObservationIgnored var yawInput = 0.0
-    @ObservationIgnored var rollLeftPressed = false
-    @ObservationIgnored var rollRightPressed = false
-    /// Крен −1…1: обе кнопки учитываются отдельно, отпускание одной не сбрасывает другую.
-    var rollInput: Double { (rollRightPressed ? 1 : 0) - (rollLeftPressed ? 1 : 0) }
+    /// Кнопки ориентации: время нажатия (секунды часов кадра); пишутся жестами, читаются в `tick`, перерисовки не вызывают.
+    @ObservationIgnored private var attitudeHeld: [AttitudeButton: TimeInterval] = [:]
+    /// Режим «ТОЧНО»: ввод кнопок ориентации ×0.3.
+    var fineControl = false
+
+    /// Нажатие/отпускание кнопки ориентации; повторное нажатие уже удерживаемой не сбрасывает разгон.
+    func setAttitude(_ button: AttitudeButton, pressed: Bool, now: TimeInterval = CACurrentMediaTime()) {
+        if pressed {
+            if attitudeHeld[button] == nil { attitudeHeld[button] = now }
+        } else {
+            attitudeHeld[button] = nil
+        }
+    }
+
+    /// Тангаж, рыскание и крен −1…1 на момент `now`; противоположные кнопки вместе дают 0.
+    func attitudeAxes(now: TimeInterval) -> (pitch: Double, yaw: Double, roll: Double) {
+        func axis(_ plus: AttitudeButton, _ minus: AttitudeButton) -> Double {
+            func value(_ b: AttitudeButton) -> Double {
+                attitudeHeld[b].map { AttitudeInputCurve.value(heldFor: now - $0, fine: fineControl) } ?? 0
+            }
+            let hasPlus = attitudeHeld[plus] != nil, hasMinus = attitudeHeld[minus] != nil
+            if hasPlus && hasMinus { return 0 }
+            return value(plus) - value(minus)
+        }
+        return (axis(.pitchUp, .pitchDown), axis(.yawRight, .yawLeft), axis(.rollRight, .rollLeft))
+    }
+
+    /// Кнопки исчезают из иерархии вместе с жестами (карта, перезапуск): сбрасываем ввод вручную.
+    private func resetAttitudeInput() {
+        attitudeHeld.removeAll()
+    }
+
     /// Поступательный джойстик РСУ: вправо (x) и вверх (z), −1…1.
     @ObservationIgnored var rcsRightInput = 0.0
     @ObservationIgnored var rcsUpInput = 0.0
@@ -140,6 +175,8 @@ final class FlightHUDModel {
         self.rcs = t.rcs
         self.onPad = t.situation == .prelaunch
         self.guide = Self.guideAction(t)
+        self.missionActive = t.body == .terra && t.situation == .prelaunch
+        self.altimeterOverTerrain = AltimeterMode.overTerrain(previous: false, t)
         self.parts = Self.activeParts(snapshot)
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
@@ -162,11 +199,12 @@ final class FlightHUDModel {
         let delta = lastTick.map { min(max(now - $0, 0), 0.1) } ?? 0
         lastTick = now
         let tilt = feedback?.tiltInput() ?? (pitch: 0, roll: 0)
+        let axes = attitudeAxes(now: now)
         sim.setInput(ControlInput(
             throttle: throttle,
-            pitch: min(max(pitchInput + tilt.pitch, -1), 1),
-            yaw: yawInput,
-            roll: min(max(rollInput + tilt.roll, -1), 1),
+            pitch: min(max(axes.pitch + tilt.pitch, -1), 1),
+            yaw: axes.yaw,
+            roll: min(max(axes.roll + tilt.roll, -1), 1),
             translation: rcs.enabled ? translationInput : .zero
         ))
         applyManeuverDrag(now: now, delta: delta)
@@ -226,11 +264,12 @@ final class FlightHUDModel {
         dragDraft = nil
         dragDirty = false
         sim = makeSimulation()
+        let fresh = sim.snapshot.telemetry
+        missionActive = fresh.body == .terra && fresh.situation == .prelaunch
+        missionProgress = 0
         publish(sim.snapshot)
-        pitchInput = 0
-        yawInput = 0
-        rollLeftPressed = false
-        rollRightPressed = false
+        resetAttitudeInput()
+        fineControl = false
         resetTranslationInput()
         toast = nil
         isPanelOpen = false
@@ -332,11 +371,8 @@ final class FlightHUDModel {
     /// Кнопка «Карта»: полёт ↔ карта.
     func toggleMap() {
         maneuverDrag = nil
-        // Джойстик и кнопки крена исчезают из иерархии вместе с жестом: сбрасываем ввод вручную.
-        pitchInput = 0
-        yawInput = 0
-        rollLeftPressed = false
-        rollRightPressed = false
+        // Кнопки ориентации исчезают из иерархии вместе с жестом: сбрасываем ввод вручную.
+        resetAttitudeInput()
         resetTranslationInput()
         isPanelOpen = false
         map.isOpen.toggle()
@@ -429,6 +465,9 @@ final class FlightHUDModel {
 
     // MARK: - Публикация кадра
 
+    /// Шаги миссии для карточки (с учётом монотонного прогресса).
+    var missionSteps: [MissionStep] { MissionChecklist.steps(telemetry, reached: missionProgress) }
+
     private func publish(_ snapshot: WorldSnapshot) {
         self.snapshot = snapshot
         let currentThrottle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? throttle
@@ -449,6 +488,12 @@ final class FlightHUDModel {
         if onPad != pad { onPad = pad }
         let action = Self.guideAction(t)
         if guide != action { guide = action }
+        if missionActive {
+            let done = MissionChecklist.completed(t)
+            if done > missionProgress { missionProgress = done }
+        }
+        let overTerrain = AltimeterMode.overTerrain(previous: altimeterOverTerrain, t)
+        if altimeterOverTerrain != overTerrain { altimeterOverTerrain = overTerrain }
         let shipParts = Self.activeParts(snapshot)
         if parts != shipParts { parts = shipParts }
         let node = t.maneuver?.node
