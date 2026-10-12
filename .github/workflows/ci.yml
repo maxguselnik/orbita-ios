@@ -50,18 +50,19 @@ jobs:
             -destination "platform=iOS Simulator,id=$SCREENS_UDID" \
             -derivedDataPath build -configuration Debug test-without-building CODE_SIGNING_ALLOWED=NO
       - name: Снимки
-        # Только на push. В сообщении коммита «[screens: ascent orbit]» — только эти сцены;
-        # «[screens: none]» — без снимков; «[screens: all]» — полный список (screens-all.txt);
-        # без метки — набор по умолчанию из screens.txt. Берёт готовую сборку и загруженный симулятор.
+        # По умолчанию снимков нет. Только по метке в сообщении коммита (push):
+        # «[screens: ascent orbit]» — эти сцены; «[screens: default]» — набор screens.txt;
+        # «[screens: all]» — полный список (screens-all.txt). Берёт готовую сборку и загруженный симулятор.
         if: github.event_name == 'push'
         timeout-minutes: 15
         env:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           PICK=$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[screens: *\([^]]*\)\].*/\1/p' | head -1)
-          if [ "$PICK" = "none" ]; then echo "Снимки пропущены ([screens: none])"; mkdir -p screens; exit 0; fi
+          if [ -z "$PICK" ] || [ "$PICK" = "none" ]; then echo "Снимки пропущены (нет метки [screens: …])"; mkdir -p screens; exit 0; fi
           if [ "$PICK" = "all" ]; then PICK=$(cat screens-all.txt); fi
-          scripts/ci-screens.sh ${PICK:-$(cat screens.txt 2>/dev/null || echo flight)}
+          if [ "$PICK" = "default" ]; then PICK=$(cat screens.txt); fi
+          scripts/ci-screens.sh $PICK
       - uses: actions/upload-artifact@v4
         if: always()
         with:
