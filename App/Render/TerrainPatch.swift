@@ -119,7 +119,8 @@ enum PatchBuilder {
                     if simd_dot(normal, d) < 0 { normal = -normal }
                 }
                 let uv = Palette.terrainUV(body: body, direction: d, height: h,
-                                           noise: hashNoise(d, scale: noiseScale), cell: cellSize)
+                                           noise: hashNoise(d, scale: noiseScale), cell: cellSize,
+                                           slope: 1 - simd_dot(normal, d))
                 mesh.vertex(f3(pts[k] - center), f3(normal), uv)
             }
         }
