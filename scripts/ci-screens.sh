@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# CI (macOS): собирает приложение под симулятор, снимает скриншоты и короткое видео в landscape.
+# CI (macOS): собирает приложение под симулятор, снимает скриншоты в landscape и проверяет, что сцены не падают.
 # Результат — в каталоге screens/. Использование: scripts/ci-screens.sh [сцена ...]
 # Сцена передаётся приложению аргументом запуска `-screen <имя>` (по умолчанию — flight).
 set -euo pipefail
@@ -28,9 +28,6 @@ xcrun simctl install "$UDID" "$APP"
 
 for scene in "${SCENES[@]}"; do
   xcrun simctl terminate "$UDID" com.maxguselnik.orbita 2>/dev/null || true
-  xcrun simctl io "$UDID" recordVideo --codec h264 --force "$OUT/$scene.mp4" &
-  REC=$!
-  sleep 1
   xcrun simctl launch "$UDID" com.maxguselnik.orbita -screen "$scene"
   sleep 8
   xcrun simctl io "$UDID" screenshot "$OUT/$scene.png"
@@ -39,7 +36,6 @@ for scene in "${SCENES[@]}"; do
     echo "::error::Сцена $scene: приложение упало"
     CRASHED="$CRASHED $scene"
   fi
-  kill -INT "$REC"; wait "$REC" || true
   # Приложение только landscape, а симулятор в портрете: поворачиваем снимок.
   sips -r 270 "$OUT/$scene.png" >/dev/null
 done

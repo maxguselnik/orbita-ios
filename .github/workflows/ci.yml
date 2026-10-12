@@ -57,7 +57,7 @@ jobs:
           name: screens-${{ github.sha }}
           path: screens/
       - name: Публикация в ветку ci-screens
-        # Ветка с видео большая, push иногда обрывается (HTTP 408) — снимки есть и в артефакте.
+        # Ветка большая (старые видео), push иногда обрывается (HTTP 408) — снимки есть и в артефакте.
         continue-on-error: true
         timeout-minutes: 10
         run: |
