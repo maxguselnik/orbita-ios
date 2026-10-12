@@ -11,15 +11,32 @@ OUT=screens
 CRASHED=""
 mkdir -p "$OUT"
 
-xcodebuild -project Orbita.xcodeproj -scheme Orbita \
-  -destination "platform=iOS Simulator,name=$DEVICE" \
-  -derivedDataPath build -configuration Debug build CODE_SIGNING_ALLOWED=NO -quiet
-
-APP=build/Build/Products/Debug-iphonesimulator/Orbita.app
+# Нужное устройство, а если на раннере его нет — самый новый доступный iPhone.
 UDID=$(xcrun simctl list devices available -j | python3 -c "
 import json,sys
 d=json.load(sys.stdin)['devices']
-print(next(x['udid'] for r in d.values() for x in r if x['name']=='$DEVICE'))")
+phones=[(rt,x) for rt,r in d.items() if 'iOS' in rt for x in r if x['name'].startswith('iPhone')]
+exact=[x for rt,x in phones if x['name']=='$DEVICE']
+if exact or phones:
+    pick=exact[0] if exact else sorted(phones, key=lambda p: (p[0], 'Pro' in p[1]['name']))[-1][1]
+    print(pick['udid'])")
+if [ -z "$UDID" ]; then
+  # Устройств нет вовсе — создать на самой новой среде iOS.
+  RUNTIME=$(xcrun simctl list runtimes available -j | python3 -c "
+import json,sys
+r=[x for x in json.load(sys.stdin)['runtimes'] if x.get('platform','iOS')=='iOS' and 'iOS' in x['identifier']]
+print(r[-1]['identifier'] if r else '')")
+  [ -n "$RUNTIME" ] || { echo "::error::Нет среды iOS-симулятора на раннере"; exit 1; }
+  UDID=$(xcrun simctl create "$DEVICE" "com.apple.CoreSimulator.SimDeviceType.iPhone-16-Pro" "$RUNTIME" 2>/dev/null \
+    || xcrun simctl create "Orbita iPhone" "com.apple.CoreSimulator.SimDeviceType.iPhone-15-Pro" "$RUNTIME")
+fi
+echo "Симулятор: $UDID"
+
+xcodebuild -project Orbita.xcodeproj -scheme Orbita \
+  -destination "platform=iOS Simulator,id=$UDID" \
+  -derivedDataPath build -configuration Debug build CODE_SIGNING_ALLOWED=NO -quiet
+
+APP=build/Build/Products/Debug-iphonesimulator/Orbita.app
 
 xcrun simctl boot "$UDID" || true
 xcrun simctl bootstatus "$UDID" -b
