@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Левая колонка: вертикальный ползунок тяги, MAX и 0, кнопка «Карта».
+/// На карте над ней — SAS и «по узлу»: прожиг можно вести, не выходя из карты.
 struct ThrottleColumn: View {
     @Bindable var model: FlightHUDModel
 
@@ -16,14 +17,10 @@ struct ThrottleColumn: View {
                     .accessibilityLabel("Тяга ноль")
             }
             .font(.system(size: 15, weight: .bold))
-            Button {
-                model.notify("Карта — на этапе 5")
-            } label: {
-                Label("Карта", systemImage: "map")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(maxWidth: .infinity)
+            if model.map.isOpen {
+                MapSASRow(model: model)
             }
-            .buttonStyle(HUDButtonStyle())
+            MapToggleButton(model: model)
         }
         .frame(width: 96)
     }
