@@ -44,7 +44,7 @@ UI (C) ── CameraInput ──┘
 - `GameFlow` (ведущий): экран `hangar`/`flight`, текущий `design` (автосохранение в Documents/hangar.json через `DesignStore`), `launch()`, `returnToHangar()`, `makeSimulation()`, `flightID` — ключ нового полёта. Без `-screen` игра открывается в ангаре.
 - `HangarPreview` (B): `show(parts:selected:)`, `apply(CameraInput)`; реализация `HangarScene` + SwiftUI `HangarSceneView(scene:)` — в `App/Render/`.
 - `FlightFeedback.stop()` — выход из полёта: звук, вибрация и наклон выключены.
-- `DemoScenario` (ведущий): аргумент запуска `-screen hangar|flight|ascent|staging|orbit|lunaApproach|lunaSurface|chute|landed|crash` — стартовое состояние для CI-скриншотов и отладки (`screens.txt` — список снимаемых сцен).
+- `DemoScenario` (ведущий): аргумент запуска `-screen hangar|flight|ascent|staging|orbit|lunaApproach|lunaSurface|lunaDescent|chute|landed|crash` — стартовое состояние для CI-скриншотов и отладки (`screens.txt` — список снимаемых сцен).
 - `MapModel` (ведущий, `App/Core/MapModel.swift`): владеет `FlightHUDModel` (`map`), каждый кадр `update(sim:now:)` — прогноз ≤ 4 Гц (при правке узла ≤ 30 Гц), отдаёт `MapSnapshot` рендеру (`updateMap`) и оверлею (`snapshot`); `isOpen`, `focus` пробрасываются в рендер; `project`, `orbitPick`, `setViewSize` — через рендер.
 - `FlightRenderer` карта (B): `isMapMode` — вместо полёта тела в масштабе карты, орбиты (текущая — по участкам, после узла — пунктир/другой цвет, участок у Луны — фиолетовый, возврат к Терре — оранжевый), корабль-значок, SOI Луны; жесты `apply` крутят камеру карты вокруг `mapFocus`. `project` и `orbitPick` — для оверлея C (подписи отметок, тап по орбите).
 - Сцены карты: `-screen map|mapManeuver|mapLuna` (`DemoScenario.opensMap`, `mapFocus`).

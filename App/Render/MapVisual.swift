@@ -133,7 +133,7 @@ final class MapVisual {
     /// Облачный слой Терры на карте (когда текстура готова).
     func setCloudTexture(_ tex: TextureResource?) {
         guard let tex, let mesh = CloudShell.unitSphere else { return }
-        cloudBody.model = ModelComponent(mesh: mesh, materials: [CloudShell.material(tex, opacity: 0.9)])
+        cloudBody.model = ModelComponent(mesh: mesh, materials: [CloudShell.material(tex, opacity: 0.75)])
         cloudBody.isEnabled = true
     }
 

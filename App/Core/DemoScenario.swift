@@ -22,6 +22,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
     case lunaSurface
+    /// Посадочный блок в 300 м над Луной при низком Солнце: видны кратеры у места посадки.
+    case lunaDescent
     /// Капсула над площадкой, купол раскрывается в кадре.
     case chute
     /// Капсула на куполе за секунды до касания; затем экран результата.
@@ -85,6 +87,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
             }
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .lunaDescent:
+            return Self.lunaDescent(height: 300, speed: 12)
         case .chute:
             let sim = Self.descent(chute: true, height: 2_500, speed: 120)
             sim.send(.deployChute)
@@ -115,6 +119,22 @@ enum DemoScenario: String, CaseIterable, Sendable {
         let east = Vec3.unitZ.cross(up).normalized
         let v = World.surfaceVelocity(body: .terra, position: r) - up * speed
         return FlightSim(design: design, body: .terra, position: r, velocity: v,
+                         attitude: Quat(basisX: east, y: up, z: east.cross(up)))
+    }
+
+    /// Посадочный блок «Луны» над грунтом Луны, Солнце ≈ 17° над горизонтом (тени в кратерах).
+    private static func lunaDescent(height: Double, speed: Double) -> FlightSim {
+        let design = VesselDesign(name: "Посадка", parts: [.chute, .podK1, .t800, .legs, .shtil])
+        // Направление на Солнце — как `SkyVisual.sunDirection` (инерциальная система, неподвижно).
+        let sun = Vec3(0.6, 0.75, 0.3).normalized
+        let side = sun.cross(Vec3.unitZ).normalized
+        let up = (sun * 0.3 + side * 0.954).normalized
+        let fixed = World.toBodyFixed(up, body: .luna, time: 0)
+        let ground = Bodies.luna.radius + Terrain.surfaceHeight(body: .luna, direction: fixed)
+        let r = up * (ground + height)
+        let east = Vec3.unitZ.cross(up).normalized
+        let v = World.surfaceVelocity(body: .luna, position: r) - up * speed
+        return FlightSim(design: design, body: .luna, position: r, velocity: v,
                          attitude: Quat(basisX: east, y: up, z: east.cross(up)))
     }
 

@@ -23,7 +23,7 @@ final class CloudShell {
     let root = Entity()
     private let shell = ModelEntity()
     private var texture: TextureResource?
-    private var materials: [Int: PhysicallyBasedMaterial] = [:]
+    private var materials: [Int: UnlitMaterial] = [:]
     private var lastStep = -1
 
     /// Единичная сфера: UV по долготе/широте, нормаль наружу. Общая с картой.
@@ -73,15 +73,10 @@ final class CloudShell {
 
     func reset() { lastStep = -1 }
 
-    /// Материал слоя: белый, освещается Солнцем (ночью тёмный), прозрачность — из текстуры × `opacity`.
-    static func material(_ tex: TextureResource, opacity: Float) -> PhysicallyBasedMaterial {
-        var m = PhysicallyBasedMaterial()
-        m.baseColor = .init(tint: UIColor(white: 0.97, alpha: 1))
-        m.roughness = .init(floatLiteral: 1)
-        m.metallic = .init(floatLiteral: 0)
-        m.specular = .init(floatLiteral: 0)
-        m.blending = .transparent(opacity: .init(scale: opacity, texture: .init(tex)))
-        return m
+    /// Материал слоя: unlit, цвет и прозрачность — из текстуры (тот же путь, что у мягких эффектов,
+    /// проверен на устройстве/симуляторе; у PBR прозрачность по текстуре не применялась — белый шар).
+    static func material(_ tex: TextureResource, opacity: Float) -> UnlitMaterial {
+        SoftTextures.material(tex, tint: UIColor(white: 0.97, alpha: 1), opacity: opacity)
     }
 
     func update(_ f: AtmosphereFrame) {
@@ -94,7 +89,7 @@ final class CloudShell {
         let step = Int((fade * Double(Self.steps)).rounded())
         if step != lastStep {
             lastStep = step
-            let m: PhysicallyBasedMaterial
+            let m: UnlitMaterial
             if let cached = materials[step] {
                 m = cached
             } else {
@@ -150,8 +145,8 @@ final class CloudShell {
                     f *= 2.1
                 }
                 n /= 0.96875
-                let dense = Palette.smooth(0.52 - bias, 0.68 - bias, n)
-                let thin = 0.16 * Palette.smooth(0.40, 0.56, n)
+                let dense = Palette.smooth(0.57 - bias, 0.72 - bias, n)
+                let thin = 0.12 * Palette.smooth(0.46, 0.60, n)
                 let a = min(1, max(dense * 0.95, thin))
                 let v = UInt8(a * 255)
                 let o = (j * width + i) * 4
