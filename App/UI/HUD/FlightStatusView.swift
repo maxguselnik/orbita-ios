@@ -1,19 +1,33 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Постоянная сводка: состояние полёта видно и после отключения обучающих подсказок.
+/// Постоянная сводка одной строкой сверху по центру: состояние полёта + совет помощника подъёма
+/// (если он включён настройкой подсказок) или краткое пояснение. Видна и без подсказок.
 struct FlightStatusView: View {
     let model: FlightHUDModel
+    /// Помощник подъёма включён (настройка подсказок).
+    var ascentEnabled = true
 
     var body: some View {
         let t = model.telemetry
-        VStack(spacing: 2) {
-            Text(title(t)).font(.system(size: 12, weight: .heavy))
-            Text(detail(t)).font(.system(size: 10, weight: .medium))
+        let advice = ascentEnabled ? AscentGuide.advice(t) : nil
+        HStack(spacing: 6) {
+            Text(title(t)).font(.system(size: 11, weight: .heavy))
+            Text(verbatim: "·").foregroundStyle(HUDStyle.secondaryText)
+            if let advice {
+                Image(systemName: "diamond.fill").font(.system(size: 8)).foregroundStyle(NavballPalette.target)
+                Text(advice.text).foregroundStyle(NavballPalette.target)
+            } else {
+                Text(detail(t)).foregroundStyle(HUDStyle.secondaryText)
+            }
         }
+        .font(.system(size: 11, weight: .semibold))
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
         .foregroundStyle(.white)
         .padding(.horizontal, 12)
-        .padding(.vertical, 5)
+        .padding(.vertical, 4)
+        .frame(maxWidth: 480)
         .hudBackground(Color.black.opacity(0.8), corner: 8)
         .accessibilityElement(children: .combine)
         .allowsHitTesting(false)

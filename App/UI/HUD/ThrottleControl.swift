@@ -1,30 +1,37 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Левая колонка: вертикальный ползунок тяги, MAX и 0, кнопка «Карта».
-/// На карте над ней — SAS и «по узлу»: прожиг можно вести, не выходя из карты.
+/// Левая колонка: узкий ползунок тяги с MAX сверху и 0 снизу, рядом — один блок топлива и ступени,
+/// ниже кнопка «Карта». На карте над ней — SAS и «по узлу»: прожиг можно вести, не выходя из карты.
 struct ThrottleColumn: View {
     @Bindable var model: FlightHUDModel
 
+    static let width: CGFloat = 156
+
     var body: some View {
         VStack(spacing: 6) {
-            FuelReadout(model: model)
-            ThrottleSlider(value: $model.throttle, solidLocked: model.solidLocked)
-            HStack(spacing: 6) {
-                Button { model.throttle = 1 } label: { Text("MAX").frame(maxWidth: .infinity) }
-                    .buttonStyle(HUDButtonStyle())
-                    .accessibilityLabel("Полная тяга")
-                Button { model.throttle = 0 } label: { Text("0").frame(maxWidth: .infinity) }
-                    .buttonStyle(HUDButtonStyle())
-                    .accessibilityLabel("Тяга ноль")
+            HStack(alignment: .bottom, spacing: 6) {
+                VStack(spacing: 4) {
+                    Button { model.throttle = 1 } label: { Text("MAX").font(.system(size: 12, weight: .bold)) }
+                        .buttonStyle(HUDButtonStyle())
+                        .accessibilityLabel("Полная тяга")
+                    ThrottleSlider(value: $model.throttle, solidLocked: model.solidLocked)
+                        .frame(width: HUDStyle.minTouch)
+                        .frame(maxHeight: 150)
+                    Button { model.throttle = 0 } label: { Text("0").font(.system(size: 15, weight: .bold)) }
+                        .buttonStyle(HUDButtonStyle())
+                        .accessibilityLabel("Тяга ноль")
+                }
+                .frame(width: HUDStyle.minTouch)
+                FuelReadout(model: model)
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
-            .font(.system(size: 15, weight: .bold))
             if model.map.isOpen {
                 MapSASRow(model: model)
             }
             MapToggleButton(model: model)
         }
-        .frame(width: 112)
+        .frame(width: Self.width)
     }
 }
 
@@ -68,9 +75,11 @@ struct ThrottleSlider: View {
 
                 VStack(spacing: 2) {
                     Text(HUDFormat.percent(displayed))
-                        .font(.system(size: 15, weight: .bold).monospacedDigit())
+                        .font(.system(size: 11, weight: .bold).monospacedDigit())
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
                     Text(solidLocked ? "РДТТ" : "ТЯГА")
-                        .font(.system(size: 9, weight: .bold))
+                        .font(.system(size: 8, weight: .bold))
                         .foregroundStyle(HUDStyle.secondaryText)
                 }
                 .foregroundStyle(.white)
@@ -89,7 +98,7 @@ struct ThrottleSlider: View {
                     }
             )
         }
-        .frame(minHeight: 82)
+        .frame(minHeight: 70)
         .accessibilityElement()
         .accessibilityLabel("Тяга")
         .accessibilityValue(solidLocked ? "РДТТ работает на полной тяге, регулировка невозможна" : HUDFormat.percent(value))
@@ -104,34 +113,57 @@ struct ThrottleSlider: View {
     }
 }
 
-/// Запас топлива отделён от команды тяги: только текущая ступень, без резервов верхних.
+/// Один блок: топливо текущей ступени, «Ступень N из M», Δv ступени и всего, TWR и время работы.
 struct FuelReadout: View {
     let model: FlightHUDModel
 
     var body: some View {
-        let stages = model.telemetry.stages
+        let t = model.telemetry
+        let stages = t.stages
         let stage = stages.first
         let fraction = min(1, max(0, stage?.fuelFraction ?? 0))
         let hasFuelTank = (stage?.fuelCapacity ?? 0) > 0
         let color: Color = fraction < 0.15 ? .red : .cyan
-        VStack(alignment: .leading, spacing: 3) {
+        let reserve = stages.dropFirst().reduce(0) { $0 + $1.fuelMass }
+        let totalDeltaV = stages.reduce(0) { $0 + $1.deltaV }
+        VStack(alignment: .leading, spacing: 2) {
             HStack {
                 Text("ТОПЛИВО").font(.system(size: 9, weight: .heavy))
                 Spacer(minLength: 0)
                 Text(hasFuelTank ? HUDFormat.percent(fraction) : HUDFormat.dash)
-                    .font(.system(size: 14, weight: .heavy).monospacedDigit())
+                    .font(.system(size: 13, weight: .heavy).monospacedDigit())
                     .foregroundStyle(hasFuelTank ? color : HUDStyle.secondaryText)
             }
             ProgressView(value: fraction).tint(color)
-            Text(hasFuelTank ? HangarFormat.mass(stage?.fuelMass ?? 0) : "нет в этой ступени")
-                .font(.system(size: 10, weight: .semibold).monospacedDigit())
-            Text("Резерв: " + HangarFormat.mass(stages.dropFirst().reduce(0) { $0 + $1.fuelMass }))
-                .font(.system(size: 9, weight: .medium).monospacedDigit())
-                .foregroundStyle(HUDStyle.secondaryText)
+            if let stage {
+                line("Ступень \(max(model.totalStages, stages.count) - stages.count + 1) из \(max(model.totalStages, stages.count))", bold: true)
+                line("Δv \(HUDFormat.grouped(stage.deltaV)) / \(HUDFormat.grouped(totalDeltaV)) м/с")
+                line("TWR \(HUDFormat.twr(stage.twr))" + Self.burnText(stage, throttle: model.throttle, thrust: t.thrust))
+                line(hasFuelTank ? HangarFormat.mass(stage.fuelMass) + (reserve > 0 ? " · рез. " + HangarFormat.mass(reserve) : "")
+                                 : "топлива нет в ступени", secondary: true)
+            }
         }
         .foregroundStyle(.white)
-        .padding(8)
+        .padding(6)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .hudBackground(Color.black.opacity(0.82), corner: 10)
         .accessibilityElement(children: .combine)
+    }
+
+    /// Оставшееся время работы на текущей тяге: запас на полной тяге делится на дроссель.
+    /// Ничего не показываем, если двигатель не жжёт топливо этой ступени.
+    static func burnText(_ stage: StageInfo, throttle: Double, thrust: Double) -> String {
+        guard stage.burnTime > 0, stage.burnTime.isFinite else { return "" }
+        let level = stage.hasSolid ? 1 : (thrust > 0 ? max(throttle, 0.05) : 1)
+        let label = thrust > 0 ? " · ещё " : " · при MAX "
+        return label + HUDFormat.countdown(stage.burnTime / level)
+    }
+
+    private func line(_ text: String, bold: Bool = false, secondary: Bool = false) -> some View {
+        Text(text)
+            .font(.system(size: 9, weight: bold ? .heavy : .semibold).monospacedDigit())
+            .foregroundStyle(secondary ? HUDStyle.secondaryText : Color.white)
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
     }
 }

@@ -58,15 +58,15 @@ struct FlightHUDView: View {
                 MapFocusPicker(model: model, showLegend: $showLegend)
             } else {
                 // Навбол строго по центру экрана, независимо от ширины боковых колонок.
-                NavballView(model: model)
+                NavballView(model: model, ascentEnabled: hintsEnabled)
             }
         }
-        .overlay(alignment: .topLeading) {
+        .overlay(alignment: .top) {
             if !mapOpen {
-                FlightStatusView(model: model)
-                    .frame(width: 220)
-                    .padding(.leading, 120)
-                    .padding(.top, 60)
+                // Одна строка по центру под верхней полосой: состояние и совет помощника подъёма.
+                FlightStatusView(model: model, ascentEnabled: hintsEnabled)
+                    .padding(.horizontal, ThrottleColumn.width + 8)
+                    .padding(.top, 58)
             }
         }
         .overlay(alignment: .topLeading) {
@@ -78,8 +78,8 @@ struct FlightHUDView: View {
                     .padding(.vertical, 8)
                     .hudBackground(corner: 10)
                     .frame(width: 220)
-                    .padding(.leading, 120)
-                    .padding(.top, 114)
+                    .padding(.leading, ThrottleColumn.width + 12)
+                    .padding(.top, 92)
                     .id(toast.id)
                     .transition(.opacity)
                     .allowsHitTesting(false)
@@ -91,8 +91,8 @@ struct FlightHUDView: View {
                hint != .stage, hint != .throttle {
                 HintBanner(hint: hint) { model.dismissHints() }
                     .frame(width: 220)
-                    .padding(.leading, 120)
-                    .padding(.top, 166)
+                    .padding(.leading, ThrottleColumn.width + 12)
+                    .padding(.top, 142)
                     .transition(.opacity)
             }
         }

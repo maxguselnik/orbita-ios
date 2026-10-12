@@ -6,8 +6,10 @@ import SwiftUI
 /// слева от сферы — переключатель режима камеры и плашка узла манёвра.
 struct NavballView: View {
     let model: FlightHUDModel
+    /// Помощник подъёма включён: на сфере рисуется маркер цели.
+    var ascentEnabled = true
 
-    static let diameter: CGFloat = 124
+    static let diameter: CGFloat = 104
 
     var body: some View {
         let t = model.telemetry
@@ -16,7 +18,8 @@ struct NavballView: View {
             NavballReadout(telemetry: t, frame: frame) {
                 model.toggleSpeedFrame()
             }
-            NavballSphere(telemetry: t, frame: frame)
+            NavballSphere(telemetry: t, frame: frame,
+                          targetPitch: ascentEnabled ? AscentGuide.advice(t)?.targetPitch : nil)
                 .frame(width: Self.diameter, height: Self.diameter)
                 .overlay(alignment: .bottomLeading) {
                     // Слева от сферы: плашка узла манёвра (если есть) над кнопкой камеры.
@@ -128,6 +131,8 @@ enum NavballPalette {
     static let normal = Color(red: 0.90, green: 0.45, blue: 1.0)
     static let radial = Color(red: 0.35, green: 0.88, blue: 1.0)
     static let maneuver = Color(red: 0.25, green: 0.55, blue: 1.0)
+    /// Цель помощника подъёма.
+    static let target = Color(red: 1.0, green: 0.85, blue: 0.2)
 }
 
 // MARK: - Сфера
@@ -138,10 +143,13 @@ enum NavballPalette {
 struct NavballSphere: View {
     let telemetry: FlightTelemetry
     let frame: SpeedFrame
+    /// Целевой тангаж помощника подъёма, рад (курс — восток); nil — маркера нет.
+    var targetPitch: Double?
 
     var body: some View {
         let basis = NavballGeometry.Basis(pitch: telemetry.pitch, heading: telemetry.heading, roll: telemetry.roll)
         let markers = Self.markers(telemetry, frame: frame)
+        let target = targetPitch.map { basis.local(NavballGeometry.direction(latitude: $0, heading: AscentGuide.targetHeading)) }
         GeometryReader { geo in
             let r = min(geo.size.width, geo.size.height) / 2
             ZStack {
@@ -161,6 +169,15 @@ struct NavballSphere: View {
                         .frame(width: 20, height: 20)
                         .shadow(color: .black, radius: 1.5)
                         .offset(x: r * CGFloat(marker.vector.x), y: -r * CGFloat(marker.vector.z))
+                }
+
+                if let target, target.y > 0.02 {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(NavballPalette.target)
+                        .shadow(color: .black, radius: 1.5)
+                        .offset(x: r * CGFloat(target.x), y: -r * CGFloat(target.z))
+                        .accessibilityHidden(true)
                 }
 
                 NoseMarker()

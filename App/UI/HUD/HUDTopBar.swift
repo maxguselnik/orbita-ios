@@ -1,7 +1,7 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Верхняя полоса: телеметрия в две строки, ускорение времени, язычок панели ступеней, пауза.
+/// Верхняя полоса: телеметрия в строку и мелкая вторая строка, ускорение времени, язычок панели ступеней, пауза.
 /// Каждый кадр перерисовываются только числа (`TopBarMetrics`), кнопки — при смене своих полей.
 struct HUDTopBar: View {
     let model: FlightHUDModel
@@ -39,48 +39,50 @@ struct HUDTopBar: View {
     }
 }
 
-/// Телеметрия в две строки — единственная часть полосы, читающая кадр.
+/// Главные величины одной строкой (подпись над значением) и мелкая вторая строка с остальным —
+/// единственная часть полосы, читающая кадр.
 struct TopBarMetrics: View {
     let model: FlightHUDModel
 
     var body: some View {
         let t = model.telemetry
-        Grid(alignment: .leading, horizontalSpacing: 6, verticalSpacing: 3) {
-            GridRow {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(alignment: .top, spacing: 12) {
                 HUDMetric(label: "Высота", value: HUDFormat.distance(t.altitude))
-                HUDMetric(label: "Поверх.", value: HUDFormat.speed(t.surfaceSpeed))
-                HUDMetric(label: "Верт.", value: HUDFormat.signedSpeed(t.verticalSpeed))
-                HUDMetric(label: "Над землёй", value: HUDFormat.distance(t.heightAboveTerrain))
+                HUDMetric(label: "Скорость", value: HUDFormat.speed(t.surfaceSpeed))
+                HUDMetric(label: "Апоцентр", value: HUDFormat.distance(t.orbit?.apoapsisAltitude))
+                HUDMetric(label: "Перицентр", value: HUDFormat.periapsis(t.orbit?.periapsisAltitude))
+                HUDMetric(label: "До апоцентра", value: HUDFormat.countdown(t.orbit?.timeToApoapsis))
             }
-            GridRow {
-                HUDMetric(label: "Ап", value: HUDFormat.distance(t.orbit?.apoapsisAltitude))
-                HUDMetric(label: "Пе", value: HUDFormat.periapsis(t.orbit?.periapsisAltitude))
-                HUDMetric(label: "до Ап", value: HUDFormat.countdown(t.orbit?.timeToApoapsis))
-                HUDMetric(label: "Т+", value: HUDFormat.clock(t.missionTime))
-            }
+            Text("Вертикальная скорость \(HUDFormat.signedSpeed(t.verticalSpeed)) · над землёй \(HUDFormat.distance(t.heightAboveTerrain)) · \(HUDFormat.missionTime(t.missionTime))")
+                .font(.system(size: 9, weight: .medium).monospacedDigit())
+                .foregroundStyle(HUDStyle.secondaryText)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
         }
         .padding(.leading, 4)
     }
 }
 
-/// Подпись и значение телеметрии.
+/// Подпись над значением телеметрии.
 struct HUDMetric: View {
     let label: String
     let value: String
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
+        VStack(alignment: .leading, spacing: 0) {
             Text(label)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: 9, weight: .bold))
                 .foregroundStyle(HUDStyle.secondaryText)
+                .lineLimit(1)
             Text(value)
                 .font(.system(size: 14, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 // Самое длинное значение («−198.2 км», «12.00 Мм») сжимается, а не обрезается многоточием.
                 .minimumScaleFactor(0.7)
-                .frame(minWidth: 54, alignment: .leading)
         }
+        .frame(minWidth: 52, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }

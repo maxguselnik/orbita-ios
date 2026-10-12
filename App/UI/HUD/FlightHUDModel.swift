@@ -50,6 +50,8 @@ final class FlightHUDModel {
     private(set) var result: FlightResult?
     /// Подсказка первого полёта (показывает вьюха, если подсказки включены).
     private(set) var hint: HUDHint?
+    /// Наибольшее число ступеней за полёт: «Ступень N из M» (отделённые уже не в телеметрии).
+    private(set) var totalStages = 0
     /// Тяга 0…1 — положение ползунка, сохраняется между кадрами.
     var throttle: Double = 0
     var isPaused = false
@@ -120,6 +122,7 @@ final class FlightHUDModel {
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
         self.throttle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? 0
+        self.totalStages = t.stages.count
         if let scenario, scenario.opensMap {
             map.focus = scenario.mapFocus
             map.isOpen = true
@@ -190,6 +193,7 @@ final class FlightHUDModel {
         maneuverDrag = nil
         map.invalidate()
         advisor = FlightAdvisor()
+        totalStages = 0
         result = nil
         hint = nil
         feedback?.renderer?.reset()
@@ -386,6 +390,7 @@ final class FlightHUDModel {
         if throttle != currentThrottle { throttle = currentThrottle }
         let t = snapshot.telemetry
         telemetry = t
+        if t.stages.count > totalStages { totalStages = t.stages.count }
         if sas != t.sas { sas = t.sas }
         let stage = Self.stageStatus(t)
         if stageStatus != stage { stageStatus = stage }

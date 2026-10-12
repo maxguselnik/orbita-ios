@@ -111,4 +111,39 @@ struct RenderAndHUDTests {
         }
         #expect(!lod.renderedPatches.isEmpty)
     }
+
+    @Test func ascentTargetPitchInterpolatesByAltitude() {
+        #expect(AscentGuide.targetPitchDegrees(altitude: 0) == 90)
+        #expect(AscentGuide.targetPitchDegrees(altitude: 1_000) == 90)
+        #expect(abs(AscentGuide.targetPitchDegrees(altitude: 10_000) - 45) < 1e-9)
+        #expect(abs(AscentGuide.targetPitchDegrees(altitude: 45_000) - 10) < 1e-9)
+        #expect(AscentGuide.targetPitchDegrees(altitude: 80_000) == 0)
+        let mid = AscentGuide.targetPitchDegrees(altitude: 5_500)
+        #expect(mid > 45 && mid < 90)
+    }
+
+    @Test func ascentAdviceFollowsFlightPhases() {
+        var t = FlightTelemetry(situation: .prelaunch)
+        t.nextStageAction = .ignite
+        #expect(AscentGuide.advice(t)?.text == "Зажигание → Тяга MAX")
+
+        t = FlightTelemetry(altitude: 20_000, situation: .suborbital, pitch: 1.0, heading: .pi / 2)
+        t.mission.launched = true
+        t.thrust = 1_000
+        let turning = AscentGuide.advice(t)
+        #expect(turning?.text.contains("нос выше") == true)
+        #expect(turning?.targetPitch != nil)
+
+        t.orbit = OrbitSummary(body: .terra, apoapsisAltitude: 85_000, periapsisAltitude: -300_000,
+                               timeToApoapsis: 100, timeToPeriapsis: nil, eccentricity: 0.9, inclination: 0, period: 3_000)
+        #expect(AscentGuide.advice(t)?.text == "Ап 80 км — тяга 0")
+
+        t.altitude = 80_000
+        t.thrust = 0
+        #expect(AscentGuide.advice(t)?.text.contains("ПРОГРАДИЕНТ") == true)
+
+        t.orbit?.periapsisAltitude = 80_000
+        #expect(AscentGuide.advice(t)?.text == "Вы на орбите")
+        #expect(AscentGuide.advice(t)?.targetPitch == nil)
+    }
 }

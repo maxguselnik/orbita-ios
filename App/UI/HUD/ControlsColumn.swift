@@ -1,15 +1,16 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Правая колонка: сетка SAS 3×3, джойстик с кнопками крена, «Ступень».
+/// Правая колонка: «SAS вкл/выкл», сетка режимов 4×2, джойстик с кнопками крена, «Ступень».
 struct ControlsColumn: View {
     let model: FlightHUDModel
 
     static let width: CGFloat = 196
 
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 6) {
             Spacer(minLength: 0)
+            SASToggleButton(model: model)
             SASGrid(model: model)
             AttitudeControls(model: model)
             StageButton(model: model)
@@ -20,7 +21,7 @@ struct ControlsColumn: View {
 
 // MARK: - SAS
 
-/// Сетка SAS: держать, прогрейд, ретрогрейд / нормаль, антинормаль, наружу / внутрь, узел, вкл-выкл.
+/// Сетка режимов SAS 4×2 (включение — отдельной кнопкой `SASToggleButton` над ней).
 struct SASGrid: View {
     let model: FlightHUDModel
 
@@ -33,21 +34,18 @@ struct SASGrid: View {
                 modeButton(.hold, current)
                 modeButton(.prograde, current)
                 modeButton(.retrograde, current)
+                modeButton(.maneuver, current)
+                    .disabled(!model.hasManeuver && current != .maneuver)
+                    .opacity(model.hasManeuver || current == .maneuver ? 1 : 0.45)
             }
             GridRow {
                 modeButton(.normal, current)
                 modeButton(.antiNormal, current)
                 modeButton(.radialOut, current)
-            }
-            GridRow {
                 modeButton(.radialIn, current)
-                modeButton(.maneuver, current)
-                    .disabled(!model.hasManeuver && current != .maneuver)
-                    .opacity(model.hasManeuver || current == .maneuver ? 1 : 0.45)
-                SASToggleButton(model: model)
             }
         }
-        .frame(width: Self.cell * 3 + 8)
+        .frame(width: Self.cell * 4 + 12)
     }
 
     private func modeButton(_ mode: SASMode, _ current: SASMode) -> some View {
@@ -56,7 +54,7 @@ struct SASGrid: View {
         } label: {
             VStack(spacing: 1) {
                 SASIcon(mode: mode)
-                    .frame(width: 20, height: 20)
+                    .frame(width: 18, height: 18)
                 Text(Self.shortName(mode))
                     .font(.system(size: 8, weight: .bold))
                     .lineLimit(1)
@@ -70,12 +68,12 @@ struct SASGrid: View {
     static func shortName(_ mode: SASMode) -> String {
         switch mode {
         case .off: "выкл"
-        case .hold: "ДЕРЖ"
+        case .hold: "ДЕРЖАТЬ"
         case .prograde: "ПРОГР"
         case .retrograde: "РЕТРО"
         case .normal: "НОРМ"
         case .antiNormal: "АНТИ"
-        case .radialOut: "НАРУЖ"
+        case .radialOut: "НАРУЖУ"
         case .radialIn: "ВНУТРЬ"
         case .maneuver: "УЗЕЛ"
         }
@@ -176,7 +174,7 @@ struct SASIcon: View {
     }
 }
 
-/// SAS вкл/выкл (включение — «держать ориентацию»).
+/// SAS вкл/выкл отдельной явной кнопкой (включение — «держать ориентацию»).
 struct SASToggleButton: View {
     let model: FlightHUDModel
 
@@ -185,9 +183,13 @@ struct SASToggleButton: View {
         Button {
             model.toggleSAS()
         } label: {
-            VStack(spacing: 1) {
-                Text("SAS").font(.system(size: 15, weight: .heavy))
-                Text(current == .off ? "выкл" : "вкл").font(.system(size: 9, weight: .bold))
+            HStack(spacing: 6) {
+                Image(systemName: current == .off ? "power" : "checkmark.circle.fill")
+                    .font(.system(size: 13, weight: .bold))
+                Text(current == .off ? "SAS выключен" : "SAS включён")
+                    .font(.system(size: 13, weight: .heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             }
             .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch)
         }
@@ -224,7 +226,7 @@ struct Joystick: View {
     /// Отклонение −1…1 по осям (dy вниз — положительное).
     let onMove: (CGVector) -> Void
 
-    let size: CGFloat = 92
+    let size: CGFloat = 80
     private var travel: CGFloat { size / 2 - 20 }
     @GestureState private var offset: CGSize = .zero
 
@@ -273,7 +275,7 @@ struct HoldButton: View {
         Image(systemName: systemImage)
             .font(.system(size: 20, weight: .bold))
             .foregroundStyle(pressed ? Color.black : Color.white)
-            .frame(width: HUDStyle.minTouch, height: 60)
+            .frame(width: HUDStyle.minTouch, height: 56)
             .contentShape(Rectangle())
             .hudBackground(pressed ? HUDStyle.active : HUDStyle.control, corner: 10)
             .gesture(
@@ -314,7 +316,7 @@ struct StageButton: View {
                 Image(systemName: t.action == .armChute ? "arrow.down.to.line.compact" : "square.stack.3d.down.right.fill")
                     .font(.system(size: 18, weight: .bold))
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(.system(size: 17, weight: .heavy))
+                    Text(title).font(.system(size: 18, weight: .heavy))
                     if !compact {
                         Text(detail)
                             .font(.system(size: 10, weight: .bold).monospacedDigit())
@@ -322,7 +324,7 @@ struct StageButton: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 54)
+            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 58)
         }
         .buttonStyle(HUDButtonStyle(fill: HUDStyle.accent.opacity(0.85)))
         .disabled(t.action == .none)
