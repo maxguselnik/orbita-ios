@@ -50,7 +50,7 @@ struct HangarView: View {
         .padding(.vertical, 4)
         .background(Color(red: 0.05, green: 0.06, blue: 0.09).ignoresSafeArea())
         .onChange(of: design.parts, initial: true) {
-            attachment = min(attachment, design.parts.count)
+            attachment = undoStack.isEmpty && selected == nil ? design.parts.count : min(attachment, design.parts.count)
             refreshScene()
         }
         .onChange(of: selected) { refreshScene() }
@@ -170,7 +170,19 @@ struct HangarView: View {
     // MARK: - Центр: превью и предупреждения
 
     private func preview(issues: [DesignIssue]) -> some View {
-        ZStack(alignment: .bottom) {
+        VStack(spacing: 0) {
+            VStack(spacing: 3) {
+                Text(flow.design.parts.isEmpty ? "СОБЕРИТЕ КОРАБЛЬ" : "КРЕПЛЕНИЕ \(attachment + 1)")
+                    .font(.system(size: 11, weight: .heavy))
+                Text(flow.design.parts.isEmpty ? "Капсула → бак → двигатель" : "Тап по детали · перенос из каталога · + между деталями")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.white)
+            .padding(8)
+            .hudBackground(Color.black.opacity(0.8), corner: 8)
+            .padding(6)
+            .allowsHitTesting(false)
+            ZStack(alignment: .bottom) {
             GeometryReader { geo in
                 HangarSceneView(scene: scene)
                 HangarGestureLayer { scene.apply($0) }
@@ -187,21 +199,10 @@ struct HangarView: View {
                         return drop(item, at: index)
                     }
             }
-            VStack(spacing: 3) {
-                Text(flow.design.parts.isEmpty ? "СОБЕРИТЕ КОРАБЛЬ" : "КРЕПЛЕНИЕ \(attachment + 1)")
-                    .font(.system(size: 11, weight: .heavy))
-                Text(flow.design.parts.isEmpty ? "Капсула → бак → двигатель" : "Тап по детали · перенос из каталога · + между деталями")
-                    .font(.system(size: 10, weight: .medium))
-            }
-            .foregroundStyle(.white)
-            .padding(8)
-            .hudBackground(Color.black.opacity(0.8), corner: 8)
-            .frame(maxHeight: .infinity, alignment: .top)
-            .padding(6)
-            .allowsHitTesting(false)
             warnings(issues)
                 .padding(6)
                 .allowsHitTesting(false)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipShape(RoundedRectangle(cornerRadius: HUDStyle.corner, style: .continuous))
