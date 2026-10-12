@@ -2,120 +2,13 @@ import OrbitPhysics
 import simd
 import SwiftUI
 
-/// Навбол снизу по центру: 3D-сфера; справа от неё — малая плашка скорости/курса (тап — орбита/поверхность),
-/// слева — значок режима камеры и плашка узла манёвра. Над сферой ничего нет — корабль не перекрыт.
-struct NavballView: View {
-    let model: FlightHUDModel
-    /// Помощник подъёма включён: на сфере рисуется маркер цели.
-    var ascentEnabled = true
-
-    static let diameter: CGFloat = 96
-
-    var body: some View {
-        let t = model.telemetry
-        let frame = model.speedFrame(for: t)
-        NavballSphere(telemetry: t, frame: frame,
-                      targetPitch: ascentEnabled ? AscentGuide.advice(t)?.targetPitch : nil)
-            .frame(width: Self.diameter, height: Self.diameter)
-            .overlay(alignment: .bottomLeading) {
-                // Слева от сферы: плашка узла манёвра (если есть) над значком камеры.
-                VStack(alignment: .trailing, spacing: 6) {
-                    if let status = t.maneuver {
-                        ManeuverBadge(status: status) { model.toggleMap() }
-                    }
-                    CameraModeButton(model: model)
-                }
-                .fixedSize()
-                .alignmentGuide(.leading) { $0[.trailing] + 8 }
-            }
-            .overlay(alignment: .bottomTrailing) {
-                // Справа от сферы: скорость и курс.
-                NavballReadout(telemetry: t, frame: frame) {
-                    model.toggleSpeedFrame()
-                }
-                .fixedSize()
-                .alignmentGuide(.trailing) { $0[.leading] - 8 }
-            }
-    }
-}
-
-/// Скорость в выбранной системе и курс. Тап — орбита ↔ поверхность.
-struct NavballReadout: View {
-    let telemetry: FlightTelemetry
-    let frame: SpeedFrame
-    let onTap: () -> Void
-
-    var body: some View {
-        let speed = frame == .orbit ? telemetry.speed : telemetry.surfaceSpeed
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 5) {
-                    Text(frame == .orbit ? "ОРБ" : "ПОВ")
-                        .font(.system(size: 9, weight: .heavy))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 4)
-                        .padding(.vertical, 1)
-                        .background(frame == .orbit ? HUDStyle.active : NavballPalette.prograde,
-                                    in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    Text(HUDFormat.heading(telemetry.heading))
-                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
-                        .foregroundStyle(HUDStyle.secondaryText)
-                }
-                Text(HUDFormat.speed(speed))
-                    .font(.system(size: 14, weight: .bold).monospacedDigit())
-            }
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .hudBackground(corner: 8)
-            .frame(minHeight: HUDStyle.minTouch)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(frame == .orbit ? "Орбитальная скорость \(HUDFormat.speed(speed))"
-                                            : "Скорость относительно поверхности \(HUDFormat.speed(speed))")
-        .accessibilityHint("Переключить орбита или поверхность")
-    }
-}
-
-/// Кнопка режима камеры: одно нажатие — следующий режим по кругу.
-struct CameraModeButton: View {
-    let model: FlightHUDModel
-
-    static let width: CGFloat = HUDStyle.minTouch
-
-    var body: some View {
-        let mode = model.cameraMode
-        Button {
-            model.cycleCameraMode()
-        } label: {
-            Image(systemName: Self.symbol(mode))
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 36, height: 36)
-                .hudBackground(corner: 18)
-                .frame(width: Self.width, height: Self.width)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(HUDPressStyle())
-        .accessibilityLabel("Камера: \(Self.fullName(mode))")
-        .accessibilityHint("Переключить режим камеры")
-    }
-
+/// Значки и названия режимов камеры (кнопка в правой колонке).
+enum CameraModeInfo {
     static func symbol(_ mode: CameraMode) -> String {
         switch mode {
         case .free: "rotate.3d"
         case .follow: "scope"
         case .heading: "location.north.line"
-        }
-    }
-
-    static func shortName(_ mode: CameraMode) -> String {
-        switch mode {
-        case .free: "СВОБ"
-        case .follow: "СЛЕД"
-        case .heading: "КУРС"
         }
     }
 

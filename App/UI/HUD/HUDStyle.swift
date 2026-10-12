@@ -12,7 +12,32 @@ enum HUDStyle {
     static let secondaryText = Color.white.opacity(0.65)
 }
 
+/// Палитра «классической» раскладки: тёмные панели, зелёный — активное, оранжевый — главное действие.
+enum HUDPalette {
+    static let panel = Color(red: 12 / 255, green: 16 / 255, blue: 24 / 255).opacity(0.85)
+    static let stroke = Color(red: 0x2A / 255, green: 0x34 / 255, blue: 0x46 / 255)
+    static let strokeBright = Color(red: 0x4A / 255, green: 0x56 / 255, blue: 0x70 / 255)
+    static let green = Color(red: 0x7C / 255, green: 0xE3 / 255, blue: 0x8B / 255)
+    static let greenDark = Color(red: 0x2F / 255, green: 0x7D / 255, blue: 0x3A / 255)
+    static let greenRing = Color(red: 0x4C / 255, green: 0xC3 / 255, blue: 0x5E / 255)
+    static let accent = Color(red: 0xF2 / 255, green: 0xA0 / 255, blue: 0x3D / 255)
+    static let accentText = Color(red: 0x1A / 255, green: 0x12 / 255, blue: 0x06 / 255)
+    static let sas = Color(red: 0x3E / 255, green: 0xC6 / 255, blue: 0xF0 / 255)
+    static let muted = Color(red: 0x8C / 255, green: 0x98 / 255, blue: 0xAA / 255)
+    static let text = Color(red: 0xE8 / 255, green: 0xEE / 255, blue: 0xF5 / 255)
+    static let advice = Color(red: 1.0, green: 0xD5 / 255, blue: 0x4A / 255)
+    static let lcd = Color(red: 0xD5 / 255, green: 0xF0 / 255, blue: 0x5A / 255)
+    static let consoleTop = Color(red: 0x2E / 255, green: 0x37 / 255, blue: 0x48 / 255)
+    static let consoleBottom = Color(red: 0x12 / 255, green: 0x16 / 255, blue: 0x20 / 255)
+}
+
 extension View {
+    /// Тёмная панель классической раскладки: подложка ~85 % и тонкая рамка.
+    func classicPanel(corner: CGFloat = 8, fill: Color = HUDPalette.panel, stroke: Color = HUDPalette.stroke) -> some View {
+        background(fill, in: RoundedRectangle(cornerRadius: corner, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: corner, style: .continuous).strokeBorder(stroke, lineWidth: 1))
+    }
+
     /// Плотная подложка элемента HUD.
     func hudBackground(_ fill: Color = HUDStyle.panel, corner: CGFloat = HUDStyle.corner) -> some View {
         background(fill, in: RoundedRectangle(cornerRadius: corner, style: .continuous))

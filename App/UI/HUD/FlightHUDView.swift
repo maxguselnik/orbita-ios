@@ -4,8 +4,9 @@ import SwiftUI
 /// HUD полёта поверх 3D-сцены. Держит игровой цикл UI: `FrameDriver` (CADisplayLink с частотой
 /// из настроек) каждый кадр вызывает `tick` — ввод → `advance` → новый снимок; само дерево вьюх
 /// по кадру не пересобирается. Центр экрана свободен: там жесты камеры.
-/// Карта (`model.map.isOpen`): навбол и джойстик уходят, справа — панель узла манёвра,
-/// по центру — подписи отметок и ручки Δv (`MapOverlay`).
+/// Раскладка «классика»: сверху время и высотомер, слева стопка ступеней и кнопка действия, снизу по центру
+/// корпус навбола, справа джойстик. Карта (`model.map.isOpen`): навбол и джойстик уходят, справа — панель
+/// узла манёвра, по центру — подписи отметок и ручки Δv (`MapOverlay`).
 struct FlightHUDView: View {
     let model: FlightHUDModel
     var frameRate: FrameRate = .hz90
@@ -37,67 +38,40 @@ struct FlightHUDView: View {
                 MapOverlay(model: model)
             }
 
-            VStack(spacing: 6) {
-                HUDTopBar(model: model)
-
-                HStack(alignment: .bottom, spacing: 8) {
-                    ThrottleColumn(model: model, guide: guide)
-                    if mapOpen {
-                        MapCenterColumn(model: model)
-                        MapSideColumn(model: model)
-                            .overlay(alignment: .topTrailing) { stagePanel }
-                    } else {
-                        Spacer(minLength: 0)
-                        ControlsColumn(model: model, guide: guide)
-                            .overlay(alignment: .topTrailing) { stagePanel }
-                    }
-                }
-            }
-            .padding(.top, 4)
-
             if mapOpen {
+                MapLayer(model: model)
                 MapFocusPicker(model: model, showLegend: $showLegend)
             } else {
-                // Навбол строго по центру экрана, независимо от ширины боковых колонок.
-                NavballView(model: model, ascentEnabled: hintsEnabled)
+                FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled)
             }
         }
         .overlay(alignment: .top) {
-            if !mapOpen {
-                // Одна строка по центру под верхней полосой: состояние и совет помощника подъёма.
-                FlightStatusView(model: model, ascentEnabled: hintsEnabled)
-                    .padding(.horizontal, ThrottleColumn.width + 8)
-                    .padding(.top, 54)
+            // Тосты и подсказки: по центру под высотомером и строкой совета, ключевых кнопок не закрывают.
+            VStack(spacing: 6) {
+                if let toast = model.toast {
+                    Text(toast.text)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .hudBackground(corner: 10)
+                        .frame(width: 220)
+                        .id(toast.id)
+                        .transition(.opacity)
+                        .allowsHitTesting(false)
+                }
+                if hintsEnabled, !hintsDone, let hint = model.hint, !model.isPaused,
+                   hint != .stage, hint != .throttle {
+                    HintBanner(hint: hint) { model.dismissHints() }
+                        .frame(width: 300)
+                        .transition(.opacity)
+                }
             }
-        }
-        .overlay(alignment: .topLeading) {
-            if let toast = model.toast {
-                Text(toast.text)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .hudBackground(corner: 10)
-                    .frame(width: 220)
-                    .padding(.leading, ThrottleColumn.width + 12)
-                    .padding(.top, 92)
-                    .id(toast.id)
-                    .transition(.opacity)
-                    .allowsHitTesting(false)
-            }
+            .padding(.top, mapOpen ? 54 : 116)
         }
         .animation(.easeOut(duration: 0.2), value: model.toast)
-        .overlay(alignment: .topLeading) {
-            if hintsEnabled, !hintsDone, let hint = model.hint, !model.isPaused,
-               hint != .stage, hint != .throttle {
-                HintBanner(hint: hint) { model.dismissHints() }
-                    .frame(width: 220)
-                    .padding(.leading, ThrottleColumn.width + 12)
-                    .padding(.top, 142)
-                    .transition(.opacity)
-            }
-        }
         .animation(.easeOut(duration: 0.2), value: model.hint)
+        .overlay(alignment: .topTrailing) { stagePanel }
         .overlay(alignment: .bottom) {
             if mapOpen, !model.isPaused {
                 // Пошаговая подсказка карты: над переключателем фокуса, центр экрана свободен.
@@ -143,13 +117,154 @@ struct FlightHUDView: View {
         }
     }
 
-    /// Панель ступеней выезжает поверх правой колонки, «Ступень» остаётся доступной.
+    /// Панель ступеней выезжает слева от правых иконок; джойстик и MAX остаются доступными.
     @ViewBuilder private var stagePanel: some View {
         if model.isPanelOpen {
             StagePanel(model: model)
-                .padding(.bottom, (model.map.isOpen ? HUDStyle.minTouch : 54) + 8)
+                .padding(.top, 6)
+                .padding(.trailing, HUDStyle.minTouch + 8)
+                .padding(.bottom, model.map.isOpen ? 60 : 150)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
         }
+    }
+}
+
+/// Раскладка полёта: все элементы привязаны к краям и углам, центр экрана свободен для жестов камеры.
+struct FlightLayer: View {
+    let model: FlightHUDModel
+    let guide: HUDAction?
+    let hintsEnabled: Bool
+
+    var body: some View {
+        ZStack {
+            topLeft
+            topCenter
+            topRight
+            leftColumn
+            bottomCenter
+            bottomRight
+        }
+        // Корпус навбола уходит за нижний край, поэтому нижняя безопасная зона не сдвигает его.
+        .ignoresSafeArea(.container, edges: .bottom)
+    }
+
+    private var topLeft: some View {
+        MissionTimeBar(model: model)
+            .padding(.top, 6)
+            .padding(.leading, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var topCenter: some View {
+        VStack(spacing: 6) {
+            AltimeterPanel(model: model)
+            FlightStatusView(model: model, ascentEnabled: hintsEnabled)
+        }
+        .padding(.top, 4)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+
+    private var topRight: some View {
+        HStack(alignment: .top, spacing: 4) {
+            if CrewPlaceholder.hasCabin(model.parts) {
+                CrewPlaceholder()
+                    .padding(.top, 4)
+            }
+            HUDSideButtons(model: model)
+        }
+        .padding(.trailing, 4)
+        .padding(.top, 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+    }
+
+    /// Стопка ступеней под плашкой времени, внизу — кнопка действия, рядом с ней — режим SAS.
+    private var leftColumn: some View {
+        ZStack {
+            StageStackView(model: model)
+                .padding(.top, 46)
+                .padding(.leading, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            StageButton(model: model, highlighted: guide == .stage)
+                .frame(width: StageStackView.width)
+                .padding(.leading, 6)
+                .padding(.bottom, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            SASModePill(model: model)
+                .padding(.leading, 6 + StageStackView.width + 2)
+                .padding(.bottom, 80)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
+    }
+
+    private var bottomCenter: some View {
+        NavballConsole(model: model, ascentEnabled: hintsEnabled)
+            .offset(y: NavballConsole.overhang)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    }
+
+    private var bottomRight: some View {
+        ZStack {
+            ManeuverBadgeHost(model: model)
+                .padding(.trailing, 8)
+                .padding(.bottom, 114)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            ControlsCluster(model: model, guide: guide)
+                .padding(.trailing, 4)
+                .padding(.bottom, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        }
+    }
+}
+
+/// Плашка узла манёвра над джойстиком (тап — карта); читает телеметрию узла каждый кадр.
+struct ManeuverBadgeHost: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        if let status = model.telemetry.maneuver {
+            ManeuverBadge(status: status) { model.toggleMap() }
+        }
+    }
+}
+
+/// Раскладка карты: время сверху слева, «Ступени» справа, слева SAS и «Полёт», по центру — сводка карты,
+/// справа — панель узла манёвра и «Ступень».
+struct MapLayer: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        ZStack {
+            MissionTimeBar(model: model)
+                .padding(.top, 6)
+                .padding(.leading, 6)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            HUDSideButtons(model: model)
+                .padding(.trailing, 4)
+                .padding(.top, 2)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            HStack(alignment: .bottom, spacing: 8) {
+                MapLeftColumn(model: model)
+                MapCenterColumn(model: model)
+                MapSideColumn(model: model)
+            }
+            .padding(.top, 50)
+        }
+    }
+}
+
+/// Левая колонка карты: SAS (вкл/выкл и «по узлу») и кнопка «Полёт».
+struct MapLeftColumn: View {
+    let model: FlightHUDModel
+
+    static let width: CGFloat = 156
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Spacer(minLength: 0)
+            MapSASRow(model: model)
+            MapToggleButton(model: model)
+        }
+        .frame(width: Self.width)
     }
 }
 

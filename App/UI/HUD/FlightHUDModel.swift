@@ -49,6 +49,8 @@ final class FlightHUDModel {
     private(set) var onPad: Bool
     /// Главное следующее действие (подсветка кнопки); меняется редко.
     private(set) var guide: HUDAction?
+    /// Детали активного корабля сверху вниз: стек ступеней и экипаж в HUD. Меняется при отделении.
+    private(set) var parts: [PartID]
     private(set) var toast: HUDToast?
     /// Панель итогов полёта: авария или посадка.
     private(set) var result: FlightResult?
@@ -125,6 +127,7 @@ final class FlightHUDModel {
         self.solidLocked = Self.solidLocked(t)
         self.onPad = t.situation == .prelaunch
         self.guide = Self.guideAction(t)
+        self.parts = Self.activeParts(snapshot)
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
         self.throttle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? 0
@@ -408,6 +411,8 @@ final class FlightHUDModel {
         if onPad != pad { onPad = pad }
         let action = Self.guideAction(t)
         if guide != action { guide = action }
+        let shipParts = Self.activeParts(snapshot)
+        if parts != shipParts { parts = shipParts }
         let node = t.maneuver?.node
         if maneuverNode != node { maneuverNode = node }
         let canWarp = Self.canWarp(t)
@@ -426,6 +431,10 @@ final class FlightHUDModel {
             return .stage
         }
         return nil
+    }
+
+    private static func activeParts(_ snapshot: WorldSnapshot) -> [PartID] {
+        snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.parts ?? []
     }
 
     private static func canWarp(_ t: FlightTelemetry) -> Bool {

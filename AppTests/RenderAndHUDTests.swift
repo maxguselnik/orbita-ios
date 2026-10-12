@@ -146,4 +146,49 @@ struct RenderAndHUDTests {
         #expect(AscentGuide.advice(t)?.text == "Вы на орбите")
         #expect(AscentGuide.advice(t)?.targetPitch == nil)
     }
+
+    @Test func warpWindowKeepsCurrentLevelVisible() {
+        #expect(WarpButtons.window(current: 0) == [0, 1, 2])
+        #expect(WarpButtons.window(current: 3) == [2, 3, 4])
+        let last = TimeWarp.levels.count - 1
+        #expect(WarpButtons.window(current: last) == [last - 2, last - 1, last])
+    }
+
+    @Test func odometerShowsSixDigitsAndSwitchesToKilometers() {
+        let low = AltimeterReading(altitude: 11_704.9)
+        #expect(low.digits.joined() == "011704")
+        #expect(low.unit == "м")
+        let high = AltimeterReading(altitude: 1_234_567)
+        #expect(high.digits.joined() == "001234")
+        #expect(high.unit == "км")
+        #expect(AltimeterReading(altitude: -5).digits.joined() == "000000")
+        #expect(AtmosphereScale.markerPosition(altitude: 0) == 1)
+        #expect(AtmosphereScale.markerPosition(altitude: 70_000) == 0)
+    }
+
+    @Test func stageGroupsFollowDecouplersAndTelemetry() {
+        let design = VesselDesign.orbit
+        let groups = StageGroup.groups(parts: design.parts, stages: design.stageInfos())
+        #expect(groups.map(\.number) == [3, 2, 1])
+        #expect(groups.first?.items.map(\.kind) == [.chute, .pod])
+        #expect(groups.last?.isCurrent == true)
+        #expect(groups.last?.items.contains { $0.kind == .tank && $0.count == 2 } == true)
+        // Без деталей — заглушка по флагам ступени.
+        let stub = StageGroup.groups(parts: [], stages: design.stageInfos())
+        #expect(stub.count == 3)
+        #expect(stub.last?.items.map(\.kind) == [.tank, .engine])
+    }
+
+    @Test func throttleArcMapsTouchAngleToFraction() {
+        let center = CGPoint(x: 50, y: 50)
+        #expect(abs(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 100), center: center)) < 1e-9)
+        #expect(abs(GaugeMath.fraction(forTouch: CGPoint(x: 0, y: 50), center: center) - 0.5) < 1e-9)
+        #expect(abs(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 0), center: center) - 1) < 1e-9)
+        #expect(GaugeMath.fraction(forTouch: CGPoint(x: 120, y: 10), center: center) == 1)
+    }
+
+    @Test func crewShownOnlyWithCabin() {
+        #expect(CrewPlaceholder.hasCabin(VesselDesign.orbit.parts))
+        #expect(!CrewPlaceholder.hasCabin([.chute, .decoupler, .t100]))
+    }
 }
