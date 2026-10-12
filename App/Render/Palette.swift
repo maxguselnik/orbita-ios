@@ -93,7 +93,10 @@ enum Palette {
     @MainActor
     static func texture(_ rows: [[Key]]) async -> TextureResource? {
         guard let cg = image(rows) else { return nil }
-        return try? await TextureResource(image: cg, options: .init(semantic: .color))
+        // Без мип-уровней: палитра по u, усреднение по мипам смешало бы все цвета.
+        var options = TextureResource.CreateOptions(semantic: .color)
+        options.mipmapsMode = .none
+        return try? await TextureResource(image: cg, options: options)
     }
 
     // MARK: - UV рельефа

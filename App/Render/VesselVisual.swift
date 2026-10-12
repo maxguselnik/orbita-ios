@@ -114,7 +114,7 @@ final class VesselVisual {
         canopy = e
     }
 
-    // ДИАГНОСТИКА (временно): ascent — без факелов; flight — принудительный непрозрачный факел.
+    // ДИАГНОСТИКА (временно): flight — принудительный прозрачный факел; ascent — непрозрачный.
     static let diagScene: String = {
         let a = ProcessInfo.processInfo.arguments
         if let i = a.firstIndex(of: "-screen"), i + 1 < a.count { return a[i + 1] }
@@ -128,13 +128,10 @@ final class VesselVisual {
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
             var on = v.firingEngines.contains(i)
-            if Self.diagScene == "ascent" { on = false }
-            if Self.diagScene == "flight", v.isActive {
-                on = true
-                if p.outer.model?.materials.first is UnlitMaterial, !diagApplied {
-                    p.outer.model?.materials = [UnlitMaterial(color: .orange)]
-                    p.core.model?.materials = [UnlitMaterial(color: .yellow)]
-                }
+            if Self.diagScene == "flight", v.isActive { on = true }
+            if Self.diagScene == "ascent", !diagApplied {
+                p.outer.model?.materials = [UnlitMaterial(color: .orange)]
+                p.core.model?.materials = [UnlitMaterial(color: .yellow)]
             }
             if p.entity.isEnabled != on { p.entity.isEnabled = on }
             guard on else { continue }
