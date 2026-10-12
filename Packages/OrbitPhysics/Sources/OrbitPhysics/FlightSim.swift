@@ -67,8 +67,17 @@ public final class FlightSim: FlightSimulation {
     public private(set) var sas: SASMode = .hold
     /// Направление, которое держит автопилот (перекрывает SAS, но не ручной ввод).
     public var autopilotDirection: Vec3?
-    /// Узел манёвра для маркера навбола.
-    public var maneuverNode: ManeuverNode?
+    /// Узел манёвра активного корабля (ставится командой `.setManeuver`).
+    public private(set) var maneuverNode: ManeuverNode?
+    /// Импульс узла в инерциальной системе (на момент установки) и оставшийся импульс, м/с.
+    /// Оставшийся уменьшается на ускорение тяги × h на каждом шаге физики.
+    /// Системы Терры и Луны параллельны (сдвиг без поворота), поэтому при смене SOI вектор не меняется.
+    private(set) var maneuverDeltaV: Vec3 = .zero
+    private(set) var maneuverRemaining: Vec3 = .zero
+    /// Сожжённый вектор (инерциальный): сумма ускорения тяги × h с момента первой установки узла.
+    private(set) var maneuverBurned: Vec3 = .zero
+    /// `warpToManeuver` активен: рельсы остановятся за `ManeuverStatus.warpLead` с до начала прожига.
+    private(set) var warpToManeuverActive = false
 
     var vessels: [Vessel] = []
     var activeID: VesselID
@@ -175,6 +184,8 @@ public final class FlightSim: FlightSimulation {
             hold = active.q
         case .setWarp(let idx): setWarp(idx)
         case .deployChute: armChute()
+        case .setManeuver(let node): setManeuver(node)
+        case .warpToManeuver: warpToManeuver()
         }
         rebuildSnapshot()
     }
@@ -192,15 +203,28 @@ public final class FlightSim: FlightSimulation {
             railsBacklog = 0
             physicalAdvance(realDelta * w)
         } else {
-            let total = realDelta * w + railsBacklog
+            let full = realDelta * w + railsBacklog
             railsBacklog = 0
+            // Остановка у узла: участок рельсов обрезается точно по моменту остановки.
+            var total = full
+            var stopTime: Double?
+            if warpToManeuverActive, let s = maneuverWarpStopTime(), s - time <= total {
+                total = max(0, s - time)
+                stopTime = s
+            }
             let unused = railsAdvance(total)
+            if let s = stopTime, warpIndex >= TimeWarp.physicalCount, railsBacklog == 0, time >= s - 1e-6 {
+                resetWarp(.maneuver)
+            }
             // Авто-сброс посреди кадра: остаток реального времени кадра — физикой на новом уровне.
-            if unused > 0 && warpIndex < TimeWarp.physicalCount {
-                let realLeft: Double = realDelta * min(1, unused / total)
+            let lived = total - unused
+            if lived < full && warpIndex < TimeWarp.physicalCount {
+                let realLeft: Double = realDelta * min(1, (full - lived) / full)
                 physicalAdvance(realLeft * TimeWarp.levels[warpIndex])
             }
         }
+        // Цель `warpToManeuver` живёт, пока идут рельсы.
+        if warpIndex < TimeWarp.physicalCount || maneuverNode == nil { warpToManeuverActive = false }
         rebuildSnapshot()
         return events
     }
@@ -235,9 +259,26 @@ public final class FlightSim: FlightSimulation {
         // Перенесённый остаток рельсов отменяется только при смене уровня.
         if i != warpIndex { railsBacklog = 0 }
         warpIndex = i
+        // Ручной выбор уровня отменяет `warpToManeuver`.
+        warpToManeuverActive = false
+    }
+
+    /// Рельсы на максимальном уровне до остановки за `warpLead` с до начала прожига.
+    /// Нет узла или до остановки уже меньше нуля — ничего; рельсы заблокированы — `warpReset` с причиной.
+    private func warpToManeuver() {
+        guard maneuverNode != nil, let stop = maneuverWarpStopTime(), stop > time else { return }
+        if let reason = railsBlockReason() {
+            events.append(.warpReset(reason))
+            return
+        }
+        let top = TimeWarp.levels.count - 1
+        if top != warpIndex { railsBacklog = 0 }
+        warpIndex = top
+        warpToManeuverActive = true
     }
 
     private func resetWarp(_ reason: WarpResetReason) {
+        warpToManeuverActive = false
         if warpIndex > 0 {
             warpIndex = 0
             railsBacklog = 0
@@ -444,6 +485,12 @@ public final class FlightSim: FlightSimulation {
             qPeakReported = false
         }
 
+        // Оставшийся импульс узла уменьшается только тягой двигателей.
+        if maneuverNode != nil {
+            maneuverRemaining -= thrustAcc * h
+            maneuverBurned += thrustAcc * h
+        }
+
         let proper = thrustAcc + dragAcc
         lastProperAccel = proper.length
         // Полунеявный Эйлер.
@@ -527,7 +574,9 @@ public final class FlightSim: FlightSimulation {
             hold = s.q
         } else if let target = autopilotDirection ?? sasTargetDirection(s) {
             alpha = rateControl(s, desired: rotationTo(s.q.nose, target.normalized), ctrl: ctrl)
-        } else if sas == .hold {
+            // По узлу запоминается текущая ориентация: когда импульс выполнен, SAS держит её.
+            if autopilotDirection == nil && sas == .maneuver { hold = s.q }
+        } else if sas == .hold || sas == .maneuver {
             let err = (hold * s.q.conjugate).axisAngle
             alpha = rateControl(s, desired: (err.axis, err.angle), ctrl: ctrl)
         }
@@ -575,6 +624,10 @@ public final class FlightSim: FlightSimulation {
         let n = s.r.cross(vo).normalized
         switch sas {
         case .off, .hold: return nil
+        case .maneuver:
+            // Нет узла или прожиг выполнен — как `hold`.
+            guard maneuverNode != nil, !maneuverDone, maneuverRemaining.lengthSquared > 0 else { return nil }
+            return maneuverRemaining
         case .prograde: return v.length > 0.5 ? v : nil
         case .retrograde: return v.length > 0.5 ? -v : nil
         case .normal: return n.lengthSquared > 0 ? n : nil
@@ -987,14 +1040,73 @@ public final class FlightSim: FlightSimulation {
             nb.radialOut = local(up)
         }
         nb.surfacePrograde = va > 0.1 ? local(vAir) : nil
-        if let node = maneuverNode {
-            nb.maneuver = local(TrajectoryPredictor.deltaVVector(node: node, position: s.r, velocity: s.v))
+        if maneuverNode != nil {
+            nb.maneuver = local(maneuverRemaining)
         }
         t.navball = nb
+        t.maneuver = maneuverStatus(pressure: p)
         t.mission = mission
         snapshot = WorldSnapshot(time: time, activeVessel: activeID, vessels: vessels.map(\.state),
                                  lunaPosition: World.lunaPosition(at: time), lunaVelocity: World.lunaVelocity(at: time),
                                  terraRotation: World.terraRotation(at: time), telemetry: t)
+    }
+
+    // MARK: Узел манёвра
+
+    /// Поставить, изменить или удалить узел. Тот же узел повторно не сбрасывает прогресс прожига.
+    private func setManeuver(_ node: ManeuverNode?) {
+        guard node != maneuverNode else { return }
+        maneuverNode = node
+        guard let node else {
+            maneuverDeltaV = .zero
+            maneuverRemaining = .zero
+            maneuverBurned = .zero
+            warpToManeuverActive = false
+            return
+        }
+        // Состояние в момент узла: по прогнозу патченными кониками (узел в прошлом — текущее).
+        var sv = activeStateVector
+        if node.time > time {
+            let pre = TrajectoryPredictor.predict(body: active.body, state: sv, time: time,
+                                                maxPatches: TrajectoryPredictor.defaultMapPatches)
+            if let s = pre.state(at: node.time) { sv = s.state }
+        }
+        let dv = TrajectoryPredictor.deltaVVector(node: node, position: sv.position, velocity: sv.velocity)
+        maneuverDeltaV = dv.x.isFinite && dv.y.isFinite && dv.z.isFinite ? dv : .zero
+        // Сожжённое сохраняется: правка узла посреди прожига не вызывает пережог.
+        maneuverRemaining = maneuverDeltaV - maneuverBurned
+    }
+
+    /// Прожиг выполнен: полный импульс ≥ 1 м/с и (остаток < 1 м/с или пошёл против исходного направления).
+    /// Узел с нулевым импульсом не выполнен.
+    var maneuverDone: Bool {
+        guard maneuverDeltaV.length >= 1 else { return false }
+        return maneuverRemaining.length < 1 || maneuverRemaining.dot(maneuverDeltaV) < 0
+    }
+
+    /// Время прожига оставшегося импульса на полной тяге текущей ступени при давлении `p`, с.
+    private func maneuverBurnTime(pressure p: Double) -> Double {
+        let perf = active.ship.currentStagePerformance(pressure: p)
+        return TrajectoryPredictor.burnTime(deltaV: maneuverRemaining.length, mass: active.ship.mass,
+                                            thrust: perf.thrust, isp: perf.isp)
+    }
+
+    private func maneuverStatus(pressure p: Double) -> ManeuverStatus? {
+        guard let node = maneuverNode else { return nil }
+        let toNode = node.time - time
+        let burn = maneuverBurnTime(pressure: p)
+        // Нет тяги (∞): начало прожига — в момент узла.
+        let toBurn = burn.isFinite ? toNode - burn / 2 : toNode
+        return ManeuverStatus(node: node, timeToNode: toNode, deltaV: node.deltaV,
+                              remainingDeltaV: maneuverRemaining.length, burnTime: burn,
+                              timeToBurn: toBurn, isDone: maneuverDone)
+    }
+
+    /// Момент остановки `warpToManeuver`: начало прожига − `warpLead` (время симуляции).
+    private func maneuverWarpStopTime() -> Double? {
+        guard let node = maneuverNode else { return nil }
+        let burn = maneuverBurnTime(pressure: pressure(of: active))
+        return node.time - (burn.isFinite ? burn / 2 : 0) - ManeuverStatus.warpLead
     }
 
     // MARK: Прогноз
@@ -1006,9 +1118,15 @@ public final class FlightSim: FlightSimulation {
 
     /// Прогноз орбиты после узла манёвра и время прожига по текущей тяге и массе.
     public func predictManeuver(_ node: ManeuverNode, maxPatches: Int = 3) -> ManeuverPrediction? {
+        predictManeuver(node, using: nil, maxPatches: maxPatches)
+    }
+
+    /// То же, но с уже посчитанной траекторией до узла (`predictTrajectory`), без повторного прогноза.
+    public func predictManeuver(_ node: ManeuverNode, using trajectory: Trajectory?,
+                                maxPatches: Int = TrajectoryPredictor.defaultMapPatches) -> ManeuverPrediction? {
         let perf = active.ship.currentStagePerformance(pressure: 0)
         return TrajectoryPredictor.predict(node: node, body: active.body, state: activeStateVector, time: time,
                                            mass: active.ship.mass, thrust: perf.thrust, isp: perf.isp,
-                                           maxPatches: maxPatches)
+                                           maxPatches: maxPatches, preTrajectory: trajectory)
     }
 }

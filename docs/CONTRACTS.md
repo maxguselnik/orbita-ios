@@ -27,6 +27,8 @@ UI (C) ── CameraInput ──┘
 - `FlightTelemetry.mission: MissionRecord` — итоги полёта с момента старта (макс. высота/скорость/перегрузка, космос, орбита, SOI Луны, орбита Луны, посадка на Луну, возврат из космоса) — для экрана результата.
 - `VesselDesign.issues() -> [DesignIssue]` — проверка проекта в ангаре; `isBlocking` — старт запрещён, `text` — строка для UI.
 - `SimEvent` — одноразовые события шага для звука, вибрации, эффектов, подсказок.
+- Узел манёвра (этап 5): `FlightCommand.setManeuver(ManeuverNode?)` — поставить/изменить/удалить узел активного корабля (один узел); `warpToManeuver` — рельсы до узла, сброс до ×1 за `ManeuverStatus.warpLead` с до начала прожига (`WarpResetReason.maneuver`). `SASMode.maneuver` — держать нос по оставшемуся импульсу. `FlightTelemetry.maneuver: ManeuverStatus?` — время до узла, Δv полный и оставшийся (уменьшается тягой), время прожига, начало прожига, `isDone` (только при импульсе узла ≥ 1 м/с); `navball.maneuver` — направление оставшегося импульса. Остаток = Δv узла − сожжённое тягой с момента постановки узла (правка узла посреди прожига сожжённое не теряет; удаление узла его обнуляет). Без тяги (`burnTime` = ∞) `timeToBurn` = `timeToNode`.
+- `FlightSimulation.predictTrajectory(maxPatches:)`, `predictManeuver(_:maxPatches:)` — прогноз патченными кониками для карты. `MapMarkers.compute(_:afterManeuver:)` — Ап/Пе, AN/DN, SOI, падение по участкам (`MapMarker`, координаты в инерциальной системе тела участка; `soiExit(b)` — тело, из SOI которого выходим). Число участков прогноза — `TrajectoryPredictor.defaultMapPatches` (4).
 
 - `VesselState.parts` (сверху вниз), `firingEngines` (индексы деталей с факелом), `chute`, `chuteDeploy` 0…1 — для рендера корабля и отделённых ступеней.
 - Оси корабля: нос +Y, спина +Z, правый борт +X; pitch>0 — нос к +Z, yaw>0 — к +X, roll>0 — правый борт вниз. На площадке +X — восток, +Z — юг. `position` — нижняя точка стека; `angularVelocity` — инерциальная.
@@ -39,6 +41,9 @@ UI (C) ── CameraInput ──┘
 - `HangarPreview` (B): `show(parts:selected:)`, `apply(CameraInput)`; реализация `HangarScene` + SwiftUI `HangarSceneView(scene:)` — в `App/Render/`.
 - `FlightFeedback.stop()` — выход из полёта: звук, вибрация и наклон выключены.
 - `DemoScenario` (ведущий): аргумент запуска `-screen hangar|flight|ascent|staging|orbit|lunaApproach|lunaSurface|chute|landed|crash` — стартовое состояние для CI-скриншотов и отладки (`screens.txt` — список снимаемых сцен).
+- `MapModel` (ведущий, `App/Core/MapModel.swift`): владеет `FlightHUDModel` (`map`), каждый кадр `update(sim:now:)` — прогноз ≤ 4 Гц (при правке узла ≤ 30 Гц), отдаёт `MapSnapshot` рендеру (`updateMap`) и оверлею (`snapshot`); `isOpen`, `focus` пробрасываются в рендер; `project`, `orbitPick`, `setViewSize` — через рендер.
+- `FlightRenderer` карта (B): `isMapMode` — вместо полёта тела в масштабе карты, орбиты (текущая — по участкам, после узла — пунктир/другой цвет, участок у Луны — фиолетовый, возврат к Терре — оранжевый), корабль-значок, SOI Луны; жесты `apply` крутят камеру карты вокруг `mapFocus`. `project` и `orbitPick` — для оверлея C (подписи отметок, тап по орбите).
+- Сцены карты: `-screen map|mapManeuver|mapLuna` (`DemoScenario.opensMap`, `mapFocus`).
 - `GameSettings`: частота кадров 60/90/120 (по умолчанию 90), звук, вибрация, наклон (выкл.), подсказки первого полёта (вкл.).
 
 ## Владение папками

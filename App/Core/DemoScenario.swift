@@ -28,6 +28,25 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case crash
     /// Капсула входит в атмосферу на ~2.3 км/с, плазма.
     case reentry
+    /// Карта на орбите 80×74 км, без узла.
+    case map
+    /// Карта на орбите с узлом гомановского перелёта к Луне (встреча).
+    case mapManeuver
+    /// Карта при входе в сферу влияния Луны, фокус на Луне.
+    case mapLuna
+
+    /// Сцена открывается на карте.
+    var opensMap: Bool {
+        switch self {
+        case .map, .mapManeuver, .mapLuna: true
+        default: false
+        }
+    }
+
+    /// Фокус камеры карты для сцены.
+    var mapFocus: MapFocus {
+        self == .mapLuna ? .luna : .vessel
+    }
 
     /// Сценарий из аргумента `-screen`, nil — обычный запуск.
     static var fromArguments: DemoScenario? {
@@ -52,9 +71,13 @@ enum DemoScenario: String, CaseIterable, Sendable {
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in
                 sim.stageCount < initial - 1
             }
-        case .orbit:
+        case .mapManeuver:
+            let flight = ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: false) { _, ap in ap.isFinished }
+            flight.send(.setManeuver(Self.lunaTransferNode(flight.snapshot)))
+            return flight
+        case .orbit, .map:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: false) { _, ap in ap.isFinished }
-        case .lunaApproach:
+        case .lunaApproach, .mapLuna:
             return ScenarioFlight(design: .luna, goal: .lunaEncounter, keepAutopilot: false) { sim, _ in
                 sim.activeBody == .luna
             }
@@ -109,6 +132,30 @@ enum DemoScenario: String, CaseIterable, Sendable {
                          attitude: Quat(basisX: side, y: nose, z: side.cross(nose)))
     }
 
+    /// Узел перелёта к Луне: ближайшая точка орбиты с гомановской фазой, прогрейд на гомановский импульс.
+    static func lunaTransferNode(_ world: WorldSnapshot) -> ManeuverNode {
+        guard let v = world.vessels.first(where: { $0.id == world.activeVessel }) else {
+            return ManeuverNode(time: world.time + 600)
+        }
+        let mu = Bodies.terra.mu
+        let target = TrajectoryPredictor.hohmannLunaPhase(radius: v.position.length)
+        let period = OrbitElements(position: v.position, velocity: v.velocity, mu: mu).period
+        // Фаза за оборот корабля меняется на ~2π; ищем первое приближение к нужной в пределах двух оборотов.
+        let horizon = period.isFinite ? 2 * period : 20_000
+        var best = (dt: 60.0, error: Double.infinity)
+        var dt = 60.0
+        while dt < horizon {
+            let s = Kepler.propagate(position: v.position, velocity: v.velocity, mu: mu, dt: dt)
+            let phase = TrajectoryPredictor.lunaPhase(position: s.position, velocity: s.velocity, time: world.time + dt)
+            let error = abs(remainder(phase - target, 2 * Double.pi))
+            if error < best.error { best = (dt, error) }
+            if error < 0.01 { break }
+            dt += 5
+        }
+        let radius = v.position.length
+        return ManeuverNode(time: world.time + best.dt, prograde: TrajectoryPredictor.hohmannLunaDeltaV(radius: radius))
+    }
+
     /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
     private static func roll(_ sim: FlightSim, until done: (FlightSim) -> Bool) {
         var t = 0.0
@@ -148,6 +195,14 @@ final class ScenarioFlight: FlightSimulation {
 
     func send(_ command: FlightCommand) {
         sim.send(command)
+    }
+
+    func predictTrajectory(maxPatches: Int) -> Trajectory {
+        sim.predictTrajectory(maxPatches: maxPatches)
+    }
+
+    func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction? {
+        sim.predictManeuver(node, maxPatches: maxPatches)
     }
 
     func advance(realDelta: Double) -> [SimEvent] {

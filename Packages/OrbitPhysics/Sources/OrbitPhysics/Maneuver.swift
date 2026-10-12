@@ -115,6 +115,9 @@ public struct ManeuverPrediction: Sendable {
 }
 
 public enum TrajectoryPredictor {
+    /// Число участков прогноза по умолчанию для карты и узла манёвра.
+    public static let defaultMapPatches = 4
+
     /// Орты манёвра: прогрейд, нормаль, радиально наружу (перпендикулярно прогрейду в плоскости орбиты).
     public static func maneuverBasis(position r: Vec3, velocity v: Vec3) -> (prograde: Vec3, normal: Vec3, radial: Vec3) {
         let pro = v.normalized
@@ -207,12 +210,13 @@ public enum TrajectoryPredictor {
 
     /// Прогноз после узла манёвра. Состояние в момент узла берётся из текущей траектории.
     public static func predict(node: ManeuverNode, body: BodyID, state: StateVector, time: Double,
-                               mass: Double, thrust: Double, isp: Double, maxPatches: Int = 3) -> ManeuverPrediction? {
+                               mass: Double, thrust: Double, isp: Double, maxPatches: Int = 3,
+                               preTrajectory: Trajectory? = nil) -> ManeuverPrediction? {
         let (nb, ns): (BodyID, StateVector)
         if node.time <= time {
             (nb, ns) = (body, state)
         } else {
-            let pre = predict(body: body, state: state, time: time, maxPatches: maxPatches)
+            let pre = preTrajectory ?? predict(body: body, state: state, time: time, maxPatches: maxPatches)
             guard let s = pre.state(at: node.time) else { return nil }
             (nb, ns) = (s.body, s.state)
         }

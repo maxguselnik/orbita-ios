@@ -3,7 +3,7 @@ import SwiftUI
 /// Жесты камеры на свободной области экрана. Слой лежит под контролами HUD, поэтому
 /// получает только касания мимо них; ползунок тяги и джойстик работают одновременно.
 /// Один палец — вращение, щипок — зум, двойной тап — сброс. Жесты копятся в модели
-/// и уходят в `feedback.camera` раз в кадр.
+/// и уходят в `feedback.camera` раз в кадр. На карте одиночный тап по орбите ставит узел манёвра.
 struct CameraGestureLayer: View {
     let model: FlightHUDModel
 
@@ -22,10 +22,20 @@ struct CameraGestureLayer: View {
         Color.clear
             .contentShape(Rectangle())
             .gesture(rotate.simultaneously(with: zoom))
-            .simultaneousGesture(
-                TapGesture(count: 2).onEnded { model.cameraReset() }
-            )
+            .simultaneousGesture(taps)
             .accessibilityHidden(true)
+    }
+
+    /// Двойной тап — сброс камеры; одиночный (если второй не последовал) — тап по карте.
+    private var taps: some Gesture {
+        TapGesture(count: 2)
+            .exclusively(before: SpatialTapGesture())
+            .onEnded { value in
+                switch value {
+                case .first: model.cameraReset()
+                case .second(let tap): model.mapTap(at: tap.location)
+                }
+            }
     }
 
     private var rotate: some Gesture {

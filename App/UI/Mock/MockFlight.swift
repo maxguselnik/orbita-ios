@@ -36,6 +36,9 @@ final class MockFlight: FlightSimulation {
     private var sas: SASMode = .off
     private var warpIndex = 0
     private var chute: ChuteState = .stowed
+    private var maneuverNode: ManeuverNode?
+    /// `warpToManeuver`: ускорение сбрасывается за `ManeuverStatus.warpLead` до начала прожига.
+    private var warpingToManeuver = false
     private var chuteTimer = 0.0
 
     private var time = 0.0
@@ -95,6 +98,7 @@ final class MockFlight: FlightSimulation {
         case .setSAS(let mode):
             sas = mode
         case .setWarp(let index):
+            warpingToManeuver = false
             let clamped = min(max(index, 0), TimeWarp.levels.count - 1)
             if clamped >= TimeWarp.physicalCount, let reason = warpBlocked {
                 warpIndex = 0
@@ -105,7 +109,34 @@ final class MockFlight: FlightSimulation {
         case .deployChute:
             guard chute == .stowed else { return }
             chute = .armed
+        case .setManeuver(let node):
+            maneuverNode = node
+            if node == nil { warpingToManeuver = false }
+        case .warpToManeuver:
+            guard let status = maneuverStatus(), status.timeToBurn > ManeuverStatus.warpLead else { return }
+            if let reason = warpBlocked {
+                pendingEvents.append(.warpReset(reason))
+                return
+            }
+            warpingToManeuver = true
+            warpIndex = TimeWarp.levels.count - 1
         }
+    }
+
+    func predictTrajectory(maxPatches: Int) -> Trajectory {
+        let (position, velocity) = stateVectors()
+        return TrajectoryPredictor.predict(body: body.id, state: StateVector(position: position, velocity: velocity),
+                                           time: time, maxPatches: maxPatches)
+    }
+
+    func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction? {
+        guard !onGround else { return nil }
+        let (position, velocity) = stateVectors()
+        let stage = stages.first
+        return TrajectoryPredictor.predict(node: node, body: body.id,
+                                           state: StateVector(position: position, velocity: velocity),
+                                           time: time, mass: totalMass, thrust: stage?.thrust ?? 0,
+                                           isp: stage?.isp ?? 0, maxPatches: maxPatches)
     }
 
     func advance(realDelta: Double) -> [SimEvent] {
@@ -120,7 +151,13 @@ final class MockFlight: FlightSimulation {
         }
         if warpIndex >= TimeWarp.physicalCount, let reason = warpBlocked {
             warpIndex = 0
+            warpingToManeuver = false
             pendingEvents.append(.warpReset(reason))
+        }
+        if warpingToManeuver, let status = maneuverStatus(), status.timeToBurn <= ManeuverStatus.warpLead {
+            warpIndex = 0
+            warpingToManeuver = false
+            pendingEvents.append(.warpReset(.maneuver))
         }
         let events = pendingEvents
         pendingEvents.removeAll()
@@ -225,6 +262,10 @@ final class MockFlight: FlightSimulation {
         case .antiNormal: return (0, .pi)
         case .radialOut: return (.pi / 2, heading)
         case .radialIn: return (-.pi / 2, heading)
+        case .maneuver:
+            // В моке узел — только по скорости: прогрейд или ретрогрейд по знаку.
+            guard let node = maneuverNode else { return nil }
+            return node.prograde >= 0 ? (gamma, .pi / 2) : (-gamma, 3 * .pi / 2)
         }
     }
 
@@ -353,14 +394,34 @@ final class MockFlight: FlightSimulation {
             eccentricity: e, inclination: 0, period: .infinity)
     }
 
+    // MARK: - Узел манёвра
+
+    /// Положение и скорость в инерциальной системе Терры.
+    private func stateVectors() -> (position: Vec3, velocity: Vec3) {
+        let up = Vec3(cos(longitude), sin(longitude), 0)
+        let east = Vec3(-sin(longitude), cos(longitude), 0)
+        return (up * radius, up * vVert + east * vHoriz)
+    }
+
+    /// Мок: прожиг не отслеживается, остаток равен полному импульсу.
+    private func maneuverStatus() -> ManeuverStatus? {
+        guard let node = maneuverNode else { return nil }
+        let stage = stages.first
+        let burn = TrajectoryPredictor.burnTime(deltaV: node.deltaV, mass: totalMass,
+                                                thrust: stage?.thrust ?? 0, isp: stage?.isp ?? 0)
+        let toNode = node.time - time
+        return ManeuverStatus(node: node, timeToNode: toNode, deltaV: node.deltaV, remainingDeltaV: node.deltaV,
+                              burnTime: burn, timeToBurn: burn.isFinite ? toNode - burn / 2 : toNode,
+                              isDone: false)
+    }
+
     // MARK: - Снимок
 
     private func makeSnapshot() -> WorldSnapshot {
         let up = Vec3(cos(longitude), sin(longitude), 0)
         let east = Vec3(-sin(longitude), cos(longitude), 0)
         let north = Vec3.unitZ
-        let position = up * radius
-        let velocity = up * vVert + east * vHoriz
+        let (position, velocity) = stateVectors()
 
         // Оси корабля: Y — нос, Z — «верх» кабины, X — вправо.
         let horizontal = north * cos(heading) + east * sin(heading)
@@ -380,7 +441,12 @@ final class MockFlight: FlightSimulation {
             prograde: speed > 0.1 ? toShip.rotate(velocity.normalized) : nil,
             normal: normal.length > 0 ? toShip.rotate(normal) : nil,
             radialOut: radialOut.length > 0 ? toShip.rotate(radialOut) : toShip.rotate(up),
-            surfacePrograde: surfaceVelocity.length > 0.1 ? toShip.rotate(surfaceVelocity.normalized) : nil)
+            surfacePrograde: surfaceVelocity.length > 0.1 ? toShip.rotate(surfaceVelocity.normalized) : nil,
+            maneuver: maneuverNode.flatMap { (node: ManeuverNode) -> Vec3? in
+                guard node.deltaV > 0.01 else { return nil }
+                let dv = TrajectoryPredictor.deltaVVector(node: node, position: position, velocity: velocity)
+                return toShip.rotate(dv.normalized)
+            })
 
         let gSurface = body.surfaceGravity
         var massAbove = totalMass
@@ -429,7 +495,8 @@ final class MockFlight: FlightSimulation {
             chute: chute,
             chuteSafe: chuteSafe,
             warpIndex: warpIndex,
-            warpBlocked: warpBlocked)
+            warpBlocked: warpBlocked,
+            maneuver: maneuverStatus())
 
         let vessel = VesselState(
             id: 1, body: body.id, position: position, velocity: velocity,

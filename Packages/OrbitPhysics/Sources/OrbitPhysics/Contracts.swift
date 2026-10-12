@@ -7,6 +7,8 @@ import Foundation
 
 public enum SASMode: String, Sendable, Hashable, Codable, CaseIterable {
     case off, hold, prograde, retrograde, normal, antiNormal, radialOut, radialIn
+    /// По оставшемуся импульсу узла манёвра (нет узла — как `hold`).
+    case maneuver
 }
 
 /// Непрерывный ввод игрока; UI выставляет каждый кадр.
@@ -42,6 +44,10 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     case setSAS(SASMode)
     case setWarp(index: Int)
     case deployChute
+    /// Поставить, изменить (nil — удалить) узел манёвра активного корабля.
+    case setManeuver(ManeuverNode?)
+    /// Ускорение «на рельсах» до узла: само сбрасывается до ×1 за `ManeuverStatus.warpLead` до начала прожига.
+    case warpToManeuver
 }
 
 // MARK: - Состояние
@@ -219,6 +225,72 @@ public struct MissionRecord: Sendable, Hashable {
     }
 }
 
+/// Состояние узла манёвра для HUD и навбола.
+public struct ManeuverStatus: Sendable, Hashable {
+    /// За сколько секунд до начала прожига `warpToManeuver` останавливает ускорение.
+    public static let warpLead = 15.0
+
+    public var node: ManeuverNode
+    /// До момента узла, с (отрицательное — узел позади).
+    public var timeToNode: Double
+    /// Полный импульс узла и оставшийся (уменьшается по мере прожига), м/с.
+    public var deltaV: Double
+    public var remainingDeltaV: Double
+    /// Время прожига оставшегося импульса на полной тяге текущей ступени, с (∞ — нет тяги).
+    public var burnTime: Double
+    /// Начало прожига относительно сейчас: timeToNode − burnTime/2, с.
+    public var timeToBurn: Double
+    /// Прожиг выполнен (остаток < 1 м/с или начал расти).
+    public var isDone: Bool
+
+    public init(node: ManeuverNode, timeToNode: Double, deltaV: Double, remainingDeltaV: Double,
+                burnTime: Double, timeToBurn: Double, isDone: Bool) {
+        self.node = node
+        self.timeToNode = timeToNode
+        self.deltaV = deltaV
+        self.remainingDeltaV = remainingDeltaV
+        self.burnTime = burnTime
+        self.timeToBurn = timeToBurn
+        self.isDone = isDone
+    }
+}
+
+/// Отметка на карте: точка траектории в системе тела `body` (инерциальная, м) в момент `time`.
+public struct MapMarker: Sendable, Hashable {
+    public enum Kind: Sendable, Hashable {
+        case apoapsis, periapsis
+        /// Восходящий и нисходящий узлы относительно экватора Терры (он же плоскость орбиты Луны).
+        case ascendingNode, descendingNode
+        /// Вход в SOI тела и выход из SOI текущего тела.
+        case soiEnter(BodyID), soiExit(BodyID)
+        /// Падение на тело.
+        case impact
+        /// Точка узла манёвра.
+        case maneuver
+    }
+
+    public var kind: Kind
+    public var body: BodyID
+    public var position: Vec3
+    public var time: Double
+    /// Высота над уровнем моря `body`, м.
+    public var altitude: Double
+    /// Индекс участка траектории и признак: отметка орбиты после манёвра.
+    public var patchIndex: Int
+    public var afterManeuver: Bool
+
+    public init(kind: Kind, body: BodyID, position: Vec3, time: Double, altitude: Double,
+                patchIndex: Int, afterManeuver: Bool) {
+        self.kind = kind
+        self.body = body
+        self.position = position
+        self.time = time
+        self.altitude = altitude
+        self.patchIndex = patchIndex
+        self.afterManeuver = afterManeuver
+    }
+}
+
 /// Готовые для HUD величины активного корабля.
 public struct FlightTelemetry: Sendable, Hashable {
     public var altitude: Double
@@ -265,6 +337,8 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var warpBlocked: WarpResetReason?
     /// Итоги полёта (экран результата).
     public var mission: MissionRecord
+    /// Узел манёвра активного корабля (nil — нет).
+    public var maneuver: ManeuverStatus?
 
     public init(altitude: Double = 0, heightAboveTerrain: Double = 0, speed: Double = 0,
                 surfaceSpeed: Double = 0, verticalSpeed: Double = 0, dynamicPressure: Double = 0,
@@ -275,7 +349,8 @@ public struct FlightTelemetry: Sendable, Hashable {
                 gForce: Double = 0, body: BodyID = .terra, situation: VesselSituation = .prelaunch,
                 staticPressure: Double = 0, pitch: Double = 0, heading: Double = 0, roll: Double = 0,
                 navball: NavballVectors = NavballVectors(), chute: ChuteState = .none, chuteSafe: Bool = false,
-                warpIndex: Int = 0, warpBlocked: WarpResetReason? = nil, mission: MissionRecord = MissionRecord()) {
+                warpIndex: Int = 0, warpBlocked: WarpResetReason? = nil, mission: MissionRecord = MissionRecord(),
+                maneuver: ManeuverStatus? = nil) {
         self.altitude = altitude
         self.heightAboveTerrain = heightAboveTerrain
         self.speed = speed
@@ -306,6 +381,7 @@ public struct FlightTelemetry: Sendable, Hashable {
         self.warpIndex = warpIndex
         self.warpBlocked = warpBlocked
         self.mission = mission
+        self.maneuver = maneuver
     }
 }
 
@@ -341,6 +417,8 @@ public struct WorldSnapshot: Sendable {
 
 public enum WarpResetReason: String, Sendable, Hashable, Codable {
     case atmosphere, terrain, thrust, soiChange
+    /// `warpToManeuver`: до начала прожига осталось `ManeuverStatus.warpLead` с.
+    case maneuver
 }
 
 /// Одноразовые события шага; звук, вибрация, эффекты и подсказки реагируют на них.
@@ -369,4 +447,8 @@ public protocol FlightSimulation: AnyObject {
     /// Продвигает мир на `realDelta` секунд реального времени (с учётом ускорения),
     /// внутри дробит на шаги ≤ 0.02 с. Возвращает события за этот вызов.
     func advance(realDelta: Double) -> [SimEvent]
+    /// Прогноз траектории активного корабля (патченные коники), до `maxPatches` участков.
+    func predictTrajectory(maxPatches: Int) -> Trajectory
+    /// Прогноз после узла манёвра; nil — узел невозможен (например, корабль на грунте).
+    func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction?
 }
