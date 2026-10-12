@@ -19,8 +19,12 @@ enum Palette {
         Key(u: 0.295, rgb: [0.09, 0.33, 0.50]),
         Key(u: 0.305, rgb: [0.78, 0.72, 0.52]),
         Key(u: 0.355, rgb: [0.62, 0.62, 0.40]),
-        Key(u: 0.37, rgb: [0.24, 0.44, 0.14]),
-        Key(u: 0.59, rgb: [0.15, 0.32, 0.10]),
+        // Низины: густая трава → луг → сухая степь → лес → тёмный лес (выбор по шуму, не только по высоте).
+        Key(u: 0.37, rgb: [0.30, 0.50, 0.17]),
+        Key(u: 0.44, rgb: [0.50, 0.55, 0.24]),
+        Key(u: 0.50, rgb: [0.66, 0.60, 0.38]),
+        Key(u: 0.545, rgb: [0.22, 0.40, 0.15]),
+        Key(u: 0.59, rgb: [0.11, 0.26, 0.09]),
         Key(u: 0.61, rgb: [0.27, 0.35, 0.14]),
         Key(u: 0.79, rgb: [0.40, 0.33, 0.20]),
         Key(u: 0.81, rgb: [0.46, 0.43, 0.40]),
@@ -35,14 +39,17 @@ enum Palette {
         Key(u: 1.00, rgb: [0.97, 0.98, 1.00]),
     ]
     static let lunaRow: [Key] = [
-        Key(u: 0.00, rgb: [0.24, 0.24, 0.25]),
-        Key(u: 0.45, rgb: [0.42, 0.41, 0.40]),
-        Key(u: 1.00, rgb: [0.72, 0.71, 0.69]),
+        Key(u: 0.00, rgb: [0.15, 0.15, 0.16]),
+        Key(u: 0.25, rgb: [0.27, 0.27, 0.28]),
+        Key(u: 0.50, rgb: [0.44, 0.43, 0.42]),
+        Key(u: 0.75, rgb: [0.60, 0.59, 0.57]),
+        Key(u: 1.00, rgb: [0.78, 0.77, 0.75]),
     ]
     static let lunaCraterRow: [Key] = [
-        Key(u: 0.00, rgb: [0.20, 0.19, 0.19]),
-        Key(u: 0.45, rgb: [0.34, 0.33, 0.32]),
-        Key(u: 1.00, rgb: [0.62, 0.61, 0.59]),
+        Key(u: 0.00, rgb: [0.13, 0.13, 0.13]),
+        Key(u: 0.30, rgb: [0.24, 0.23, 0.23]),
+        Key(u: 0.60, rgb: [0.40, 0.39, 0.37]),
+        Key(u: 1.00, rgb: [0.68, 0.67, 0.64]),
     ]
     /// Небо: u = (1 + sin(возвышение)) / 2; 0.5 — горизонт.
     static let skyRow: [Key] = [
@@ -99,11 +106,48 @@ enum Palette {
         return try? await TextureResource(image: cg, options: options)
     }
 
+    // MARK: - Шум
+
+    /// Гладкий value-noise 0…1 на целочисленной решётке (трилинейно, сглаженные веса).
+    static func valueNoise(_ p: D3) -> Double {
+        let i = D3(p.x.rounded(.down), p.y.rounded(.down), p.z.rounded(.down))
+        let t = p - i
+        let w = t * t * (D3(repeating: 3) - 2 * t)
+        func h(_ x: Double, _ y: Double, _ z: Double) -> Double { hashNoise(i + D3(x, y, z), scale: 1) }
+        let x00 = h(0, 0, 0) + (h(1, 0, 0) - h(0, 0, 0)) * w.x
+        let x10 = h(0, 1, 0) + (h(1, 1, 0) - h(0, 1, 0)) * w.x
+        let x01 = h(0, 0, 1) + (h(1, 0, 1) - h(0, 0, 1)) * w.x
+        let x11 = h(0, 1, 1) + (h(1, 1, 1) - h(0, 1, 1)) * w.x
+        let y0 = x00 + (x10 - x00) * w.y
+        let y1 = x01 + (x11 - x01) * w.y
+        return y0 + (y1 - y0) * w.z
+    }
+
+    /// Фрактальный шум около 0 (примерно ±0.5): крупные пятна материков/морей и мелкая россыпь.
+    /// Октавы мельче трёх ячеек патча не берутся, поэтому на грубых уровнях LOD цвет тот же, без мерцания;
+    /// октавы суммируются без перенормировки — детализация лишь добавляется.
+    static func fbm(_ d: D3, radius: Double, cell: Double) -> Double {
+        var sum = 0.0
+        var amp = 1.0
+        var wavelength = radius * 0.9
+        for _ in 0..<6 {
+            if wavelength < cell * 3 { break }
+            sum += amp * (valueNoise(d * (radius / wavelength)) - 0.5)
+            amp *= 0.5
+            wavelength *= 0.38
+        }
+        return sum
+    }
+
     // MARK: - UV рельефа
 
     /// Строки текстуры по v (v = 0 — низ изображения): первая строка — v = 0.75, вторая — v = 0.25.
-    static func terrainUV(body: BodyID, direction d: D3, height h: Double, noise: Double) -> SIMD2<Float> {
+    /// `cell` — размер ячейки патча, м (ограничивает частоту шума; 0 — все октавы).
+    static func terrainUV(body: BodyID, direction d: D3, height h: Double, noise: Double,
+                          cell: Double = 0) -> SIMD2<Float> {
         let dir = vec3(d)
+        let radius = Bodies.body(body).radius
+        let big = fbm(d, radius: radius, cell: cell)
         let biome = Terrain.biome(body: body, direction: dir)
         switch body {
         case .terra:
@@ -117,23 +161,24 @@ enum Palette {
                 case .mountains: u = 0.81 + 0.19 * clampd((h - 2_500) / 1_800, 0, 1)
                 case .launchPad: u = 0.45
                 default:
-                    // Низины и полярный лёд — по высоте.
+                    // Низины и полярный лёд — по высоте; в низинах тип покрова выбирает шум.
                     if h < 150 { u = 0.31 + 0.04 * clampd(h / 150, 0, 1) } else if h < 1_200 {
-                        u = 0.37 + 0.22 * clampd((h - 150) / 1_050, 0, 1)
+                        u = clampd(0.48 + 0.7 * big + 0.05 * clampd((h - 150) / 1_050, 0, 1), 0.372, 0.588)
                     } else if h < 2_500 {
                         u = 0.61 + 0.18 * clampd((h - 1_200) / 1_300, 0, 1)
                     } else {
                         u = 0.81 + 0.19 * clampd((h - 2_500) / 1_800, 0, 1)
                     }
                 }
-                u += (noise - 0.5) * 0.03
+                u += (noise - 0.5) * 0.03 + (h >= 1_200 ? 0.06 * big : 0)
             }
             let v: Float = biome == .polarIce ? 0.25 : 0.75
             return SIMD2(Float(clampd(u, 0.002, 0.998)), v)
         case .luna:
             var u = clampd((h + 2_500) / 7_000, 0, 1)
             if biome == .lunarPoles { u = min(1, u + 0.12) }
-            u += (noise - 0.5) * 0.08
+            // Моря (тёмные пятна) и светлые нагорья, плюс мелкая зернистость реголита.
+            u += 0.55 * big + (noise - 0.5) * 0.06
             let v: Float = biome == .lunarCraters ? 0.25 : 0.75
             return SIMD2(Float(clampd(u, 0.002, 0.998)), v)
         }

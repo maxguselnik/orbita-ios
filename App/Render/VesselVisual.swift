@@ -15,6 +15,10 @@ final class VesselVisual {
     var partBottoms: [Double] { bottoms }
     /// Полупрозрачный внешний ореол факела поверх непрозрачных слоёв (отключается, если роняет рендер).
     static var transparentPlumeGlow = false
+    /// Мягкий факел: конус с градиентной прозрачностью по длине и светлым ядром. При `false` (или пока
+    /// текстуры не готовы) рисуются прежние непрозрачные слои — запасной путь на случай сбоев рендера.
+    static var softPlume = true
+    private var plumesSoft = false
     private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity, glow: ModelEntity?)] = [:]
     private var canopy: Entity?
     private var maxDiameter: Double = 1
@@ -23,6 +27,7 @@ final class VesselVisual {
     private(set) var boundingRadius: Double = 1
 
     init(parts: [PartID]) {
+        SoftTextures.shared.start()
         rebuild(parts)
     }
 
@@ -62,6 +67,9 @@ final class VesselVisual {
 
     private static var plumeMesh: MeshResource?
     private static var canopyPieces: [PartModels.Piece] = []
+    private static var softOuterMesh: MeshResource?
+    private static var softCoreMesh: MeshResource?
+    private static var softMaterials: (outer: UnlitMaterial, solid: UnlitMaterial, core: UnlitMaterial)?
 
     private static func sharedPlumeMesh() -> MeshResource? {
         if let m = plumeMesh { return m }
@@ -73,21 +81,54 @@ final class VesselVisual {
         return plumeMesh
     }
 
+    /// Мягкие меши и материалы факела; `nil`, пока текстуры не готовы или режим выключен.
+    private static func softPlumeKit() -> (outer: MeshResource, core: MeshResource,
+                                           mats: (outer: UnlitMaterial, solid: UnlitMaterial, core: UnlitMaterial))? {
+        let t = SoftTextures.shared
+        guard softPlume, t.isReady, let tex = t.plumeOuter, let coreTex = t.plumeCore else { return nil }
+        if softOuterMesh == nil {
+            // Профиль от сопла (UV.x = 0) к концу (1): расширяющийся конус, закруглённый кончик.
+            softOuterMesh = SoftMeshes.axialLathe(
+                [SIMD2(0.55, 0), SIMD2(0.80, -0.10), SIMD2(0.78, -0.32), SIMD2(0.58, -0.58),
+                 SIMD2(0.32, -0.82), SIMD2(0.0, -1.0)], segments: 20, name: "plumeSoft")
+            softCoreMesh = SoftMeshes.axialLathe(
+                [SIMD2(0.45, 0), SIMD2(0.62, -0.12), SIMD2(0.55, -0.4), SIMD2(0.32, -0.7),
+                 SIMD2(0.0, -1.0)], segments: 16, name: "plumeCoreSoft")
+        }
+        if softMaterials == nil {
+            softMaterials = (
+                SoftTextures.material(tex, tint: .white, opacity: 0.9),
+                SoftTextures.material(tex, tint: UIColor(red: 1.0, green: 0.95, blue: 0.78, alpha: 1), opacity: 0.95),
+                SoftTextures.material(coreTex, tint: .white, opacity: 1.0))
+        }
+        guard let o = softOuterMesh, let c = softCoreMesh, let m = softMaterials else { return nil }
+        return (o, c, m)
+    }
+
     private func makePlume(index: Int, spec: PartSpec) {
-        guard let mesh = Self.sharedPlumeMesh() else { return }
+        let kit = Self.softPlumeKit()
+        guard let mesh = kit?.outer ?? Self.sharedPlumeMesh() else { return }
         let mats = RenderMaterials.shared
         let e = Entity()
         e.position = F3(0, Float(bottoms[index]), 0)
-        let outer = ModelEntity(mesh: mesh, materials: [spec.isSolid ? mats.plumeSolid : mats.plumeOuter])
-        let core = ModelEntity(mesh: mesh, materials: [mats.plumeCore])
+        let outer: ModelEntity
+        let core: ModelEntity
+        if let kit {
+            outer = ModelEntity(mesh: kit.outer, materials: [spec.isSolid ? kit.mats.solid : kit.mats.outer])
+            core = ModelEntity(mesh: kit.core, materials: [kit.mats.core])
+        } else {
+            outer = ModelEntity(mesh: mesh, materials: [spec.isSolid ? mats.plumeSolid : mats.plumeOuter])
+            core = ModelEntity(mesh: mesh, materials: [mats.plumeCore])
+        }
         e.addChild(outer)
         e.addChild(core)
         var glow: ModelEntity?
-        if Self.transparentPlumeGlow {
+        if kit == nil, Self.transparentPlumeGlow {
             let g = ModelEntity(mesh: mesh, materials: [mats.plumeGlow])
             e.addChild(g)
             glow = g
         }
+        plumesSoft = kit != nil
         e.isEnabled = false
         root.addChild(e)
         plumes[index] = (e, outer, core, glow)
@@ -126,6 +167,10 @@ final class VesselVisual {
     func update(_ v: VesselState, relativePosition: D3, pressure: Double, time: Double) {
         root.transform = Transform(scale: .one, rotation: quatf(v.attitude.quatd), translation: f3(relativePosition))
 
+        // Текстуры факела дозагрузились (или режим переключили): пересобрать на мягкий вариант.
+        if Self.softPlume != plumesSoft, !plumes.isEmpty, Self.softPlumeKit() != nil || plumesSoft {
+            rebuild(parts)
+        }
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
             let on = v.firingEngines.contains(i)
@@ -140,9 +185,12 @@ final class VesselVisual {
             let length = spec.diameter * (spec.isSolid ? 5.0 : 1.2 + 4.0 * thr) * (1 + 0.7 * vac) * flick
             let width = re * (1 + 0.9 * vac) * (0.4 + 0.6 * sqrt(thr))
             // Непрозрачные слои: широкая оранжевая оболочка короче, узкое светлое ядро длиннее.
-            p.outer.scale = F3(Float(width), Float(length * 0.7), Float(width))
-            let coreW = Float(width * 0.55)
-            p.core.scale = F3(coreW, Float(length * 0.9 * coreFlick), coreW)
+            // Мягкий факел: конус длиннее (конец прозрачный), ядро узкое и яркое.
+            let outerLen = length * (plumesSoft ? 1.15 : 0.7)
+            let coreLen = length * (plumesSoft ? 0.7 : 0.9) * coreFlick
+            p.outer.scale = F3(Float(width), Float(outerLen), Float(width))
+            let coreW = Float(width * (plumesSoft ? 0.5 : 0.55))
+            p.core.scale = F3(coreW, Float(coreLen), coreW)
             // Ореол шире и длиннее оболочки; в вакууме расширяется сильнее.
             if let g = p.glow {
                 let gw = Float(width * (1.35 + 0.5 * vac))

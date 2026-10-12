@@ -18,14 +18,32 @@ enum VesselEffectKit {
         [Float(0.60), 0.42, 0.25, 0.11].map { ghost(UIColor(white: 0.90, alpha: 1), $0) },
         [Float(0.50), 0.36, 0.22, 0.10].map { ghost(UIColor(red: 0.62, green: 0.52, blue: 0.40, alpha: 1), $0) },
     ]
-    /// Полосы воздуха: 3 уровня яркости.
-    static let streak: [UnlitMaterial] = [Float(0.14), 0.28, 0.48].map { ghost(UIColor(white: 0.95, alpha: 1), $0) }
+    /// Полосы воздуха (градиент по длине): 3 уровня яркости. Подменяются текстурными в `installSoft`.
+    static var streak: [UnlitMaterial] = [Float(0.14), 0.28, 0.48].map { ghost(UIColor(white: 0.95, alpha: 1), $0) }
     static let cone: [UnlitMaterial] = [Float(0.14), 0.26, 0.40].map { ghost(UIColor(white: 1.0, alpha: 1), $0) }
-    static let plasmaOuter: [UnlitMaterial] = [Float(0.10), 0.22, 0.36, 0.52].map {
-        ghost(UIColor(red: 1.0, green: 0.42, blue: 0.40, alpha: 1), $0)
+    /// Плазма: оранжевая оболочка и бело-жёлтое ядро (текстурные, градиент от носа к хвосту).
+    static var plasmaOuter: [UnlitMaterial] = [Float(0.10), 0.22, 0.36, 0.52].map {
+        ghost(UIColor(red: 1.0, green: 0.62, blue: 0.25, alpha: 1), $0)
     }
-    static let plasmaInner: [UnlitMaterial] = [Float(0.18), 0.34, 0.55].map {
-        ghost(UIColor(red: 1.0, green: 0.80, blue: 0.55, alpha: 1), $0)
+    static var plasmaInner: [UnlitMaterial] = [Float(0.18), 0.34, 0.55].map {
+        ghost(UIColor(red: 1.0, green: 0.92, blue: 0.75, alpha: 1), $0)
+    }
+    private(set) static var softInstalled = false
+
+    /// Подставляет текстурные материалы, когда текстуры готовы. Возвращает `true` при первой установке.
+    @discardableResult
+    static func installSoft() -> Bool {
+        let t = SoftTextures.shared
+        guard !softInstalled, t.isReady, let st = t.streak, let pl = t.plasma else { return false }
+        softInstalled = true
+        streak = [Float(0.30), 0.55, 0.85].map { SoftTextures.material(st, tint: .white, opacity: $0) }
+        plasmaOuter = [Float(0.22), 0.40, 0.60, 0.80].map {
+            SoftTextures.material(pl, tint: UIColor(red: 1.0, green: 0.62, blue: 0.25, alpha: 1), opacity: $0)
+        }
+        plasmaInner = [Float(0.35), 0.58, 0.85].map {
+            SoftTextures.material(pl, tint: UIColor(red: 1.0, green: 0.93, blue: 0.80, alpha: 1), opacity: $0)
+        }
+        return true
     }
     static let fire: [UnlitMaterial] = [Float(0.25), 0.45, 0.70].map {
         ghost(UIColor(red: 1.0, green: 0.55, blue: 0.18, alpha: 1), $0)
@@ -53,13 +71,10 @@ enum VesselEffectKit {
         return b.makeMesh(name: "cone")
     }()
 
-    /// Колпак плазмы: нос y = 0, длина 3 по +Y, максимум радиуса 1 у y ≈ 0.6.
-    static let capMesh: MeshResource? = {
-        var b = MeshBuilder()
-        b.lathe([SIMD2(0.0, 0.0), SIMD2(0.35, 0.04), SIMD2(0.7, 0.15), SIMD2(0.92, 0.35), SIMD2(1.0, 0.6),
-                 SIMD2(0.9, 1.0), SIMD2(0.65, 1.6), SIMD2(0.35, 2.3), SIMD2(0.0, 3.0)], segments: 20, twoSided: true)
-        return b.makeMesh(name: "cap")
-    }()
+    /// Колпак плазмы: нос y = 0, длина 3 по +Y, максимум радиуса 1 у y ≈ 0.6; UV.x — от носа к хвосту.
+    static let capMesh: MeshResource? = SoftMeshes.axialLathe(
+        [SIMD2(0.0, 0.0), SIMD2(0.35, 0.04), SIMD2(0.7, 0.15), SIMD2(0.92, 0.35), SIMD2(1.0, 0.6),
+         SIMD2(0.9, 1.0), SIMD2(0.65, 1.6), SIMD2(0.35, 2.3), SIMD2(0.0, 3.0)], segments: 20, name: "cap")
 }
 
 /// Эффекты скорости и входа: дым двигателей, потоки воздуха, конденсационный конус, плазма.
@@ -96,7 +111,6 @@ final class VesselEffects {
     private static let smokeLimits = [60, 120, 200]
     private static let streakLimits = [16, 28, 40]
     private static let trailLimits = [8, 14, 24]
-    private static let streakHalfLen = 30.0
 
     private var puffs: [Puff]
     private var puffEntities: [ModelEntity] = []
@@ -130,8 +144,10 @@ final class VesselEffects {
     }
 
     init() {
+        SoftTextures.shared.start()
         let pm = VesselEffectKit.puffMesh ?? MeshResource.generateBox(size: 1)
         let bm = VesselEffectKit.barMesh ?? MeshResource.generateBox(size: 1)
+        let rm = SoftMeshes.ribbon ?? bm
         let cm = VesselEffectKit.coneMesh ?? MeshResource.generateBox(size: 1)
         let km = VesselEffectKit.capMesh ?? MeshResource.generateBox(size: 1)
         let smokeMax = Self.smokeLimits[2], streakMax = Self.streakLimits[2], trailMax = Self.trailLimits[2]
@@ -148,7 +164,7 @@ final class VesselEffects {
             puffEntities.append(e)
         }
         for _ in 0..<streakMax {
-            let e = ModelEntity(mesh: bm, materials: [VesselEffectKit.streak[0]])
+            let e = ModelEntity(mesh: rm, materials: [VesselEffectKit.streak[0]])
             e.isEnabled = false
             root.addChild(e)
             streakEntities.append(e)
@@ -185,6 +201,12 @@ final class VesselEffects {
     }
 
     func update(_ f: VesselEffectFrame) {
+        if VesselEffectKit.installSoft() {
+            // Текстурные материалы готовы: сбросить кеш уровней, чтобы сущности их подхватили.
+            for i in streaks.indices { streaks[i].level = -1 }
+            capOuterLevel = -1
+            capInnerLevel = -1
+        }
         let dt = clampd(f.dt, 0, 0.1)
         let vp = f.vessel.position.d3
         let cam = vp - f.vesselRel
@@ -316,19 +338,22 @@ final class VesselEffects {
     private func updateStreaks(_ f: VesselEffectFrame, dt: Double, center: D3, maxD: Double, quality q: Int) {
         let n = Self.streakLimits[q]
         let speed = simd_length(f.airVelocity)
+        // Появляются по скоростному напору; без текстур (нет градиента) не рисуются вовсе.
         let k = Self.sstep(1500, 25000, f.telemetry.dynamicPressure)
-        guard Self.streaksEnabled, k > 0.001, speed > 20 else {
+        guard Self.streaksEnabled, VesselEffectKit.softInstalled, k > 0.001, speed > 20 else {
             for e in streakEntities where e.isEnabled { e.isEnabled = false }
             return
         }
-        let half = Self.streakHalfLen
+        // Только у корпуса: до 2.5 длин корабля вдоль потока, вплотную по бокам.
+        let shipLen = max(f.stackHeight, 4)
+        let half = clampd(shipLen * 2.5, 12, 90)
         let flow = -f.airVelocity / speed
         let e1 = perpendicular(D3(0, 1, 0), to: flow)
         let e2 = simd_cross(flow, e1)
-        let orient = simd_quatf(from: F3(0, 1, 0), to: f3(flow))
+        let flowF = f3(flow)
         let visSpeed = clampd(speed * 0.6, 40, 300)
-        let length = Float(clampd(speed * 0.012, 1, 8))
-        let width = Float(0.06 + 0.03 * maxD)
+        let baseLen = Float(clampd(shipLen * (0.25 + speed / 1500), 2, shipLen * 1.4))
+        let width = Float(0.05 + 0.025 * maxD)
         let active = Int(Double(n) * (0.15 + 0.35 * k))
         for i in 0..<streakEntities.count {
             let e = streakEntities[i]
@@ -338,19 +363,19 @@ final class VesselEffects {
             }
             if !streaks[i].ready {
                 streaks[i] = Streak(axial: rng.range(-half, half), ang: rng.range(0, 2 * .pi),
-                                    rad: rng.range(0.7, 3.2), seed: rng.next(), level: -1, ready: true)
+                                    rad: rng.range(0.6, 2.0), seed: rng.next(), level: -1, ready: true)
             }
             streaks[i].axial += visSpeed * dt
             if streaks[i].axial > half {
                 streaks[i].axial -= 2 * half
                 streaks[i].ang = rng.range(0, 2 * .pi)
-                streaks[i].rad = rng.range(0.7, 3.2)
+                streaks[i].rad = rng.range(0.6, 2.0)
                 streaks[i].seed = rng.next()
             }
             let s = streaks[i]
-            let edge = min(1, (half - abs(s.axial)) / (half * 0.3))
+            let edge = min(1, (half - abs(s.axial)) / (half * 0.35))
             let b = k * edge * (0.6 + 0.6 * s.seed)
-            let lvl = b < 0.12 ? -1 : (b < 0.35 ? 0 : (b < 0.65 ? 1 : 2))
+            let lvl = b < 0.1 ? -1 : (b < 0.3 ? 0 : (b < 0.6 ? 1 : 2))
             if lvl < 0 {
                 if e.isEnabled { e.isEnabled = false }
                 continue
@@ -359,10 +384,10 @@ final class VesselEffects {
                 streaks[i].level = lvl
                 e.model?.materials = [VesselEffectKit.streak[lvl]]
             }
-            let lat = (e1 * cos(s.ang) + e2 * sin(s.ang)) * (maxD * s.rad)
-            let pos = center + flow * s.axial + lat
-            e.transform = Transform(scale: F3(width, length * Float(0.6 + 0.8 * s.seed), width),
-                                    rotation: orient, translation: f3(pos))
+            let lat = (e1 * cos(s.ang) + e2 * sin(s.ang)) * (maxD * s.rad + shipLen * 0.02)
+            let pos = f3(center + flow * s.axial + lat)
+            e.transform = Transform(scale: F3(width * (0.8 + 0.5 * Float(s.seed)), baseLen * Float(0.6 + 0.8 * s.seed), 1),
+                                    rotation: SoftMeshes.ribbonOrientation(position: pos, axis: flowF), translation: pos)
             if !e.isEnabled { e.isEnabled = true }
         }
     }
@@ -400,9 +425,11 @@ final class VesselEffects {
     // MARK: - Плазма
 
     private func updatePlasma(_ f: VesselEffectFrame, center: D3, axis: D3, maxD: Double, quality q: Int) {
-        let hh = clampd(f.telemetry.heating, 0, 1)
+        // Только при реальном нагреве: порог по полю `heating`, плавный вход (0.15 → 0.45).
+        let raw = clampd(f.telemetry.heating, 0, 1)
+        let hh = Self.sstep(0.15, 0.45, raw) * 0.85 + 0.15 * Self.sstep(0.15, 0.2, raw)
         let speed = simd_length(f.airVelocity)
-        guard Self.plasmaEnabled, hh > 0.04, speed > 100 else {
+        guard Self.plasmaEnabled, VesselEffectKit.softInstalled, raw > 0.15, speed > 300 else {
             if capOuter.isEnabled { capOuter.isEnabled = false }
             if capInner.isEnabled { capInner.isEnabled = false }
             for e in trailEntities where e.isEnabled { e.isEnabled = false }
@@ -415,8 +442,8 @@ final class VesselEffects {
         let cosA = abs(simd_dot(u, axis))
         let halfExt = cosA * h / 2 + sqrt(max(0, 1 - cosA * cosA)) * maxD / 2
         let flick = 1 + 0.05 * sin(f.time * 31) + 0.03 * sin(f.time * 73)
-        let radius = maxD * (0.9 + 0.6 * hh)
-        let length = (h * 0.5 + maxD * 2.2) * (0.6 + hh)
+        let radius = maxD * (0.75 + 0.45 * hh)
+        let length = (h * 0.6 + maxD * 3.0) * (0.7 + 1.1 * hh)
         let apex = center + u * (halfExt + 0.3 * maxD)
 
         let lo = min(3, Int(hh * 4.5 * (0.9 + 0.1 * flick)))

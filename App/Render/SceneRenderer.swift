@@ -48,6 +48,7 @@ final class SceneRenderer: FlightRenderer {
         camera.camera.fieldOfViewInDegrees = 60
         camera.camera.near = 0.1
         camera.camera.far = Self.flightFar
+        SoftTextures.shared.start()
         root.addChild(camera)
         root.addChild(flightRoot)
         root.addChild(map.root)
@@ -228,7 +229,9 @@ final class SceneRenderer: FlightRenderer {
             var scale = 1.0
             if b == frame {
                 let nearest = dist - Bodies.body(b).radius
-                let keep = max(30_000, 4 * camToTarget)
+                // Импостор только на большой высоте: рельеф до 150 км рисуется в натуральную величину,
+                // иначе земля у горизонта «ползёт» относительно корабля и эффектов.
+                let keep = max(150_000, 4 * camToTarget)
                 if nearest > keep { scale = keep / nearest }
             } else {
                 scale = min(1, 1.6e6 / dist)
@@ -345,7 +348,10 @@ final class SceneRenderer: FlightRenderer {
         camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
         camera.camera.fieldOfViewInDegrees = Float(60 + 5 * shake.speedFeel)
         let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)
-        var near = clampd(0.25 * min(toVessel, clearance), 0.05, 1_000)
+        // Ближняя плоскость мала, пока камера у корабля: факел длиной с корабль не должен
+        // обрезаться у камеры; дальность глубины на горизонте для рельефа не критична.
+        var near = clampd(0.08 * min(toVessel, clearance), 0.05, 1_000)
+        if camToTarget < 300 { near = min(near, 0.6) }
         if clearance < 500 { near = min(near, 0.5) }
         camera.camera.near = Float(near)
     }
