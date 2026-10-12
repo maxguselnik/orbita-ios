@@ -98,7 +98,7 @@ enum Palette {
 
     // MARK: - UV рельефа
 
-    /// Строки текстуры по v: центр первой — 0.25, второй — 0.75.
+    /// Строки текстуры по v (v = 0 — низ изображения): первая строка — v = 0.75, вторая — v = 0.25.
     static func terrainUV(body: BodyID, direction d: D3, height h: Double, noise: Double) -> SIMD2<Float> {
         let dir = vec3(d)
         let biome = Terrain.biome(body: body, direction: dir)
@@ -125,13 +125,13 @@ enum Palette {
                 }
                 u += (noise - 0.5) * 0.03
             }
-            let v: Float = biome == .polarIce ? 0.75 : 0.25
+            let v: Float = biome == .polarIce ? 0.25 : 0.75
             return SIMD2(Float(clampd(u, 0.002, 0.998)), v)
         case .luna:
             var u = clampd((h + 2_500) / 7_000, 0, 1)
             if biome == .lunarPoles { u = min(1, u + 0.12) }
             u += (noise - 0.5) * 0.08
-            let v: Float = biome == .lunarCraters ? 0.75 : 0.25
+            let v: Float = biome == .lunarCraters ? 0.25 : 0.75
             return SIMD2(Float(clampd(u, 0.002, 0.998)), v)
         }
     }

@@ -68,7 +68,7 @@ final class SkyVisual {
             let rxy = (1 - z * z).squareRoot()
             let dir = F3(rxy * cos(lon), rxy * sin(lon), z)
             let mag = rnd()
-            let size = Self.starRadius * (0.0005 + 0.0011 * mag * mag)
+            let size = Self.starRadius * (0.0008 + 0.0016 * mag * mag)
             let t1 = simd_normalize(simd_cross(dir, abs(dir.z) < 0.9 ? F3(0, 0, 1) : F3(1, 0, 0)))
             let t2 = simd_cross(dir, t1)
             let c = dir * Self.starRadius
