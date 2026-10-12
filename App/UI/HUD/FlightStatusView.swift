@@ -1,8 +1,8 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Постоянная сводка одной строкой сверху по центру: состояние полёта + совет помощника подъёма
-/// (если он включён настройкой подсказок) или краткое пояснение. Видна и без подсказок.
+/// Строка под высотомером: жёлтый совет помощника подъёма (если подсказки включены и совет есть),
+/// иначе компактная строка состояния полёта.
 struct FlightStatusView: View {
     let model: FlightHUDModel
     /// Помощник подъёма включён (настройка подсказок).
@@ -12,23 +12,23 @@ struct FlightStatusView: View {
         let t = model.telemetry
         let advice = ascentEnabled ? AscentGuide.advice(t) : nil
         HStack(spacing: 6) {
-            Text(title(t)).font(.system(size: 11, weight: .heavy))
-            Text(verbatim: "·").foregroundStyle(HUDStyle.secondaryText)
             if let advice {
-                Image(systemName: "diamond.fill").font(.system(size: 8)).foregroundStyle(NavballPalette.target)
-                Text(advice.text).foregroundStyle(NavballPalette.target)
+                Image(systemName: "diamond.fill").font(.system(size: 8))
+                Text(advice.text)
             } else {
-                Text(detail(t)).foregroundStyle(HUDStyle.secondaryText)
+                Text(title(t)).font(.system(size: 10, weight: .heavy))
+                Text(verbatim: "·").foregroundStyle(HUDPalette.muted)
+                Text(detail(t)).foregroundStyle(HUDPalette.muted)
             }
         }
-        .font(.system(size: 11, weight: .semibold))
+        .font(.system(size: 11, weight: .medium))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
-        .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 4)
-        .frame(maxWidth: 480)
-        .hudBackground(Color.black.opacity(0.8), corner: 8)
+        .foregroundStyle(advice == nil ? HUDPalette.text : HUDPalette.advice)
+        .padding(.horizontal, 10)
+        .frame(height: 22)
+        .frame(maxWidth: 360)
+        .classicPanel(corner: 6)
         .accessibilityElement(children: .combine)
         .allowsHitTesting(false)
     }

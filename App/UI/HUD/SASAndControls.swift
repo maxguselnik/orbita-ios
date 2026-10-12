@@ -1,32 +1,32 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Правая колонка: компактный SAS (режимы — по стрелке), джойстик с кнопками крена, «Ступень».
-/// До отрыва SAS и джойстик приглушены: на площадке главное — «Зажигание» и тяга.
-struct ControlsColumn: View {
+/// Правый нижний угол: малые MAX и 0 и джойстик с кнопками крена. До отрыва джойстик приглушён:
+/// на площадке главное — «Зажигание» и тяга.
+struct ControlsCluster: View {
     let model: FlightHUDModel
-    /// Действие, которое советует помощник (подсвечивается).
+    /// Действие, которое советует помощник (подсвечивает MAX или 0).
     var guide: HUDAction?
 
-    static let width: CGFloat = 196
-
     var body: some View {
-        let dimmed = model.onPad
-        VStack(spacing: 6) {
-            Spacer(minLength: 0)
-            SASControl(model: model)
-                .opacity(dimmed ? 0.5 : 1)
+        VStack(spacing: 2) {
+            HStack(spacing: 6) {
+                HUDMiniButton(title: "MAX", label: "Полная тяга", pulse: guide == .fullThrottle) {
+                    model.throttle = 1
+                }
+                HUDMiniButton(title: "0", label: "Тяга ноль", pulse: guide == .zeroThrottle) {
+                    model.throttle = 0
+                }
+            }
             AttitudeControls(model: model)
-                .opacity(dimmed ? 0.5 : 1)
-            StageButton(model: model, highlighted: guide == .stage)
+                .opacity(model.onPad ? 0.5 : 1)
         }
-        .frame(width: Self.width)
     }
 }
 
 // MARK: - SAS
 
-/// Сетка режимов SAS 4×2: содержимое всплывающей панели `SASControl`.
+/// Сетка режимов SAS 4×2: содержимое всплывающей панели `SASModePill`.
 struct SASGrid: View {
     let model: FlightHUDModel
     /// Вызывается после выбора режима (закрыть панель).
@@ -67,10 +67,22 @@ struct SASGrid: View {
                     .font(.system(size: 8, weight: .bold))
                     .lineLimit(1)
             }
+            .foregroundStyle(current == mode ? Color.black : Self.tint(mode))
             .frame(width: Self.cell, height: HUDStyle.minTouch)
         }
         .buttonStyle(HUDButtonStyle(isActive: current == mode))
         .accessibilityLabel(Self.fullName(mode))
+    }
+
+    /// Цвет значка режима: про/ретро — жёлто-зелёный, нормали — фиолетовый, радиальные — голубой.
+    static func tint(_ mode: SASMode) -> Color {
+        switch mode {
+        case .off, .hold: Color.white
+        case .prograde, .retrograde: NavballPalette.prograde
+        case .normal, .antiNormal: NavballPalette.normal
+        case .radialOut, .radialIn: NavballPalette.radial
+        case .maneuver: NavballPalette.maneuver
+        }
     }
 
     static func shortName(_ mode: SASMode) -> String {
@@ -220,29 +232,49 @@ struct SASToggleButton: View {
     }
 }
 
-/// SAS в полёте: кнопка вкл/выкл и рядом стрелка — выбор режима во всплывающей панели
-/// (закрывается после выбора или тапом мимо).
-struct SASControl: View {
+/// Режим SAS в свёрнутом виде: маленькая «пилюля» «SAS ДЕРЖАТЬ ▴»; тап раскрывает панель «РЕЖИМ SAS»
+/// (сетка 4 × 2), выбор или тап мимо закрывают её. На площадке приглушена.
+struct SASModePill: View {
     let model: FlightHUDModel
 
     @State private var picking = false
 
     var body: some View {
-        HStack(spacing: 4) {
-            SASToggleButton(model: model)
-            Button {
-                picking = true
-            } label: {
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 14, weight: .bold))
+        let current = model.sas
+        let on = current != .off
+        Button {
+            picking = true
+        } label: {
+            HStack(spacing: 6) {
+                Text("SAS").fontWeight(.semibold).foregroundStyle(HUDPalette.muted)
+                Text(on ? SASGrid.shortName(current) : "ВЫКЛ").foregroundStyle(on ? HUDPalette.sas : HUDPalette.text)
+                Image(systemName: picking ? "chevron.down" : "chevron.up")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(HUDPalette.text)
             }
-            .buttonStyle(HUDButtonStyle(isActive: picking))
-            .accessibilityLabel("Выбрать режим SAS")
-            .popover(isPresented: $picking) {
+            .font(.system(size: 10, weight: .heavy))
+            .lineLimit(1)
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+            .background(HUDPalette.panel, in: Capsule())
+            .overlay(Capsule().strokeBorder(on ? HUDPalette.sas : HUDPalette.stroke, lineWidth: 1))
+            .frame(minHeight: HUDStyle.minTouch)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HUDPressStyle())
+        .opacity(model.onPad ? 0.5 : 1)
+        .accessibilityLabel("Режим SAS: " + (on ? SASGrid.fullName(current) : "выключен"))
+        .accessibilityHint("Раскрыть выбор режима")
+        .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("РЕЖИМ SAS")
+                    .font(.system(size: 8, weight: .regular))
+                    .tracking(1)
+                    .foregroundStyle(HUDPalette.muted)
                 SASGrid(model: model) { picking = false }
-                    .padding(10)
-                    .presentationCompactAdaptation(.popover)
             }
+            .padding(10)
+            .presentationCompactAdaptation(.popover)
         }
     }
 }
@@ -254,7 +286,7 @@ struct AttitudeControls: View {
     let model: FlightHUDModel
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 4) {
             HoldButton(systemImage: "arrow.counterclockwise", label: "Крен влево") { pressed in
                 model.rollLeftPressed = pressed
             }
@@ -275,14 +307,14 @@ struct Joystick: View {
     /// Отклонение −1…1 по осям (dy вниз — положительное).
     let onMove: (CGVector) -> Void
 
-    let size: CGFloat = 76
+    let size: CGFloat = 84
     private var travel: CGFloat { size / 2 - 19 }
     @GestureState private var offset: CGSize = .zero
 
     var body: some View {
         ZStack {
-            Circle().fill(HUDStyle.control)
-            Circle().strokeBorder(HUDStyle.stroke, lineWidth: 1)
+            Circle().fill(HUDPalette.panel.opacity(0.7))
+            Circle().strokeBorder(HUDPalette.stroke, lineWidth: 1)
             Path { p in
                 p.move(to: CGPoint(x: size / 2, y: 12)); p.addLine(to: CGPoint(x: size / 2, y: size - 12))
                 p.move(to: CGPoint(x: 12, y: size / 2)); p.addLine(to: CGPoint(x: size - 12, y: size / 2))
@@ -324,9 +356,9 @@ struct HoldButton: View {
         Image(systemName: systemImage)
             .font(.system(size: 20, weight: .bold))
             .foregroundStyle(pressed ? Color.black : Color.white)
-            .frame(width: HUDStyle.minTouch, height: 52)
+            .frame(width: 40, height: 52)
             .contentShape(Rectangle())
-            .hudBackground(pressed ? HUDStyle.active : HUDStyle.control, corner: 10)
+            .classicPanel(corner: 10, fill: pressed ? HUDStyle.active : HUDPalette.panel)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .updating($pressed) { _, state, _ in state = true }
@@ -338,16 +370,18 @@ struct HoldButton: View {
 
 // MARK: - Ступень
 
-/// Большая кнопка «Ступень»: одно нажатие — `.stage`. На последней ступени выпускает парашют.
+/// Большая кнопка действия ступени: значок, «ЗАЖИГАНИЕ / ОТДЕЛИТЬ / ПАРАШЮТ / НЕТ ДЕЙСТВИЙ» и подпись.
+/// Одно нажатие — `.stage`. Пульсирует, когда её советует помощник и на площадке до зажигания.
 struct StageButton: View {
     let model: FlightHUDModel
     /// Низкая кнопка (карта: место под панель узла).
     var compact = false
-    /// Помощник советует нажать её сейчас: яркая заливка и пульсирующая обводка.
+    /// Помощник советует нажать её сейчас.
     var highlighted = false
 
     var body: some View {
         let t = model.stageStatus
+        let enabled = t.action != .none
         let title: String = switch t.action {
         case .ignite: "ЗАЖИГАНИЕ"
         case .separate: "ОТДЕЛИТЬ"
@@ -360,27 +394,33 @@ struct StageButton: View {
         case .armChute: "вооружить парашют"
         case .none: "ступени завершены"
         }
+        let pulse = enabled && (highlighted || (model.onPad && t.action == .ignite))
         Button {
             model.send(.stage)
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 Image(systemName: t.action == .armChute ? "arrow.down.to.line.compact" : "square.stack.3d.down.right.fill")
-                    .font(.system(size: 18, weight: .bold))
+                    .font(.system(size: 15, weight: .bold))
                 VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(.system(size: 18, weight: .heavy))
+                    Text(title).font(.system(size: compact ? 14 : 15, weight: .black))
                     if !compact {
-                        Text(detail)
-                            .font(.system(size: 10, weight: .bold).monospacedDigit())
-                            .opacity(0.75)
+                        Text(detail).font(.system(size: 9, weight: .semibold))
                     }
                 }
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                Spacer(minLength: 0)
             }
-            .foregroundStyle(highlighted ? Color.black : HUDStyle.accent)
-            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 52)
+            .foregroundStyle(enabled ? HUDPalette.accentText : HUDPalette.muted)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 50)
+            .background(enabled ? HUDPalette.accent : Color.white.opacity(0.1),
+                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .contentShape(Rectangle())
         }
-        .buttonStyle(HUDButtonStyle(fill: highlighted ? HUDStyle.accent : HUDStyle.control))
-        .hudPulse(highlighted && t.action != .none)
-        .disabled(t.action == .none)
+        .buttonStyle(HUDPressStyle())
+        .hudPulse(pulse, corner: 12)
+        .disabled(!enabled)
         .accessibilityLabel(title + ", " + detail)
     }
 }

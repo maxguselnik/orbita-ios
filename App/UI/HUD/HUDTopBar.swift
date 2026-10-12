@@ -1,131 +1,108 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Верхняя полоса одной строкой: высота, скорость, Ап, Пе (и «До Ап», когда есть смысл); тап по цифрам
-/// добавляет вертикальную скорость, высоту над землёй и T+. Справа малые кнопки: время, ступени, пауза.
-/// Каждый кадр перерисовываются только числа (`TopBarMetrics`), кнопки — при смене своих полей.
-struct HUDTopBar: View {
+/// Плашка сверху слева: «Т+ мм:сс», три ближайших уровня ускорения времени и пауза.
+/// Каждый кадр перерисовывается только часы (`MissionClock`), кнопки — при смене своих полей.
+struct MissionTimeBar: View {
     let model: FlightHUDModel
 
     var body: some View {
-        HStack(spacing: 6) {
-            TopBarMetrics(model: model)
-                .layoutPriority(1)
-
-            Spacer(minLength: 0)
-
-            WarpMenu(model: model)
-
-            Button {
-                withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
-            } label: {
-                Image(systemName: "list.bullet.rectangle")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(model.isPanelOpen ? Color.black : Color.white)
-                    .frame(width: 38, height: 34)
-                    .hudBackground(model.isPanelOpen ? HUDStyle.active : HUDStyle.control, corner: 9)
-                    .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(HUDPressStyle())
-            .accessibilityLabel("Ступени, топливо, Δv")
-
+        HStack(spacing: 0) {
+            MissionClock(model: model)
+            WarpButtons(model: model)
             Button {
                 model.pause()
             } label: {
                 Image(systemName: "pause.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 38, height: 34)
-                    .hudBackground(HUDStyle.control, corner: 9)
-                    .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                    .font(.system(size: 10, weight: .heavy))
+                    .foregroundStyle(HUDPalette.text)
+                    .frame(width: 32, height: 26)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                    .frame(width: 40, height: HUDStyle.minTouch)
                     .contentShape(Rectangle())
             }
             .buttonStyle(HUDPressStyle())
             .accessibilityLabel("Пауза")
         }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 1)
-        .hudBackground()
+        .padding(.horizontal, 4)
+        .frame(height: 30)
+        .classicPanel()
     }
 }
 
-/// Главные величины одной строкой (подпись над значением); тап раскрывает вторую группу в той же строке.
-/// Единственная часть полосы, читающая кадр.
-struct TopBarMetrics: View {
+/// Время миссии: «Т+ 00:01:09»; до старта — «Т− 00:00:00».
+struct MissionClock: View {
     let model: FlightHUDModel
 
-    @State private var expanded = false
+    var body: some View {
+        Text(Self.text(model.telemetry))
+            .font(.system(size: 11, weight: .bold).monospacedDigit())
+            .foregroundStyle(HUDPalette.green)
+            .lineLimit(1)
+            .padding(.horizontal, 6)
+    }
+
+    static func text(_ t: FlightTelemetry) -> String {
+        t.mission.launched ? HUDFormat.missionTime(t.missionTime) : "Т" + HUDFormat.minus + " " + HUDFormat.clock(0)
+    }
+}
+
+/// Ускорение времени: три соседних уровня ▶ / ▶▶ / ▶▶▶ вокруг текущего. Текущий — зелёный, тап по нему
+/// раскрывает полный список уровней и «До узла манёвра»; тап по соседнему переключает сразу.
+struct WarpButtons: View {
+    let model: FlightHUDModel
 
     var body: some View {
-        let t = model.telemetry
-        Button {
-            withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
-        } label: {
-            HStack(alignment: .center, spacing: 10) {
-                HUDMetric(label: "Высота", value: HUDFormat.distance(t.altitude))
-                HUDMetric(label: "Скорость", value: HUDFormat.speed(t.surfaceSpeed))
-                HUDMetric(label: "Апоцентр", value: HUDFormat.distance(t.orbit?.apoapsisAltitude))
-                HUDMetric(label: "Перицентр", value: HUDFormat.periapsis(t.orbit?.periapsisAltitude))
-                if Self.showsTimeToApoapsis(t) {
-                    HUDMetric(label: "До Ап", value: HUDFormat.countdown(t.orbit?.timeToApoapsis))
+        let status = model.warp
+        HStack(spacing: 0) {
+            ForEach(Array(Self.window(current: status.index).enumerated()), id: \.offset) { position, index in
+                if index == status.index {
+                    currentButton(position: position, status: status)
+                } else {
+                    neighbourButton(position: position, index: index, status: status)
                 }
-                if expanded {
-                    HUDMetric(label: "Верт. скорость", value: HUDFormat.signedSpeed(t.verticalSpeed))
-                    HUDMetric(label: "Над землёй", value: HUDFormat.distance(t.heightAboveTerrain))
-                    HUDMetric(label: "T+", value: HUDFormat.missionTime(t.missionTime))
-                }
-                Image(systemName: expanded ? "chevron.left" : "chevron.right")
-                    .font(.system(size: 9, weight: .bold))
-                    .foregroundStyle(HUDStyle.secondaryText)
             }
-            .padding(.leading, 4)
-            .frame(minHeight: HUDStyle.minTouch)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .accessibilityHint("Показать или скрыть вертикальную скорость, высоту над землёй и время полёта")
     }
 
-    /// «До Ап» нужно в полёте и на орбите, пока апоцентр впереди; на площадке и на земле — нет.
-    static func showsTimeToApoapsis(_ t: FlightTelemetry) -> Bool {
-        let inFlight = t.situation == .flying || t.situation == .suborbital || t.situation == .orbiting
-        guard inFlight, let toApo = t.orbit?.timeToApoapsis, toApo.isFinite else { return false }
-        return toApo > 0
+    /// Индексы трёх уровней `TimeWarp.levels` вокруг текущего (текущий — в середине, у краёв списка — сбоку).
+    static func window(current: Int, count: Int = TimeWarp.levels.count) -> [Int] {
+        guard count >= 3 else { return Array(0..<max(count, 0)) }
+        let start = min(max(current - 1, 0), count - 3)
+        return [start, start + 1, start + 2]
     }
-}
 
-/// Подпись над значением телеметрии.
-struct HUDMetric: View {
-    let label: String
-    let value: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text(label)
-                .font(.system(size: 9, weight: .bold))
-                .foregroundStyle(HUDStyle.secondaryText)
-                .lineLimit(1)
-            Text(value)
-                .font(.system(size: 14, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                // Самое длинное значение («−198.2 км», «12.00 Мм») сжимается, а не обрезается многоточием.
-                .minimumScaleFactor(0.7)
+    private func glyph(position: Int, active: Bool) -> some View {
+        HStack(spacing: 0) {
+            ForEach(0...position, id: \.self) { _ in
+                Image(systemName: "play.fill").font(.system(size: 7, weight: .bold))
+            }
         }
-        .frame(minWidth: 46, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .foregroundStyle(active ? Color(red: 0.73, green: 0.96, blue: 0.76) : HUDPalette.muted)
+        .frame(width: 32, height: 26)
+        .background(active ? HUDPalette.greenDark : Color.white.opacity(0.08),
+                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .frame(width: 40, height: HUDStyle.minTouch)
+        .contentShape(Rectangle())
     }
-}
 
-/// Ускорение времени: тап — список уровней из `TimeWarp.levels` и «До узла манёвра», если узел есть.
-struct WarpMenu: View {
-    let model: FlightHUDModel
+    private func neighbourButton(position: Int, index: Int, status: WarpStatus) -> some View {
+        let factor = TimeWarp.levels[index]
+        let locked = status.blocked != nil && index >= TimeWarp.physicalCount
+        return Button {
+            model.send(.setWarp(index: index))
+        } label: {
+            glyph(position: position, active: false)
+        }
+        .buttonStyle(HUDPressStyle())
+        .disabled(locked)
+        .opacity(locked ? 0.4 : 1)
+        .accessibilityLabel("Ускорение \(HUDFormat.warp(factor))")
+    }
 
-    var body: some View {
-        let t = model.warp
+    private func currentButton(position: Int, status: WarpStatus) -> some View {
         Menu {
-            if let reason = t.blocked {
+            if let reason = status.blocked {
                 Text(verbatim: "Выше \(HUDFormat.warp(TimeWarp.levels[TimeWarp.physicalCount - 1])) нельзя: \(FlightHUDModel.warpReasonText(reason))")
             }
             if model.hasManeuver {
@@ -140,30 +117,61 @@ struct WarpMenu: View {
                 Button {
                     model.send(.setWarp(index: index))
                 } label: {
-                    if index == t.index {
+                    if index == status.index {
                         Label(HUDFormat.warp(factor), systemImage: "checkmark")
                     } else {
                         Text(HUDFormat.warp(factor))
                     }
                 }
-                .disabled(t.blocked != nil && index >= TimeWarp.physicalCount)
+                .disabled(status.blocked != nil && index >= TimeWarp.physicalCount)
             }
         } label: {
-            HStack(spacing: 3) {
-                Image(systemName: t.index > 0 ? "forward.fill" : "play.fill")
-                    .font(.system(size: 10, weight: .bold))
-                Text(HUDFormat.warp(t.factor))
-                    .font(.system(size: 13, weight: .bold).monospacedDigit())
-                    .lineLimit(1)
-            }
-            .foregroundStyle(t.index > 0 ? Color.black : Color.white)
-            .padding(.horizontal, 8)
-            .frame(minWidth: 52, minHeight: 34)
-            .hudBackground(t.index > 0 ? HUDStyle.accent : HUDStyle.control, corner: 9)
-            .frame(minHeight: HUDStyle.minTouch)
-            .contentShape(Rectangle())
+            glyph(position: position, active: true)
         }
         .menuOrder(.fixed)
-        .accessibilityLabel("Ускорение времени \(HUDFormat.warp(t.factor))")
+        .accessibilityLabel("Ускорение времени \(HUDFormat.warp(status.factor)), выбрать уровень")
+    }
+}
+
+/// Квадратная иконка 36 pt в зоне касания 44 pt: правая колонка (карта, камера, ступени).
+struct HUDIconButton: View {
+    let systemImage: String
+    let label: String
+    var isActive = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(isActive ? Color.black : HUDPalette.text)
+                .frame(width: 36, height: 36)
+                .classicPanel(corner: 8, fill: isActive ? HUDStyle.active : HUDPalette.panel)
+                .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(HUDPressStyle())
+        .accessibilityLabel(label)
+    }
+}
+
+/// Вертикальные иконки справа сверху: карта (в полёте), камера (в полёте), ступени. Все — существующие действия.
+struct HUDSideButtons: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !model.map.isOpen {
+                HUDIconButton(systemImage: "map", label: "Открыть карту") { model.toggleMap() }
+                HUDIconButton(systemImage: CameraModeInfo.symbol(model.cameraMode),
+                              label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))") {
+                    model.cycleCameraMode()
+                }
+            }
+            HUDIconButton(systemImage: "list.bullet.rectangle", label: "Ступени, топливо, Δv",
+                          isActive: model.isPanelOpen) {
+                withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
+            }
+        }
     }
 }

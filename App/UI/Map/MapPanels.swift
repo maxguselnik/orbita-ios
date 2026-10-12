@@ -51,7 +51,7 @@ enum MapText {
 
 // MARK: - Левая колонка
 
-/// Кнопка «Карта» ↔ «Полёт».
+/// Кнопка «Полёт» на карте (в полёте карта открывается иконкой справа сверху).
 struct MapToggleButton: View {
     let model: FlightHUDModel
 
@@ -281,6 +281,8 @@ struct MapFocusPicker: View {
 struct MapSideColumn: View {
     let model: FlightHUDModel
 
+    static let width: CGFloat = 196
+
     var body: some View {
         VStack(spacing: 6) {
             if model.hasManeuver {
@@ -299,7 +301,7 @@ struct MapSideColumn: View {
             Spacer(minLength: 0)
             StageButton(model: model, compact: true)
         }
-        .frame(width: ControlsColumn.width)
+        .frame(width: Self.width)
     }
 }
 
