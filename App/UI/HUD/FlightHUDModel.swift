@@ -51,6 +51,12 @@ final class FlightHUDModel {
     private(set) var onPad: Bool
     /// Главное следующее действие (подсветка кнопки); меняется редко.
     private(set) var guide: HUDAction?
+    /// Миссия «Выход на орбиту» применима: Терра, полёт начат с площадки.
+    private(set) var missionActive = false
+    /// Наибольший достигнутый шаг миссии (0…5): не откатывается.
+    private(set) var missionProgress = 0
+    /// Высотомер показывает высоту над рельефом (у поверхности), иначе над уровнем моря.
+    private(set) var altimeterOverTerrain = false
     /// Детали активного корабля сверху вниз: стек ступеней и экипаж в HUD. Меняется при отделении.
     private(set) var parts: [PartID]
     private(set) var toast: HUDToast?
@@ -140,6 +146,8 @@ final class FlightHUDModel {
         self.rcs = t.rcs
         self.onPad = t.situation == .prelaunch
         self.guide = Self.guideAction(t)
+        self.missionActive = t.body == .terra && t.situation == .prelaunch
+        self.altimeterOverTerrain = AltimeterMode.overTerrain(previous: false, t)
         self.parts = Self.activeParts(snapshot)
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
@@ -226,6 +234,9 @@ final class FlightHUDModel {
         dragDraft = nil
         dragDirty = false
         sim = makeSimulation()
+        let fresh = sim.snapshot.telemetry
+        missionActive = fresh.body == .terra && fresh.situation == .prelaunch
+        missionProgress = 0
         publish(sim.snapshot)
         pitchInput = 0
         yawInput = 0
@@ -429,6 +440,9 @@ final class FlightHUDModel {
 
     // MARK: - Публикация кадра
 
+    /// Шаги миссии для карточки (с учётом монотонного прогресса).
+    var missionSteps: [MissionStep] { MissionChecklist.steps(telemetry, reached: missionProgress) }
+
     private func publish(_ snapshot: WorldSnapshot) {
         self.snapshot = snapshot
         let currentThrottle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? throttle
@@ -449,6 +463,12 @@ final class FlightHUDModel {
         if onPad != pad { onPad = pad }
         let action = Self.guideAction(t)
         if guide != action { guide = action }
+        if missionActive {
+            let done = MissionChecklist.completed(t)
+            if done > missionProgress { missionProgress = done }
+        }
+        let overTerrain = AltimeterMode.overTerrain(previous: altimeterOverTerrain, t)
+        if altimeterOverTerrain != overTerrain { altimeterOverTerrain = overTerrain }
         let shipParts = Self.activeParts(snapshot)
         if parts != shipParts { parts = shipParts }
         let node = t.maneuver?.node

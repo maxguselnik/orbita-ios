@@ -248,6 +248,10 @@ struct RenderAndHUDTests {
         let controls = fitted(ControlsCluster(model: model, guide: nil))
         let rcs = fitted(RCSControls(model: model))
         let stack = fitted(StageStackView(model: model))
+        let card = fitted(MissionCard(model: model))
+        // Карточка под стопкой: до кнопки ступени (снизу 10 + 40) остаётся место.
+        #expect(36 + CGFloat(StageStackView.maxRows) * 22 + 9 + 6 + card.height < 393 - 10 - 40)
+        #expect(card.width <= MissionCard.width)
         #expect(stack.height <= CGFloat(StageStackView.maxRows) * 22 + 9)
 
         // По горизонтали на кадре 852 pt (боковые безопасные зоны ≈ 59 pt): кнопка ступени, группа РСУ, кольцо, джойстик.

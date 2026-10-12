@@ -308,11 +308,16 @@ struct ThrottleGauge: View {
                 .position(knob)
             VStack(spacing: 0) {
                 Text(locked ? "РДТТ" : "ТЯГА")
+                    .foregroundStyle(HUDPalette.text)
                 Text(HUDFormat.percent(value))
+                    .foregroundStyle(HUDPalette.accent)
             }
-            .font(.system(size: 8, weight: .semibold).monospacedDigit())
-            .foregroundStyle(HUDPalette.accent)
+            .font(.system(size: 9, weight: .heavy).monospacedDigit())
             .lineLimit(1)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
             .position(x: -12, y: 124)
             .allowsHitTesting(false)
             Color.clear

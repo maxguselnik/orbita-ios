@@ -188,7 +188,10 @@ struct FlightLayer: View {
     /// Стопка ступеней под строкой времени, внизу — кнопка действия.
     private var leftColumn: some View {
         ZStack {
-            StageStackView(model: model)
+            VStack(alignment: .leading, spacing: 6) {
+                StageStackView(model: model)
+                MissionCard(model: model, enabled: hintsEnabled)
+            }
                 .padding(.top, 36)
                 .padding(.leading, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
