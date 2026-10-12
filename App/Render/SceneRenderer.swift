@@ -32,6 +32,9 @@ final class SceneRenderer: FlightRenderer {
     private var seen: Set<VesselID> = []
     private var explosions: [ExplosionVisual] = []
     private var exploded: Set<VesselID> = []
+    private let atmosphere = AtmosphereVisual()
+    private let clouds = CloudVisual()
+    private let effects = VesselEffects()
     private var governor = QualityGovernor()
     private var shake = CameraShake()
     /// Желаемая частота кадров (из настроек) — для авто-качества.
@@ -46,6 +49,9 @@ final class SceneRenderer: FlightRenderer {
         root.addChild(terra.root)
         root.addChild(luna.root)
         root.addChild(pad.root)
+        root.addChild(atmosphere.root)
+        root.addChild(clouds.root)
+        root.addChild(effects.root)
         pad.root.isEnabled = false
 
         Task { [weak self] in
@@ -85,6 +91,9 @@ final class SceneRenderer: FlightRenderer {
         rig = CameraRig()
         rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1
         pad.root.isEnabled = false
+        atmosphere.reset()
+        clouds.reset()
+        effects.reset()
         shake = CameraShake()
     }
 
@@ -106,6 +115,7 @@ final class SceneRenderer: FlightRenderer {
         let radial = simd_normalize(pos)
         let switched = lastActive != active.id
         lastActive = active.id
+        if switched { effects.reset() }
         rig.setDefaultDistance(max(height * 1.7, 14), snap: switched)
         if switched {
             // Высоко над телом — смотреть сверху, чтобы была видна кривизна; у земли — почти горизонтально.
@@ -242,7 +252,26 @@ final class SceneRenderer: FlightRenderer {
         }
         sky.update(up: localUp, brightness: brightness)
 
-        _ = quality
+        // Атмосфера Терры: дымка, ореол, облака.
+        let terraRel = RenderFrame.bodyCenter(.terra, in: frame, luna: luna) - eye
+        let atmo = AtmosphereFrame(
+            time: renderTime, dt: frameDelta, terraCenter: terraRel, terraRotation: terraRot, terraScale: terraScale,
+            up: simd_normalize(-terraRel), altitude: simd_length(terraRel) - Bodies.terra.radius,
+            skyBrightness: brightness, sun: SkyVisual.sunDirection, frameBody: frame, quality: quality)
+        atmosphere.update(atmo)
+        clouds.update(atmo)
+
+        // Эффекты активного корабля: дым, потоки воздуха, конденсация, плазма.
+        let t = snapshot.telemetry
+        let wind = frame == .terra ? simd_cross(World.spin(.terra).d3, pos) : .zero
+        let groundUnder = Terrain.surfaceHeight(body: frame, direction: vec3(rot.inverse.act(radial)))
+        effects.update(VesselEffectFrame(
+            time: renderTime, dt: frameDelta, vessel: active, vesselRel: pos - eye,
+            stackHeight: activeVisual.stackHeight, partBottoms: activeVisual.partBottoms,
+            airVelocity: active.velocity.d3 - wind, windVelocity: wind, up: radial,
+            heightAboveGround: t.heightAboveTerrain, groundRel: radial * (body.radius + max(0, groundUnder)) - eye,
+            telemetry: t, daylight: clampd(simd_dot(radial, SkyVisual.sunDirection) * 2.5 + 0.35, 0.03, 1),
+            quality: quality))
 
         // Камера в нуле; ближняя плоскость — по ближайшему объекту.
         // Смотрим чуть ниже цели: корабль выше центра кадра, факел и земля не под навболом.
