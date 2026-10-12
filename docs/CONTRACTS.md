@@ -21,8 +21,10 @@ UI (C) ── CameraInput ──┘
 - Ориентация: `attitude` переводит оси корабля (нос = +Y) в инерциальные.
 - `FlightSimulation.advance(realDelta:)` сама дробит шаг (≤ 0.02 с), учитывает ускорение времени и авто-сброс (`SimEvent.warpReset`).
 - `ControlInput` — непрерывный ввод (тяга 0…1, оси −1…1, RCS). `FlightCommand` — кнопки (ступень, SAS, ускорение, парашют).
-- `FlightTelemetry` — готовые числа для HUD и звука (включая `stages: [StageInfo]` — Δv, TWR, топливо по ступеням; тягу, РДТТ, плотность, нагрев, перегрузку); HUD сам ничего не считает.
+- `FlightTelemetry` — готовые числа для HUD и звука (включая `stages: [StageInfo]` — Δv, TWR, топливо по ступеням (`fuelMass`/`fuelCapacity` в кг); тягу, РДТТ, плотность, нагрев, перегрузку); HUD сам ничего не считает.
 - `FlightTelemetry.navball` — маркеры навбола уже в осях корабля; `pitch/heading/roll` — относительно горизонта; `chute`, `chuteSafe`; `warpIndex` в `TimeWarp.levels` (×1–4 физическое, ×10–100 000 рельсы) и `warpBlocked`.
+- `FlightTelemetry.nextStageAction` — точное следующее действие: `.ignite`, `.separate`, `.armChute`, `.none`; HUD и подсказки не определяют его по числу секций.
+- `VesselAssembly.empty`, `insert(_:into:at:)`, `move(_:from:to:)` — осевая сборка; крепления 0…count, перенос использует индекс крепления до удаления исходной детали. Сохраняется прежний формат `VesselDesign.parts`.
 - `stages[0]` — текущая ступень; отдельного номера ступени нет.
 - `FlightTelemetry.mission: MissionRecord` — итоги полёта с момента старта (макс. высота/скорость/перегрузка, космос, орбита, SOI Луны, орбита Луны, посадка на Луну, возврат из космоса) — для экрана результата.
 - `VesselDesign.issues() -> [DesignIssue]` — проверка проекта в ангаре; `isBlocking` — старт запрещён, `text` — строка для UI.

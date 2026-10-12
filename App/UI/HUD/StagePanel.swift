@@ -68,7 +68,7 @@ struct StagePanel: View {
             ScrollView {
                 VStack(spacing: 6) {
                     ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
-                        StageRow(number: stages.count - 1 - index, stage: stage, isCurrent: index == 0)
+                        StageRow(number: stages.count - index, stage: stage, isCurrent: index == 0)
                     }
                 }
             }
@@ -122,7 +122,7 @@ struct StageRow: View {
             HStack(spacing: 10) {
                 labeled("Δv", HUDFormat.speed(stage.deltaV))
                 labeled("TWR", "\(HUDFormat.twr(stage.twr)) / \(HUDFormat.twr(stage.twrVacuum))")
-                labeled("t", HUDFormat.countdown(stage.burnTime > 0 ? stage.burnTime : nil))
+                labeled("MAX", HUDFormat.countdown(stage.burnTime > 0 ? stage.burnTime : nil))
             }
         }
         .foregroundStyle(.white)

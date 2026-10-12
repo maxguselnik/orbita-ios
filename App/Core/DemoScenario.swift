@@ -6,6 +6,8 @@ import OrbitPhysics
 enum DemoScenario: String, CaseIterable, Sendable {
     /// Ангар с проектом «Орбита».
     case hangar
+    /// Ангар без деталей: проверка начала сборки с нуля.
+    case hangarEmpty
     /// На площадке, «Орбита».
     case flight
     /// Подъём на автопилоте, около max Q.
@@ -58,7 +60,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .flight:
+        case .hangar, .hangarEmpty, .flight:
             return FlightSim(design: .orbit)
         case .ascent:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in sim.time >= 55 }

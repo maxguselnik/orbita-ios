@@ -62,6 +62,9 @@ struct FlightHUDView: View {
             }
         }
         .overlay(alignment: .top) {
+            if !mapOpen { FlightStatusView(model: model).padding(.top, 60) }
+        }
+        .overlay(alignment: .top) {
             if let toast = model.toast {
                 Text(toast.text)
                     .font(.system(size: 14, weight: .semibold))
@@ -69,7 +72,7 @@ struct FlightHUDView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .hudBackground(corner: 10)
-                    .padding(.top, 62)
+                    .padding(.top, 102)
                     .id(toast.id)
                     .transition(.opacity)
                     .allowsHitTesting(false)
@@ -79,7 +82,7 @@ struct FlightHUDView: View {
         .overlay(alignment: .top) {
             if hintsEnabled, !hintsDone, let hint = model.hint, !model.isPaused {
                 HintBanner(hint: hint) { model.dismissHints() }
-                    .padding(.top, 62 + 42)
+                    .padding(.top, 144)
                     .transition(.opacity)
             }
         }

@@ -41,7 +41,6 @@ jobs:
   screens:
     name: Скриншоты (симулятор)
     needs: ios
-    if: github.event_name == 'push'
     runs-on: macos-15
     permissions:
       contents: write
@@ -56,7 +55,16 @@ jobs:
         with:
           name: screens-${{ github.sha }}
           path: screens/
+      - name: Регрессии рендера и HUD
+        run: |
+          set -o pipefail
+          UDID=$(xcrun simctl list devices booted -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for r in d.values() for x in r if x['state']=='Booted' and x['name'].startswith('iPhone')))")
+          xcodebuild -project Orbita.xcodeproj -scheme Orbita \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -configuration Debug test CODE_SIGNING_ALLOWED=NO \
+            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Публикация в ветку ci-screens
+        if: github.event_name == 'push'
         # Ветка большая (старые видео), push иногда обрывается (HTTP 408) — снимки есть и в артефакте.
         continue-on-error: true
         timeout-minutes: 10

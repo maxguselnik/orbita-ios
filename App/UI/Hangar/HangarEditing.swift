@@ -7,8 +7,7 @@ enum HangarEditing {
     static func add(_ part: PartID, to parts: inout [PartID], selected: Int?) -> Int? {
         guard parts.count < VesselDesign.maxParts else { return nil }
         let at = selected.map { min(max($0 + 1, 0), parts.count) } ?? parts.count
-        parts.insert(part, at: at)
-        return at
+        return VesselAssembly.insert(part, into: &parts, at: at)
     }
 
     /// Поднимает деталь на строку выше; nil — некуда.
@@ -45,9 +44,9 @@ enum HangarEditing {
         return out
     }
 
-    /// Пустой проект с одной капсулой К-1.
+    /// Действительно пустой проект: первую командную деталь выбирает игрок.
     static var cleared: VesselDesign {
-        VesselDesign(name: "Новый корабль", parts: [.podK1])
+        VesselAssembly.empty
     }
 }
 

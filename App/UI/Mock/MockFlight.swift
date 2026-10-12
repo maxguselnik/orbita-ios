@@ -460,13 +460,13 @@ final class MockFlight: FlightSimulation {
                 deltaV: deltaV, twr: twr, twrVacuum: twr * 1.1,
                 fuelFraction: stage.fuelCapacity > 0 ? stage.fuelMass / stage.fuelCapacity : 0,
                 burnTime: stage.fuelFlow > 0 ? stage.fuelMass / stage.fuelFlow : 0,
-                hasSolid: stage.solid))
+                hasSolid: stage.solid, fuelMass: stage.fuelMass, fuelCapacity: stage.fuelCapacity))
             massAbove -= stage.mass
         }
 
         let rho = body.density(altitude: altitude)
         let orbit = onGround ? nil : orbitSummary()
-        let telemetry = FlightTelemetry(
+        var telemetry = FlightTelemetry(
             altitude: altitude,
             heightAboveTerrain: max(0, altitude - Self.terrainHeight),
             speed: speed,
@@ -497,6 +497,8 @@ final class MockFlight: FlightSimulation {
             warpIndex: warpIndex,
             warpBlocked: warpBlocked,
             maneuver: maneuverStatus())
+
+        telemetry.nextStageAction = stages.count > 1 ? .separate : (chute == .stowed ? .armChute : .none)
 
         let vessel = VesselState(
             id: 1, body: body.id, position: position, velocity: velocity,

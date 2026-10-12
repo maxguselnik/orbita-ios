@@ -38,6 +38,8 @@ final class PlanetLOD {
 
     /// Сколько патчей сейчас на экране (для отладки и бюджета).
     var visibleCount: Int { visible.count }
+    /// Фактическая видимость сущностей (для диагностики перекрывающихся уровней LOD).
+    var renderedPatches: [PatchKey] { records.compactMap { $0.value.entity?.isEnabled == true ? $0.key : nil } }
 
     static let maxInFlight = 6
     static let meshesPerFrame = 4
@@ -72,8 +74,11 @@ final class PlanetLOD {
         swap(&split, &nextSplit)
 
         // Скрыть ушедшие, показать и расставить видимые.
+        // lastUsed — возраст кеша, а не видимость: готовые дочерние патчи
+        // посещаются даже при выборе родителя. Они не должны рисоваться вместе.
+        let selected = Set(visible)
         for key in shown {
-            if let r = records[key], r.lastUsed != frame, r.shown {
+            if let r = records[key], !selected.contains(key), r.shown {
                 r.entity?.isEnabled = false
                 r.shown = false
             }

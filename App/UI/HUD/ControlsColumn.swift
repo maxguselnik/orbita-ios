@@ -295,18 +295,28 @@ struct StageButton: View {
 
     var body: some View {
         let t = model.stageStatus
-        let isLast = t.remaining <= 1
-        let title = isLast ? (t.chute == .stowed ? "ПАРАШЮТ" : "ПАРАШЮТ ВЫПУЩЕН") : "СТУПЕНЬ"
+        let title: String = switch t.action {
+        case .ignite: "ЗАЖИГАНИЕ"
+        case .separate: "ОТДЕЛИТЬ"
+        case .armChute: "ПАРАШЮТ"
+        case .none: "НЕТ ДЕЙСТВИЙ"
+        }
+        let detail: String = switch t.action {
+        case .ignite: "затем установите тягу"
+        case .separate: "сбросить нижнюю ступень"
+        case .armChute: "вооружить парашют"
+        case .none: "ступени завершены"
+        }
         Button {
             model.send(.stage)
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: isLast ? "arrow.down.to.line.compact" : "square.stack.3d.down.right.fill")
+                Image(systemName: t.action == .armChute ? "arrow.down.to.line.compact" : "square.stack.3d.down.right.fill")
                     .font(.system(size: 18, weight: .bold))
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).font(.system(size: 17, weight: .heavy))
-                    if !isLast && !compact {
-                        Text("осталось \(t.remaining - 1)")
+                    if !compact {
+                        Text(detail)
                             .font(.system(size: 10, weight: .bold).monospacedDigit())
                             .opacity(0.75)
                     }
@@ -315,7 +325,7 @@ struct StageButton: View {
             .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 54)
         }
         .buttonStyle(HUDButtonStyle(fill: HUDStyle.accent.opacity(0.85)))
-        .disabled(isLast && t.chute != .stowed)
-        .accessibilityLabel(isLast ? "Выпустить парашют" : "Следующая ступень")
+        .disabled(t.action == .none)
+        .accessibilityLabel(title + ", " + detail)
     }
 }

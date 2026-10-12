@@ -1000,6 +1000,15 @@ public final class FlightSim: FlightSimulation {
             guard pi.spec.kind == .engine, pi.ignited else { continue }
             if pi.spec.isSolid ? pi.fuel > 0 : liq > 1e-9 { maxT += pi.spec.thrust(pressure: p) }
         }
+        if s.situation == .crashed {
+            t.nextStageAction = .none
+        } else if r.contains(where: { s.ship.parts[$0].spec.kind == .engine && !s.ship.parts[$0].ignited }) {
+            t.nextStageAction = .ignite
+        } else if s.ship.sections.count > 1 {
+            t.nextStageAction = .separate
+        } else {
+            t.nextStageAction = s.chute == .stowed ? .armChute : .none
+        }
         t.maxThrust = maxT
         t.solidBurning = !onRails && lastSolidThrust > 0
         t.atmosphereDensity = rho

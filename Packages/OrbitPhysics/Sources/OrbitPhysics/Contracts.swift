@@ -132,6 +132,11 @@ public struct OrbitSummary: Sendable, Hashable {
     }
 }
 
+/// Действие следующего нажатия «Ступень», вычисленное симуляцией.
+public enum StageAction: Sendable, Hashable {
+    case ignite, separate, armChute, none
+}
+
 /// Сводка по ступени для HUD и ангара. Индекс 0 — текущая (нижняя) ступень.
 public struct StageInfo: Sendable, Hashable {
     /// Δv ступени, м/с (текущая — по текущему давлению, остальные — вакуум).
@@ -140,6 +145,8 @@ public struct StageInfo: Sendable, Hashable {
     public var twr: Double
     /// Остаток топлива 0…1.
     public var fuelFraction: Double
+    public var fuelMass: Double
+    public var fuelCapacity: Double
     /// Время работы на полной тяге, с.
     public var burnTime: Double
     /// Есть ли РДТТ (нельзя дросселировать).
@@ -148,10 +155,12 @@ public struct StageInfo: Sendable, Hashable {
     /// Тяговооружённость в вакууме.
     public var twrVacuum: Double
 
-    public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool) {
+    public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool, fuelMass: Double = 0, fuelCapacity: Double = 0) {
         self.deltaV = deltaV
         self.twr = twr
         self.twrVacuum = twrVacuum
+        self.fuelMass = fuelMass
+        self.fuelCapacity = fuelCapacity
         self.fuelFraction = fuelFraction
         self.burnTime = burnTime
         self.hasSolid = hasSolid
@@ -306,6 +315,7 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var warpFactor: Double
     public var missionTime: Double
     /// Оставшиеся ступени по порядку срабатывания: [0] — текущая, последний — капсула.
+    public var nextStageAction: StageAction = .none
     public var stages: [StageInfo]
     /// Текущая суммарная тяга, Н, и максимум при полной тяге.
     public var thrust: Double

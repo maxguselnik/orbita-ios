@@ -10,6 +10,11 @@ struct HangarView: View {
     @Environment(GameSettings.self) private var settings
     @State private var selected: Int?
     @State private var tab: CatalogTab = .pods
+    @State private var attachment = 0
+    @State private var undoStack: [VesselDesign] = []
+    @State private var redoStack: [VesselDesign] = []
+    @State private var renaming = false
+    @State private var draftName = ""
     /// Пресет, ожидающий подтверждения замены проекта.
     @State private var pendingPreset: VesselDesign?
 
@@ -34,18 +39,35 @@ struct HangarView: View {
                 preview(issues: issues)
 
                 HangarStackList(parts: design.parts, stages: stages, selected: validSelection,
-                                onSelect: { selected = $0; feedbackTap() },
-                                onUp: moveUp, onDown: moveDown, onDelete: delete)
+                                onSelect: { selected = $0; attachment = $0 + 1; feedbackTap() },
+                                onUp: moveUp, onDown: moveDown, onDelete: delete,
+                                attachment: attachment,
+                                onAttachment: { attachment = $0; feedbackTap() }, onDrop: drop)
                     .frame(width: Self.stackWidth)
             }
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Color(red: 0.05, green: 0.06, blue: 0.09).ignoresSafeArea())
-        .onChange(of: design.parts, initial: true) { refreshScene() }
+        .onChange(of: design.parts, initial: true) {
+            attachment = min(attachment, design.parts.count)
+            refreshScene()
+        }
         .onChange(of: selected) { refreshScene() }
+        .onChange(of: attachment) { scene.markAttachment(attachment) }
+        .alert("Название корабля", isPresented: $renaming) {
+            TextField("Название", text: $draftName)
+            Button("Сохранить") {
+                let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty {
+                    remember()
+                    flow.design.name = String(name.prefix(40))
+                }
+            }
+            Button("Отмена", role: .cancel) {}
+        }
         .confirmationDialog(
-            "Заменить проект пресетом «\(pendingPreset?.name ?? "")»?",
+            "Заменить текущий проект на «\(pendingPreset?.name ?? "")»?",
             isPresented: Binding(get: { pendingPreset != nil }, set: { if !$0 { pendingPreset = nil } }),
             titleVisibility: .visible
         ) {
@@ -55,7 +77,7 @@ struct HangarView: View {
             }
             Button("Отмена", role: .cancel) { pendingPreset = nil }
         } message: {
-            Text("Текущий проект будет потерян.")
+            Text("Замену можно отменить стрелкой назад.")
         }
     }
 
@@ -64,16 +86,16 @@ struct HangarView: View {
     private func topBar(_ design: VesselDesign, stages: [StageInfo], blocked: Bool) -> some View {
         let totalDV = stages.reduce(0) { $0 + $1.deltaV }
         let twr = stages.first?.twr
-        return HStack(spacing: 10) {
+        return HStack(spacing: 6) {
             Menu {
                 ForEach(Array(VesselDesign.presets.enumerated()), id: \.offset) { _, preset in
                     Button(preset.name) { requestLoad(preset) }
                 }
                 Divider()
-                Button("Очистить", role: .destructive) { requestLoad(HangarEditing.cleared) }
+                Button("С нуля", role: .destructive) { requestLoad(HangarEditing.cleared) }
             } label: {
                 HStack(spacing: 4) {
-                    Text("Пресеты").font(.system(size: 14, weight: .bold))
+                    Text("Проект").font(.system(size: 14, weight: .bold))
                     Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
                 }
                 .foregroundStyle(.white)
@@ -82,13 +104,24 @@ struct HangarView: View {
                 .contentShape(Rectangle())
                 .hudBackground(HUDStyle.control, corner: 10)
             }
-            .accessibilityLabel("Пресеты")
+            .accessibilityLabel("Новый корабль или готовый проект")
 
-            Text(design.name)
+            Button { draftName = design.name; renaming = true } label: {
+                Text(design.name)
                 .font(.system(size: 17, weight: .heavy))
                 .foregroundStyle(.white)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Переименовать корабль")
+
+            Button { undo() } label: { Image(systemName: "arrow.uturn.backward") }
+                .buttonStyle(HUDButtonStyle()).disabled(undoStack.isEmpty)
+                .accessibilityLabel("Отменить правку")
+            Button { redo() } label: { Image(systemName: "arrow.uturn.forward") }
+                .buttonStyle(HUDButtonStyle()).disabled(redoStack.isEmpty)
+                .accessibilityLabel("Повторить правку")
 
             Spacer(minLength: 0)
 
@@ -109,7 +142,7 @@ struct HangarView: View {
                 Label("СТАРТ", systemImage: "play.fill")
                     .font(.system(size: 17, weight: .heavy))
                     .padding(.horizontal, 12)
-                    .frame(minWidth: 130, minHeight: 54)
+                    .frame(minWidth: 104, minHeight: 48)
             }
             .buttonStyle(HUDButtonStyle(isActive: !blocked))
             .opacity(blocked ? 0.55 : 1)
@@ -138,8 +171,34 @@ struct HangarView: View {
 
     private func preview(issues: [DesignIssue]) -> some View {
         ZStack(alignment: .bottom) {
-            HangarSceneView(scene: scene)
-            HangarGestureLayer { scene.apply($0) }
+            GeometryReader { geo in
+                HangarSceneView(scene: scene)
+                HangarGestureLayer { scene.apply($0) }
+                    .simultaneousGesture(SpatialTapGesture().onEnded { event in
+                        if let index = scene.pickPart(at: event.location, viewSize: geo.size) {
+                            selected = index
+                            attachment = index + 1
+                            feedbackTap()
+                        }
+                    })
+                    .dropDestination(for: String.self) { items, location in
+                        guard let item = items.first, items.count == 1 else { return false }
+                        let index = scene.nearestAttachment(at: location, viewSize: geo.size)
+                        return drop(item, at: index)
+                    }
+            }
+            VStack(spacing: 3) {
+                Text(flow.design.parts.isEmpty ? "СОБЕРИТЕ КОРАБЛЬ" : "КРЕПЛЕНИЕ \(attachment + 1)")
+                    .font(.system(size: 11, weight: .heavy))
+                Text(flow.design.parts.isEmpty ? "Капсула → бак → двигатель" : "Тап по детали · перенос из каталога · + между деталями")
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundStyle(.white)
+            .padding(8)
+            .hudBackground(Color.black.opacity(0.8), corner: 8)
+            .frame(maxHeight: .infinity, alignment: .top)
+            .padding(6)
+            .allowsHitTesting(false)
             warnings(issues)
                 .padding(6)
                 .allowsHitTesting(false)
@@ -187,9 +246,11 @@ struct HangarView: View {
 
     private func add(_ id: PartID) {
         var parts = flow.design.parts
-        guard let index = HangarEditing.add(id, to: &parts, selected: validSelection) else { return }
+        guard let index = VesselAssembly.insert(id, into: &parts, at: attachment) else { return }
+        remember()
         flow.design.parts = parts
         selected = index
+        attachment = index + 1
         feedbackTap()
     }
 
@@ -197,8 +258,10 @@ struct HangarView: View {
         guard let i = validSelection else { return }
         var parts = flow.design.parts
         guard let new = HangarEditing.moveUp(&parts, index: i) else { return }
+        remember()
         flow.design.parts = parts
         selected = new
+        attachment = new + 1
         feedbackTap()
     }
 
@@ -206,8 +269,10 @@ struct HangarView: View {
         guard let i = validSelection else { return }
         var parts = flow.design.parts
         guard let new = HangarEditing.moveDown(&parts, index: i) else { return }
+        remember()
         flow.design.parts = parts
         selected = new
+        attachment = new + 1
         feedbackTap()
     }
 
@@ -215,15 +280,17 @@ struct HangarView: View {
         guard let i = validSelection else { return }
         var parts = flow.design.parts
         let next = HangarEditing.remove(&parts, index: i)
+        remember()
         flow.design.parts = parts
         selected = next
+        attachment = min(i, parts.count)
         feedbackTap()
     }
 
     /// Спрашивает подтверждение, если текущий проект не пуст и отличается от нового.
     private func requestLoad(_ design: VesselDesign) {
         let current = flow.design.parts
-        if current.isEmpty || current == design.parts || current == HangarEditing.cleared.parts {
+        if current.isEmpty || current == design.parts {
             load(design)
         } else {
             pendingPreset = design
@@ -231,13 +298,62 @@ struct HangarView: View {
     }
 
     private func load(_ design: VesselDesign) {
+        remember()
         flow.design = design
         selected = nil
+        attachment = design.parts.count
+        if design.parts.isEmpty { tab = .pods }
+        feedbackTap()
+    }
+
+    private func drop(_ item: String, at index: Int) -> Bool {
+        var parts = flow.design.parts
+        let newSelection: Int?
+        if item.hasPrefix("part:"), let id = PartID(rawValue: String(item.dropFirst(5))) {
+            newSelection = VesselAssembly.insert(id, into: &parts, at: index)
+        } else if item.hasPrefix("move:"), let source = Int(item.dropFirst(5)) {
+            newSelection = VesselAssembly.move(&parts, from: source, to: index)
+        } else { return false }
+        guard let newSelection else { return false }
+        if parts != flow.design.parts {
+            remember()
+            flow.design.parts = parts
+        }
+        selected = newSelection
+        attachment = newSelection + 1
+        feedbackTap()
+        return true
+    }
+
+    private func remember() {
+        undoStack.append(flow.design)
+        if undoStack.count > 40 { undoStack.removeFirst() }
+        redoStack.removeAll()
+    }
+
+    private func undo() {
+        guard let previous = undoStack.popLast() else { return }
+        redoStack.append(flow.design)
+        flow.design = previous
+        selected = nil
+        attachment = previous.parts.count
+        refreshScene()
+        feedbackTap()
+    }
+
+    private func redo() {
+        guard let next = redoStack.popLast() else { return }
+        undoStack.append(flow.design)
+        flow.design = next
+        selected = nil
+        attachment = next.parts.count
+        refreshScene()
         feedbackTap()
     }
 
     private func refreshScene() {
         scene.show(parts: flow.design.parts, selected: validSelection)
+        scene.markAttachment(attachment)
     }
 
     private func feedbackTap() {

@@ -25,14 +25,17 @@ struct CameraRig {
     private var sForward: D3?
     private var sUp: D3?
     private var initialized = false
+    private var manualElevation = false
 
     mutating func apply(orbit: SIMD2<Float>, zoom: Float, reset: Bool) {
         if reset {
+            manualElevation = false
             azimuth = defaultAzimuth
             elevation = defaultElevation
             distance = defaultDistance
             return
         }
+        if orbit.y != 0 { manualElevation = true }
         azimuth += Double(orbit.x)
         elevation = clampd(elevation + Double(orbit.y), -Self.maxElevation, Self.maxElevation)
         if zoom.isFinite, zoom > 0 {
@@ -51,7 +54,7 @@ struct CameraRig {
 
     mutating func setDefaultElevation(_ e: Double) {
         defaultElevation = e
-        elevation = e
+        if !manualElevation { elevation = e }
     }
 
     /// Положение камеры относительно цели и вектор «верх» кадра.

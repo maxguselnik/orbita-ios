@@ -1,3 +1,4 @@
+import OrbitPhysics
 import SwiftUI
 
 /// Левая колонка: вертикальный ползунок тяги, MAX и 0, кнопка «Карта».
@@ -7,6 +8,7 @@ struct ThrottleColumn: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            FuelReadout(model: model)
             ThrottleSlider(value: $model.throttle, solidLocked: model.solidLocked)
             HStack(spacing: 6) {
                 Button { model.throttle = 1 } label: { Text("MAX").frame(maxWidth: .infinity) }
@@ -22,7 +24,7 @@ struct ThrottleColumn: View {
             }
             MapToggleButton(model: model)
         }
-        .frame(width: 96)
+        .frame(width: 112)
     }
 }
 
@@ -86,7 +88,7 @@ struct ThrottleSlider: View {
                     }
             )
         }
-        .frame(minHeight: 120)
+        .frame(minHeight: 82)
         .accessibilityElement()
         .accessibilityLabel("Тяга")
         .accessibilityValue(HUDFormat.percent(value))
@@ -97,5 +99,37 @@ struct ThrottleSlider: View {
                 value = max(0, value - 0.1)
             }
         }
+    }
+}
+
+/// Запас топлива отделён от команды тяги: только текущая ступень, без резервов верхних.
+struct FuelReadout: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        let stages = model.telemetry.stages
+        let stage = stages.first
+        let fraction = min(1, max(0, stage?.fuelFraction ?? 0))
+        let hasFuelTank = (stage?.fuelCapacity ?? 0) > 0
+        let color: Color = fraction < 0.15 ? .red : .cyan
+        VStack(alignment: .leading, spacing: 3) {
+            HStack {
+                Text("ТОПЛИВО").font(.system(size: 9, weight: .heavy))
+                Spacer(minLength: 0)
+                Text(hasFuelTank ? HUDFormat.percent(fraction) : HUDFormat.dash)
+                    .font(.system(size: 14, weight: .heavy).monospacedDigit())
+                    .foregroundStyle(hasFuelTank ? color : HUDStyle.secondaryText)
+            }
+            ProgressView(value: fraction).tint(color)
+            Text(hasFuelTank ? HangarFormat.mass(stage?.fuelMass ?? 0) : "нет в этой ступени")
+                .font(.system(size: 10, weight: .semibold).monospacedDigit())
+            Text("Резерв: " + HangarFormat.mass(stages.dropFirst().reduce(0) { $0 + $1.fuelMass }))
+                .font(.system(size: 9, weight: .medium).monospacedDigit())
+                .foregroundStyle(HUDStyle.secondaryText)
+        }
+        .foregroundStyle(.white)
+        .padding(8)
+        .hudBackground(Color.black.opacity(0.82), corner: 10)
+        .accessibilityElement(children: .combine)
     }
 }

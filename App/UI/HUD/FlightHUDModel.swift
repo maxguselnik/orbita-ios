@@ -14,6 +14,7 @@ struct HUDToast: Equatable {
 struct StageStatus: Equatable {
     var remaining: Int
     var chute: ChuteState
+    var action: StageAction
 }
 
 /// Ускорение времени для меню: меняется редко.
@@ -401,7 +402,7 @@ final class FlightHUDModel {
     }
 
     private static func stageStatus(_ t: FlightTelemetry) -> StageStatus {
-        StageStatus(remaining: t.stages.count, chute: t.chute)
+        StageStatus(remaining: t.stages.count, chute: t.chute, action: t.nextStageAction)
     }
 
     private static func warpStatus(_ t: FlightTelemetry) -> WarpStatus {

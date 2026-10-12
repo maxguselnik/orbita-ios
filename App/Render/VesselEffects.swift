@@ -96,7 +96,7 @@ final class VesselEffects {
     private static let smokeLimits = [60, 120, 200]
     private static let streakLimits = [16, 28, 40]
     private static let trailLimits = [8, 14, 24]
-    private static let streakHalfLen = 70.0
+    private static let streakHalfLen = 30.0
 
     private var puffs: [Puff]
     private var puffEntities: [ModelEntity] = []
@@ -327,9 +327,9 @@ final class VesselEffects {
         let e2 = simd_cross(flow, e1)
         let orient = simd_quatf(from: F3(0, 1, 0), to: f3(flow))
         let visSpeed = clampd(speed * 0.6, 40, 300)
-        let length = Float(clampd(speed * 0.035, 2, 30))
+        let length = Float(clampd(speed * 0.012, 1, 8))
         let width = Float(0.06 + 0.03 * maxD)
-        let active = Int(Double(n) * (0.25 + 0.75 * k))
+        let active = Int(Double(n) * (0.15 + 0.35 * k))
         for i in 0..<streakEntities.count {
             let e = streakEntities[i]
             guard i < active else {

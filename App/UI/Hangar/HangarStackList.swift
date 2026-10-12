@@ -11,6 +11,9 @@ struct HangarStackList: View {
     let onUp: () -> Void
     let onDown: () -> Void
     let onDelete: () -> Void
+    let attachment: Int
+    let onAttachment: (Int) -> Void
+    let onDrop: (String, Int) -> Bool
 
     var body: some View {
         let sections = HangarEditing.sections(of: parts)
@@ -33,11 +36,13 @@ struct HangarStackList: View {
                                       info: stages.indices.contains(stageIndex) ? stages[stageIndex] : nil,
                                       isFirst: stageIndex == 0)
                         ForEach(Array(range), id: \.self) { i in
+                            attachmentSlot(i)
                             row(i)
                         }
                     }
+                    attachmentSlot(parts.count)
                     if parts.isEmpty {
-                        Text("Добавьте деталь из каталога")
+                        Text("Начните с капсулы. Перетащите деталь к + или нажмите на карточку.")
                             .font(.system(size: 12, weight: .medium))
                             .foregroundStyle(HUDStyle.secondaryText)
                             .padding(.top, 12)
@@ -81,6 +86,7 @@ struct HangarStackList: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .draggable("move:\(i)")
             .accessibilityLabel(spec.name)
             .accessibilityAddTraits(isSelected ? .isSelected : [])
 
@@ -98,6 +104,27 @@ struct HangarStackList: View {
                     in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
             .strokeBorder(isSelected ? HUDStyle.active : .clear, lineWidth: 1.5))
+    }
+
+    private func attachmentSlot(_ index: Int) -> some View {
+        Button { onAttachment(index) } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "plus.circle.fill")
+                Text(attachment == index ? "Крепить сюда" : "Место крепления")
+                    .font(.system(size: 9, weight: .semibold))
+                Spacer(minLength: 0)
+            }
+            .foregroundStyle(attachment == index ? HUDStyle.active : HUDStyle.secondaryText)
+            .frame(maxWidth: .infinity, minHeight: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .dropDestination(for: String.self) { items, _ in
+            guard let item = items.first, items.count == 1 else { return false }
+            return onDrop(item, index)
+        }
+        .accessibilityLabel("Место крепления \(index + 1)")
+        .accessibilityAddTraits(attachment == index ? .isSelected : [])
     }
 
     private func action(_ systemImage: String, _ label: String, disabled: Bool = false,

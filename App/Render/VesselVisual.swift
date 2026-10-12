@@ -14,7 +14,7 @@ final class VesselVisual {
     /// Низ каждой детали над низом стека, м (для эффектов: сопла двигателей).
     var partBottoms: [Double] { bottoms }
     /// Полупрозрачный внешний ореол факела поверх непрозрачных слоёв (отключается, если роняет рендер).
-    static var transparentPlumeGlow = true
+    static var transparentPlumeGlow = false
     private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity, glow: ModelEntity?)] = [:]
     private var canopy: Entity?
     private var maxDiameter: Double = 1
@@ -137,12 +137,12 @@ final class VesselVisual {
             let flick = 1 + 0.06 * sin(time * 53 + Double(i)) + 0.04 * sin(time * 97 + 2 * Double(i))
             // Отдельное мерцание ядра: оно «дышит» быстрее оболочки.
             let coreFlick = 1 + 0.09 * sin(time * 71 + 3 * Double(i)) + 0.05 * sin(time * 131 + Double(i))
-            let length = spec.diameter * (spec.isSolid ? 7.5 : 2.5 + 6 * thr) * (1 + 0.7 * vac) * flick
-            let width = re * (1 + 2.2 * vac) * (0.75 + 0.25 * thr)
+            let length = spec.diameter * (spec.isSolid ? 5.0 : 1.2 + 4.0 * thr) * (1 + 0.7 * vac) * flick
+            let width = re * (1 + 0.9 * vac) * (0.4 + 0.6 * sqrt(thr))
             // Непрозрачные слои: широкая оранжевая оболочка короче, узкое светлое ядро длиннее.
             p.outer.scale = F3(Float(width), Float(length * 0.7), Float(width))
             let coreW = Float(width * 0.55)
-            p.core.scale = F3(coreW, Float(length * coreFlick), coreW)
+            p.core.scale = F3(coreW, Float(length * 0.6 * coreFlick), coreW)
             // Ореол шире и длиннее оболочки; в вакууме расширяется сильнее.
             if let g = p.glow {
                 let gw = Float(width * (1.35 + 0.5 * vac))

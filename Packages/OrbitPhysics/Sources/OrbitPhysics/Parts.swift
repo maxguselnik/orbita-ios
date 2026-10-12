@@ -299,7 +299,7 @@ struct Ship: Sendable, Hashable {
                                  twrVacuum: m0 > 0 && gravity > 0 ? tVac / (m0 * gravity) : 0,
                                  fuelFraction: cap > 0 ? fuel / cap : 0,
                                  burnTime: max(tLiq, tSol),
-                                 hasSolid: hasSolid))
+                                 hasSolid: hasSolid, fuelMass: fuel, fuelCapacity: cap))
         }
         return out
     }

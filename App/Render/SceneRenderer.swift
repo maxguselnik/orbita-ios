@@ -182,11 +182,9 @@ final class SceneRenderer: FlightRenderer {
         lastActive = active.id
         if switched { effects.reset() }
         rig.setDefaultDistance(max(height * 1.7, 14), snap: switched)
-        if switched {
-            // Высоко над телом — смотреть сверху, чтобы была видна кривизна; у земли — почти горизонтально.
-            let alt = simd_length(pos) - Bodies.body(active.body).radius
-            rig.setDefaultElevation(alt > 30_000 ? 0.45 : 0.12)
-        }
+        // Плавно раскрывать горизонт на подъёме; ручное вращение сохраняется.
+        let altitude = simd_length(pos) - Bodies.body(active.body).radius
+        rig.setDefaultElevation(0.12 + 0.33 * clampd(altitude / 70_000, 0, 1))
 
         let forward: D3, up: D3
         switch cameraMode {

@@ -21,9 +21,11 @@ final class GameFlow {
     private(set) var scenario: DemoScenario?
 
     init() {
-        design = DesignStore.load() ?? .orbit
+        design = DesignStore.load() ?? VesselAssembly.empty
         let scenario = DemoScenario.fromArguments
-        if let scenario, scenario != .hangar {
+        if scenario == .hangar { design = .orbit }
+        if scenario == .hangarEmpty { design = VesselAssembly.empty }
+        if let scenario, scenario != .hangar, scenario != .hangarEmpty {
             self.scenario = scenario
             screen = .flight
         } else {
