@@ -13,7 +13,7 @@ final class MapModel {
     /// Пересчёт во время правки узла, с.
     static let editInterval = 1.0 / 30
     /// Участков патченных коник в прогнозе.
-    static let maxPatches = 4
+    static let maxPatches = TrajectoryPredictor.defaultMapPatches
 
     /// Карта открыта: рендер показывает карту вместо полёта.
     var isOpen = false {
