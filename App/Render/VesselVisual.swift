@@ -1,6 +1,7 @@
 import OrbitPhysics
 import RealityKit
 import simd
+import UIKit
 
 /// 3D-модель корабля: стек деталей сверху вниз, факелы двигателей, купол парашюта.
 /// Корень — нижняя точка стека (`VesselState.position`), ось +Y — нос.
@@ -14,6 +15,7 @@ final class VesselVisual {
     private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity)] = [:]
     private var canopy: Entity?
     private var maxDiameter: Double = 1
+    private var diagApplied = false
 
     /// Радиус ограничивающей сферы вокруг середины стека, м (с куполом — больше).
     private(set) var boundingRadius: Double = 1
@@ -112,13 +114,28 @@ final class VesselVisual {
         canopy = e
     }
 
+    // ДИАГНОСТИКА (временно): ascent — без факелов; flight — принудительный непрозрачный факел.
+    static let diagScene: String = {
+        let a = ProcessInfo.processInfo.arguments
+        if let i = a.firstIndex(of: "-screen"), i + 1 < a.count { return a[i + 1] }
+        return ""
+    }()
+
     /// Обновление за кадр: положение (относительно точки отсчёта), ориентация, факелы, купол.
     func update(_ v: VesselState, relativePosition: D3, pressure: Double, time: Double) {
         root.transform = Transform(scale: .one, rotation: quatf(v.attitude.quatd), translation: f3(relativePosition))
 
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
-            let on = v.firingEngines.contains(i)
+            var on = v.firingEngines.contains(i)
+            if Self.diagScene == "ascent" { on = false }
+            if Self.diagScene == "flight", v.isActive {
+                on = true
+                if p.outer.model?.materials.first is UnlitMaterial, !diagApplied {
+                    p.outer.model?.materials = [UnlitMaterial(color: .orange)]
+                    p.core.model?.materials = [UnlitMaterial(color: .yellow)]
+                }
+            }
             if p.entity.isEnabled != on { p.entity.isEnabled = on }
             guard on else { continue }
             let spec = parts[i].spec
@@ -139,6 +156,7 @@ final class VesselVisual {
                 canopy.scale = F3(repeating: s)
             }
         }
+        diagApplied = true
         boundingRadius = (canopy?.isEnabled ?? false) ? stackHeight + 20 : stackHeight / 2 + maxDiameter
     }
 }
