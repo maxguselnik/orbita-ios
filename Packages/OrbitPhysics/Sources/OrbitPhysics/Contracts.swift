@@ -199,7 +199,6 @@ public struct NavballVectors: Sendable, Hashable {
         self.surfacePrograde = surfacePrograde
         self.target = target
         self.maneuver = maneuver
-        self.rcs = rcs
     }
 }
 

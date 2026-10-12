@@ -21,6 +21,8 @@ public enum DesignIssue: Sendable, Hashable {
     case decouplerAtBottom
     /// Есть экипаж, нет парашюта.
     case noChute
+    /// Есть бак монотоплива, но нет блока РСУ.
+    case monoWithoutRCS
 
     public var isBlocking: Bool {
         switch self {
@@ -50,6 +52,8 @@ public enum DesignIssue: Sendable, Hashable {
             "Внизу стоит разделитель"
         case .noChute:
             "Есть экипаж, но нет парашюта"
+        case .monoWithoutRCS:
+            "Бак монотоплива без блока РСУ"
         }
     }
 
@@ -102,6 +106,7 @@ extension VesselDesign {
 
         if kinds.last == .decoupler { warnings.append(.decouplerAtBottom) }
         if parts.contains(where: { $0.spec.crew > 0 }) && !parts.contains(.chute) { warnings.append(.noChute) }
+        if kinds.contains(.monoTank) && !kinds.contains(.rcs) { warnings.append(.monoWithoutRCS) }
         return blocking + warnings
     }
 }

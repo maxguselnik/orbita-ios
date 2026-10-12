@@ -174,6 +174,21 @@ struct Ship: Sendable, Hashable {
 
     var bottomSection: Range<Int> { sections.last ?? 0..<0 }
 
+    /// Блоки РСУ на корабле.
+    var rcsBlocks: Int { parts.reduce(0) { $0 + ($1.spec.kind == .rcs ? 1 : 0) } }
+    /// Монотопливо всего корабля (общий пул `.rcs` + `.monoTank`) и его ёмкость, кг.
+    var monoMass: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.fuel : 0) } }
+    var monoCapacity: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.spec.fuelMass : 0) } }
+    static func holdsMono(_ k: PartKind) -> Bool { k == .rcs || k == .monoTank }
+
+    /// Забрать `amount` кг монотоплива из общего пула пропорционально остаткам.
+    mutating func drawMono(_ amount: Double) {
+        let total = monoMass
+        guard amount > 0, total > 0 else { return }
+        let k = max(0, 1 - amount / total)
+        for i in parts.indices where Self.holdsMono(parts[i].spec.kind) { parts[i].fuel *= k }
+    }
+
     func liquidFuel(in r: Range<Int>) -> Double {
         r.reduce(0) { $0 + (parts[$1].spec.kind == .tank ? parts[$1].fuel : 0) }
     }

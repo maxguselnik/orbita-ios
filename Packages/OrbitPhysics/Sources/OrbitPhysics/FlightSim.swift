@@ -21,6 +21,9 @@ struct Vessel {
     /// Рифление снято: купол наполняется до полного (вторая фаза раскрытия).
     var chuteDisreefed = false
     var isActive: Bool
+    /// Команда на сопла РСУ в последнем шаге (оси корабля, −1…1); нули — молчат.
+    var rcsTranslation: Vec3 = .zero
+    var rcsRotation: Vec3 = .zero
 
     var isOnSurface: Bool { situation == .prelaunch || situation == .landed || situation == .splashed }
     /// Неподвижен относительно грунта: на поверхности или разбит (обломки вращаются вместе с телом).
@@ -30,7 +33,8 @@ struct Vessel {
         VesselState(id: id, body: body, position: r, velocity: v, attitude: q, angularVelocity: w,
                     mass: ship.mass, throttle: throttle, situation: situation, isActive: isActive,
                     parts: ship.parts.map(\.id), firingEngines: ship.firingEngines(throttle: throttle),
-                    chute: chute, chuteDeploy: chuteDeploy)
+                    chute: chute, chuteDeploy: chuteDeploy,
+                    rcsTranslation: rcsTranslation, rcsRotation: rcsRotation)
     }
 }
 
@@ -65,6 +69,12 @@ public final class FlightSim: FlightSimulation {
     public private(set) var time: Double
     public private(set) var warpIndex = 0
     public private(set) var sas: SASMode = .hold
+    /// РСУ включено (`.setRCS`); по умолчанию выкл.
+    public private(set) var rcsEnabled = false
+    /// Поворотный бонус РСУ на один блок при массе → 0, рад/с²: `блоки × 0.5 / √(m_т/2 + 0.5)`.
+    static let rcsRotationAccelPerBlock = 0.5
+    /// Ниже этой суммы |команды| по осям сопла считаются молчащими.
+    static let rcsDeadzone = 1e-6
     /// Направление, которое держит автопилот (перекрывает SAS, но не ручной ввод).
     public var autopilotDirection: Vec3?
     /// Узел манёвра активного корабля (ставится командой `.setManeuver`).
@@ -186,6 +196,7 @@ public final class FlightSim: FlightSimulation {
         case .deployChute: armChute()
         case .setManeuver(let node): setManeuver(node)
         case .warpToManeuver: warpToManeuver()
+        case .setRCS(let on): rcsEnabled = on
         }
         rebuildSnapshot()
     }
@@ -244,6 +255,7 @@ public final class FlightSim: FlightSimulation {
         if v.situation == .crashed { return nil }
         // Тяга проверяется раньше «на поверхности»: с работающим двигателем рельсы нельзя и на грунте.
         if v.ship.isThrusting(throttle: v.throttle) { return .thrust }
+        if v.isActive && rcsTranslationCommand(v.ship) != nil { return .thrust }
         if v.isOnSurface { return nil }
         let alt = v.r.length - Bodies.body(v.body).radius
         if alt < World.railsMinimumAltitude(v.body) { return v.body == .terra ? .atmosphere : .terrain }
@@ -365,6 +377,10 @@ public final class FlightSim: FlightSimulation {
     private func step(_ h: Double) {
         let ai = activeIndex
         if vessels[ai].situation != .crashed { stepActive(ai, h) }
+        if vessels[ai].situation == .crashed {
+            vessels[ai].rcsTranslation = .zero
+            vessels[ai].rcsRotation = .zero
+        }
         for k in vessels.indices where k != ai && !vessels[k].isOnSurface && vessels[k].situation != .crashed {
             stepDebris(k, h)
         }
@@ -414,7 +430,22 @@ public final class FlightSim: FlightSimulation {
         lastSolidThrust = tr.solidThrust
 
         let nose = s.q.nose
-        let thrustAcc = nose * (tr.thrust / m)
+        // РСУ: поступательная тяга по `input.translation` в осях корабля.
+        s.rcsTranslation = .zero
+        s.rcsRotation = .zero
+        var rcsUse = 0.0
+        var rcsAcc = Vec3.zero
+        if let cmd = rcsTranslationCommand(s.ship) {
+            let blocks = Double(s.ship.rcsBlocks)
+            let spec = PartID.rcsBlock.spec
+            // Расход: Σ|t_i| × блоки × массовый расход на направление × dt.
+            let want = (abs(cmd.x) + abs(cmd.y) + abs(cmd.z)) * blocks * spec.massFlow * h
+            let frac = want > s.ship.monoMass ? s.ship.monoMass / want : 1
+            rcsUse = want * frac
+            s.rcsTranslation = cmd * frac
+            rcsAcc = s.q.rotate(cmd * (blocks * spec.thrust(pressure: p) * frac)) / m
+        }
+        let thrustAcc = nose * (tr.thrust / m) + rcsAcc
         let g = b.mu / (rm * rm)
 
         if s.isOnSurface {
@@ -425,11 +456,15 @@ public final class FlightSim: FlightSimulation {
                 s.r += up * 0.05
                 if launchTime == nil { launchTime = time }
             } else {
+                // Не оторвались: сопла впустую топливо не жгут.
+                s.rcsTranslation = .zero
+                rcsUse = 0
                 lastProperAccel = g
                 vessels[ai] = s
                 return
             }
         }
+        s.ship.drawMono(rcsUse)
 
         let spin = World.spin(s.body)
         let vAir = s.v - spin.cross(s.r)
@@ -485,7 +520,7 @@ public final class FlightSim: FlightSimulation {
             qPeakReported = false
         }
 
-        // Оставшийся импульс узла уменьшается только тягой двигателей.
+        // Оставшийся импульс узла уменьшается тягой двигателей и РСУ.
         if maneuverNode != nil {
             maneuverRemaining -= thrustAcc * h
             maneuverBurned += thrustAcc * h
@@ -564,9 +599,29 @@ public final class FlightSim: FlightSimulation {
         }
     }
 
+    /// Команда поступательного РСУ в осях корабля (−1…1 по осям), nil — сопла молчат:
+    /// выключено, нет блоков, нет монотоплива или нулевая команда.
+    private func rcsTranslationCommand(_ ship: Ship) -> Vec3? {
+        guard rcsEnabled, ship.rcsBlocks > 0, ship.monoMass > 1e-9 else { return nil }
+        let t = Vec3(clamp(input.translation.x, -1, 1), clamp(input.translation.y, -1, 1),
+                     clamp(input.translation.z, -1, 1))
+        return abs(t.x) + abs(t.y) + abs(t.z) > Self.rcsDeadzone ? t : nil
+    }
+
+    /// Управляющее ускорение: двигатели/маховики + (при РСУ) добавка сопел.
+    ///
+    /// Модель РСУ: бонус `rcsCtrl = блоки × 0.5 / √(m_т/2 + 0.5)` рад/с² прибавляется к `ctrl`.
+    /// Команда делится пропорционально: доля сопел `share = rcsCtrl/ctrl`, а `level = |alpha|/ctrl`
+    /// — загрузка 0…1. Сопла дают `level × share` полного момента РСУ и тратят
+    /// `level × share × блоки × massFlow` кг/с (при полном моменте каждый блок жжёт один
+    /// канал). Не хватает монотоплива — доля сопел в этом шаге урезается пропорционально.
     private func attitude(_ s: inout Vessel, _ h: Double, mass m: Double, firing: Bool, aero: Vec3) {
         let mt = m / 1000
-        let ctrl = 1.4 / (mt / 2 + 0.5).squareRoot() + (firing ? 0.25 : 0)
+        let blocks = s.ship.rcsBlocks
+        let mono = s.ship.monoMass
+        let rcsOn = rcsEnabled && blocks > 0 && mono > 1e-9
+        let rcsCtrl = rcsOn ? Double(blocks) * Self.rcsRotationAccelPerBlock / (mt / 2 + 0.5).squareRoot() : 0
+        let ctrl = 1.4 / (mt / 2 + 0.5).squareRoot() + (firing ? 0.25 : 0) + rcsCtrl
         var alpha = Vec3.zero
         let manual = Vec3(input.pitch, input.roll, input.yaw)
         if manual.lengthSquared > 1e-6 {
@@ -579,6 +634,19 @@ public final class FlightSim: FlightSimulation {
         } else if sas == .hold || sas == .maneuver {
             let err = (hold * s.q.conjugate).axisAngle
             alpha = rateControl(s, desired: (err.axis, err.angle), ctrl: ctrl)
+        }
+        s.rcsRotation = .zero
+        if rcsOn {
+            let level = min(1, alpha.length / ctrl)
+            let share = rcsCtrl / ctrl
+            if level > 0.01 {
+                let want = level * share * Double(blocks) * PartID.rcsBlock.spec.massFlow * h
+                let frac = want > mono ? mono / want : 1
+                s.ship.drawMono(want * frac)
+                let local = s.q.conjugate.rotate(alpha) / ctrl * frac
+                s.rcsRotation = Vec3(clamp(local.x, -1, 1), clamp(local.y, -1, 1), clamp(local.z, -1, 1))
+                alpha = alpha - alpha * (share * (1 - frac))
+            }
         }
         s.w += (alpha + aero) * h
         let wl = s.w.length
@@ -722,6 +790,10 @@ public final class FlightSim: FlightSimulation {
     private func railsAdvance(_ total: Double) -> Double {
         lastThrust = 0
         lastSolidThrust = 0
+        for k in vessels.indices {
+            vessels[k].rcsTranslation = .zero
+            vessels[k].rcsRotation = .zero
+        }
         lastRailsKeplerCalls = 0
         // Отделённые ступени в атмосфере на рельсах не моделируются — удаляются.
         vessels.removeAll { d in
@@ -1055,6 +1127,9 @@ public final class FlightSim: FlightSimulation {
         t.navball = nb
         t.maneuver = maneuverStatus(pressure: p)
         t.mission = mission
+        let rcsFiring = !onRails && (s.rcsTranslation != .zero || s.rcsRotation != .zero)
+        t.rcs = RCSStatus(available: s.ship.rcsBlocks > 0, enabled: rcsEnabled, monoMass: s.ship.monoMass,
+                          monoCapacity: s.ship.monoCapacity, firing: rcsFiring)
         snapshot = WorldSnapshot(time: time, activeVessel: activeID, vessels: vessels.map(\.state),
                                  lunaPosition: World.lunaPosition(at: time), lunaVelocity: World.lunaVelocity(at: time),
                                  terraRotation: World.terraRotation(at: time), telemetry: t)
