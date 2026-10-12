@@ -23,6 +23,8 @@ protocol FlightRenderer: AnyObject {
     var cameraMode: CameraMode { get set }
     func apply(_ camera: CameraInput)
     func update(snapshot: WorldSnapshot, events: [SimEvent], frameDelta: Double)
+    /// Новый полёт (старт из ангара, перезапуск): убрать корабли, обломки и эффекты прошлого полёта, сбросить камеру.
+    func reset()
 }
 
 /// Поток D: звук.
@@ -37,4 +39,13 @@ protocol FlightAudio: AnyObject {
 protocol FlightHaptics: AnyObject {
     var isEnabled: Bool { get set }
     func update(snapshot: WorldSnapshot, events: [SimEvent])
+}
+
+/// Поток B: 3D-превью корабля в ангаре. UI (C) показывает его через `HangarSceneView`.
+@MainActor
+protocol HangarPreview: AnyObject {
+    /// Стек деталей сверху вниз; `selected` — индекс подсвеченной детали.
+    func show(parts: [PartID], selected: Int?)
+    /// Вращение и зум камеры вокруг корабля (жесты из UI), `reset` — исходный ракурс.
+    func apply(_ camera: CameraInput)
 }

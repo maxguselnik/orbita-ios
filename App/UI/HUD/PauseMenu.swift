@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Меню паузы. «Продолжить» и «Перезапуск» работают, остальное — заглушки.
+/// Меню паузы. «Сохранить» и «Загрузить» — заглушки до этапа 10.
 struct PauseMenu: View {
     let model: FlightHUDModel
+    let onHangar: () -> Void
 
     @State private var note: String?
 
@@ -25,7 +26,7 @@ struct PauseMenu: View {
                 }
                 HStack(spacing: 8) {
                     item("Перезапуск", systemImage: "arrow.counterclockwise") { model.restart() }
-                    item("Ангар", systemImage: "wrench.and.screwdriver") { note = "Ангар — на этапе 3" }
+                    item("Ангар", systemImage: "wrench.and.screwdriver") { onHangar() }
                 }
 
                 Text(note ?? " ")

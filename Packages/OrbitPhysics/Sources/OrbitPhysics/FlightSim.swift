@@ -23,6 +23,8 @@ struct Vessel {
     var isActive: Bool
 
     var isOnSurface: Bool { situation == .prelaunch || situation == .landed || situation == .splashed }
+    /// Неподвижен относительно грунта: на поверхности или разбит (обломки вращаются вместе с телом).
+    var isGrounded: Bool { isOnSurface || situation == .crashed }
 
     var state: VesselState {
         VesselState(id: id, body: body, position: r, velocity: v, attitude: q, angularVelocity: w,
@@ -82,6 +84,8 @@ public final class FlightSim: FlightSimulation {
     private var lastProperAccel = 0.0
     private var qPeak = 0.0
     private var qPeakReported = false
+    /// Итоги полёта активного корабля (только растут).
+    private var mission = MissionRecord()
 
     /// Время «на рельсах», не досчитанное из-за бюджета вызовов Кеплера: переносится на следующий кадр.
     private(set) var railsBacklog = 0.0
@@ -103,6 +107,7 @@ public final class FlightSim: FlightSimulation {
                   velocity: World.surfaceVelocity(body: .terra, position: r), attitude: q, time: time)
         launchTime = nil
         landVessel(0, situation: .prelaunch)
+        mission = MissionRecord()
         rebuildSnapshot()
     }
 
@@ -323,10 +328,11 @@ public final class FlightSim: FlightSimulation {
             stepDebris(k, h)
         }
         time += h
-        for k in vessels.indices where vessels[k].isOnSurface { updateLanded(k) }
+        for k in vessels.indices where vessels[k].isGrounded { updateLanded(k) }
         // Удалить разбившиеся отделённые ступени.
         vessels.removeAll { !$0.isActive && $0.situation == .crashed }
         for k in vessels.indices { checkSOI(k) }
+        trackPeaks()
     }
 
     private func updateLanded(_ k: Int) {
@@ -456,12 +462,16 @@ public final class FlightSim: FlightSimulation {
             let vRel = s.v - spin.cross(s.r)
             let speed = vRel.length
             if speed > s.ship.crashTolerance {
+                s.r = dir * surfR
                 s.situation = .crashed
-                s.v = spin.cross(s.r)
-                s.w = .zero
                 events.append(.crash(speed: speed))
                 warpIndex = 0
                 vessels[ai] = s
+                // Обломки остаются на месте аварии и вращаются вместе с телом.
+                let saved = time
+                time = tNext
+                landVessel(ai, situation: .crashed)
+                time = saved
                 return
             }
             s.r = dir * surfR
@@ -635,6 +645,7 @@ public final class FlightSim: FlightSimulation {
         vessels[k].situation = classify(vessels[k])
         if v.id == activeID {
             events.append(.soiChanged(from: v.body, to: target))
+            if target == .luna { mission.enteredLunaSOI = true }
             resetWarp(.soiChange)
             qPeak = 0
         }
@@ -668,7 +679,7 @@ public final class FlightSim: FlightSimulation {
         if active.isOnSurface || active.situation == .crashed {
             railsOthers(total)
             time += total
-            for k in vessels.indices where vessels[k].isOnSurface { updateLanded(k) }
+            for k in vessels.indices where vessels[k].isGrounded { updateLanded(k) }
             return 0
         }
         var rem = total
@@ -747,7 +758,7 @@ public final class FlightSim: FlightSimulation {
             railsOthers(horizon)
             time += horizon
             rem -= horizon
-            for k in vessels.indices where vessels[k].isOnSurface { updateLanded(k) }
+            for k in vessels.indices where vessels[k].isGrounded { updateLanded(k) }
             let oldBody = vessels[idx].body
             checkSOI(idx)
             for k in vessels.indices where k != idx { checkSOI(k) }
@@ -851,9 +862,51 @@ public final class FlightSim: FlightSimulation {
         return el.periapsisRadius > safe ? .orbiting : .suborbital
     }
 
+    // MARK: Итоги полёта
+
+    /// Максимумы высоты, орбитальной скорости и перегрузки; вызывается каждый шаг физики.
+    private func trackPeaks() {
+        let s = active
+        guard s.situation != .prelaunch else { return }
+        mission.launched = true
+        guard s.situation != .crashed else { return }
+        let alt = s.r.length - Bodies.body(s.body).radius
+        let speed = s.v.length
+        let g = lastProperAccel / standardGravity
+        if alt.isFinite { mission.maxAltitude = max(mission.maxAltitude, alt) }
+        if speed.isFinite { mission.maxSpeed = max(mission.maxSpeed, speed) }
+        if g.isFinite && warpIndex < TimeWarp.physicalCount { mission.maxGForce = max(mission.maxGForce, g) }
+    }
+
+    /// Вехи миссии по состоянию активного корабля; вызывается при пересборке снимка (в том числе на рельсах).
+    private func trackMission() {
+        trackPeaks()
+        let s = active
+        guard mission.launched else { return }
+        let b = Bodies.body(s.body)
+        let alt = s.r.length - b.radius
+        if s.body == .luna { mission.enteredLunaSOI = true }
+        if s.body == .terra && alt > b.atmosphereHeight { mission.reachedSpace = true }
+        if !s.isOnSurface && s.situation != .crashed {
+            let el = OrbitElements(position: s.r, velocity: s.v, mu: b.mu)
+            let closed = el.isClosed && el.apoapsisRadius <= b.soiRadius
+            if closed && s.body == .terra && el.periapsisRadius - b.radius > b.atmosphereHeight {
+                mission.reachedOrbit = true
+            }
+            if closed && s.body == .luna && el.periapsisRadius - b.radius > 10_000 {
+                mission.lunaOrbit = true
+            }
+        }
+        if s.situation == .landed && s.body == .luna { mission.landedLuna = true }
+        if (s.situation == .landed || s.situation == .splashed) && s.body == .terra && mission.reachedSpace {
+            mission.returnedFromSpace = true
+        }
+    }
+
     // MARK: Снимок
 
     private func rebuildSnapshot() {
+        trackMission()
         let s = active
         let b = Bodies.body(s.body)
         let rm = s.r.length
@@ -938,6 +991,7 @@ public final class FlightSim: FlightSimulation {
             nb.maneuver = local(TrajectoryPredictor.deltaVVector(node: node, position: s.r, velocity: s.v))
         }
         t.navball = nb
+        t.mission = mission
         snapshot = WorldSnapshot(time: time, activeVessel: activeID, vessels: vessels.map(\.state),
                                  lunaPosition: World.lunaPosition(at: time), lunaVelocity: World.lunaVelocity(at: time),
                                  terraRotation: World.terraRotation(at: time), telemetry: t)

@@ -1,9 +1,11 @@
 import Foundation
 import OrbitPhysics
 
-/// Стартовый сценарий полёта. Аргумент запуска `-screen <имя>` (CI-скриншоты, отладка);
-/// без аргумента — пресет «Орбита» на площадке.
+/// Стартовый сценарий. Аргумент запуска `-screen <имя>` (CI-скриншоты, отладка);
+/// без аргумента игра открывается в ангаре (`GameFlow`).
 enum DemoScenario: String, CaseIterable, Sendable {
+    /// Ангар с проектом «Орбита».
+    case hangar
     /// На площадке, «Орбита».
     case flight
     /// Подъём на автопилоте, около max Q.
@@ -16,17 +18,24 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
     case lunaSurface
+    /// Капсула над площадкой, купол раскрывается в кадре.
+    case chute
+    /// Капсула на куполе за секунды до касания; затем экран результата.
+    case landed
+    /// Капсула без парашюта за секунды до удара о грунт.
+    case crash
 
-    static var current: DemoScenario {
+    /// Сценарий из аргумента `-screen`, nil — обычный запуск.
+    static var fromArguments: DemoScenario? {
         let args = ProcessInfo.processInfo.arguments
-        guard let i = args.firstIndex(of: "-screen"), i + 1 < args.count else { return .flight }
-        return DemoScenario(rawValue: args[i + 1]) ?? .flight
+        guard let i = args.firstIndex(of: "-screen"), i + 1 < args.count else { return nil }
+        return DemoScenario(rawValue: args[i + 1])
     }
 
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .flight:
+        case .hangar, .flight:
             return FlightSim(design: .orbit)
         case .ascent:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in sim.time >= 55 }
@@ -43,6 +52,41 @@ enum DemoScenario: String, CaseIterable, Sendable {
             }
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .chute:
+            let sim = Self.descent(chute: true, height: 2_500, speed: 120)
+            sim.send(.deployChute)
+            return sim
+        case .landed:
+            let sim = Self.descent(chute: true, height: 2_500, speed: 120)
+            sim.send(.deployChute)
+            Self.roll(sim) { $0.snapshot.telemetry.heightAboveTerrain < 25 }
+            return sim
+        case .crash:
+            let sim = Self.descent(chute: false, height: 1_500, speed: 100)
+            Self.roll(sim) { $0.snapshot.telemetry.heightAboveTerrain < 120 }
+            return sim
+        }
+    }
+
+    /// Капсула К-1 (с парашютом или без) над площадкой (≈ 1 км к северу), падает со скоростью `speed`.
+    private static func descent(chute: Bool, height: Double, speed: Double) -> FlightSim {
+        let design = VesselDesign(name: "Спуск", parts: chute ? [.chute, .podK1] : [.podK1])
+        let fixed = (World.padDirection + Vec3.unitZ * 0.0015).normalized
+        let up = World.fromBodyFixed(fixed, body: .terra, time: 0)
+        let ground = Bodies.terra.radius + max(0, Terrain.surfaceHeight(body: .terra, direction: fixed))
+        let r = up * (ground + height)
+        let east = Vec3.unitZ.cross(up).normalized
+        let v = World.surfaceVelocity(body: .terra, position: r) - up * speed
+        return FlightSim(design: design, body: .terra, position: r, velocity: v,
+                         attitude: Quat(basisX: east, y: up, z: east.cross(up)))
+    }
+
+    /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
+    private static func roll(_ sim: FlightSim, until done: (FlightSim) -> Bool) {
+        var t = 0.0
+        while !done(sim) && t < 600 {
+            _ = sim.advance(realDelta: 1.0 / 60)
+            t += 1.0 / 60
         }
     }
 }

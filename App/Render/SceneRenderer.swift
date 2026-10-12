@@ -30,6 +30,8 @@ final class SceneRenderer: FlightRenderer {
     private var lastActive: VesselID?
     private var renderTime = 0.0
     private var seen: Set<VesselID> = []
+    private var explosions: [ExplosionVisual] = []
+    private var exploded: Set<VesselID> = []
 
     init() {
         camera.camera.fieldOfViewInDegrees = 60
@@ -64,6 +66,21 @@ final class SceneRenderer: FlightRenderer {
 
     func apply(_ input: CameraInput) {
         rig.apply(orbit: input.orbitDelta, zoom: input.zoomFactor, reset: input.reset)
+    }
+
+    /// Новый полёт: убрать корабли, обломки и эффекты, сбросить камеру и внутреннее состояние.
+    func reset() {
+        for vis in vessels.values { vis.root.removeFromParent() }
+        vessels.removeAll()
+        for e in explosions { e.root.removeFromParent() }
+        explosions.removeAll()
+        exploded.removeAll()
+        seen.removeAll()
+        lastActive = nil
+        renderTime = 0
+        rig = CameraRig()
+        rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1
+        pad.root.isEnabled = false
     }
 
     func update(snapshot: WorldSnapshot, events: [SimEvent], frameDelta: Double) {
@@ -157,7 +174,8 @@ final class SceneRenderer: FlightRenderer {
             seen.insert(v.id)
             let vis = visual(for: v)
             let rel = RenderFrame.bodyCenter(v.body, in: frame, luna: luna) + v.position.d3 - eye
-            let on = simd_length(rel) < 300_000 && !v.parts.isEmpty
+            // Разбившийся корабль скрыт: вместо него взрыв и обломки.
+            let on = simd_length(rel) < 300_000 && !v.parts.isEmpty && v.situation != .crashed
             if vis.root.isEnabled != on { vis.root.isEnabled = on }
             guard on else { continue }
             let pressure: Double
@@ -169,6 +187,36 @@ final class SceneRenderer: FlightRenderer {
                 pressure = 0
             }
             vis.update(v, relativePosition: rel, pressure: pressure, time: renderTime)
+        }
+        // Авария активного корабля: один взрыв на корабль.
+        let crashEvent = events.contains { if case .crash = $0 { return true } else { return false } }
+        if active.situation == .crashed || crashEvent {
+            if exploded.insert(active.id).inserted {
+                let dir = simd_normalize(pos)
+                let gh = Terrain.surfaceHeight(body: frame, direction: vec3(rot.inverse.act(dir)))
+                let ex = ExplosionVisual(body: frame, center: dir * (body.radius + gh), up: dir,
+                                         size: max(activeVisual.stackHeight * 0.5, 3), seed: active.id &+ 7,
+                                         startTime: renderTime)
+                ex.fixedDirection = World.toBodyFixed(vec3(dir), body: frame, time: snapshot.time)
+                ex.fixedRadius = body.radius + gh
+                explosions.append(ex)
+                root.addChild(ex.root)
+            }
+        } else {
+            exploded.remove(active.id)
+        }
+        for ex in explosions {
+            // Точка аварии вращается вместе с телом.
+            let up = World.fromBodyFixed(ex.fixedDirection, body: ex.body, time: snapshot.time).d3
+            ex.up = up
+            ex.center = up * ex.fixedRadius
+            let rel = RenderFrame.bodyCenter(ex.body, in: frame, luna: luna) + ex.center - eye
+            let on = simd_length(rel) < 300_000
+            if ex.root.isEnabled != on { ex.root.isEnabled = on }
+            guard on else { continue }
+            ex.update(time: renderTime)
+            ex.root.transform = Transform(scale: .one, rotation: simd_quatf(from: F3(0, 1, 0), to: f3(ex.up)),
+                                          translation: f3(rel))
         }
         for id in vessels.keys where !seen.contains(id) {
             vessels[id]?.root.removeFromParent()

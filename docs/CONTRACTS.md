@@ -24,6 +24,8 @@ UI (C) ── CameraInput ──┘
 - `FlightTelemetry` — готовые числа для HUD и звука (включая `stages: [StageInfo]` — Δv, TWR, топливо по ступеням; тягу, РДТТ, плотность, нагрев, перегрузку); HUD сам ничего не считает.
 - `FlightTelemetry.navball` — маркеры навбола уже в осях корабля; `pitch/heading/roll` — относительно горизонта; `chute`, `chuteSafe`; `warpIndex` в `TimeWarp.levels` (×1–4 физическое, ×10–100 000 рельсы) и `warpBlocked`.
 - `stages[0]` — текущая ступень; отдельного номера ступени нет.
+- `FlightTelemetry.mission: MissionRecord` — итоги полёта с момента старта (макс. высота/скорость/перегрузка, космос, орбита, SOI Луны, орбита Луны, посадка на Луну, возврат из космоса) — для экрана результата.
+- `VesselDesign.issues() -> [DesignIssue]` — проверка проекта в ангаре; `isBlocking` — старт запрещён, `text` — строка для UI.
 - `SimEvent` — одноразовые события шага для звука, вибрации, эффектов, подсказок.
 
 - `VesselState.parts` (сверху вниз), `firingEngines` (индексы деталей с факелом), `chute`, `chuteDeploy` 0…1 — для рендера корабля и отделённых ступеней.
@@ -33,8 +35,11 @@ UI (C) ── CameraInput ──┘
 - `FlightRenderer` (B): floating origin — рендер вычитает позицию активного корабля и переводит в Float сам. Принимает `CameraInput` от C.
 - `FlightAudio`, `FlightHaptics` (D): реагируют на снимок и события, выключаются флагом `isEnabled` (из `GameSettings`).
 - `FlightFeedback` (ведущий): каждый кадр раздаёт снимок рендеру (`renderer.update`), звуку и вибрации; жесты камеры из UI идут через `feedback.camera(_:)` и `feedback.cameraMode`.
-- `DemoScenario` (ведущий): аргумент запуска `-screen flight|ascent|staging|orbit|lunaApproach|lunaSurface` — стартовое состояние для CI-скриншотов и отладки (`screens.txt` — список снимаемых сцен).
-- `GameSettings`: частота кадров 60/90/120 (по умолчанию 90), звук, вибрация, наклон (выкл.).
+- `GameFlow` (ведущий): экран `hangar`/`flight`, текущий `design` (автосохранение в Documents/hangar.json через `DesignStore`), `launch()`, `returnToHangar()`, `makeSimulation()`, `flightID` — ключ нового полёта. Без `-screen` игра открывается в ангаре.
+- `HangarPreview` (B): `show(parts:selected:)`, `apply(CameraInput)`; реализация `HangarScene` + SwiftUI `HangarSceneView(scene:)` — в `App/Render/`.
+- `FlightFeedback.stop()` — выход из полёта: звук, вибрация и наклон выключены.
+- `DemoScenario` (ведущий): аргумент запуска `-screen hangar|flight|ascent|staging|orbit|lunaApproach|lunaSurface|chute|landed|crash` — стартовое состояние для CI-скриншотов и отладки (`screens.txt` — список снимаемых сцен).
+- `GameSettings`: частота кадров 60/90/120 (по умолчанию 90), звук, вибрация, наклон (выкл.), подсказки первого полёта (вкл.).
 
 ## Владение папками
 | Поток | Папки |

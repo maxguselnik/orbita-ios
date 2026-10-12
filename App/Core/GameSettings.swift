@@ -16,4 +16,6 @@ final class GameSettings {
     var hapticsEnabled = true
     /// Управление наклоном телефона, по умолчанию выключено.
     var tiltControl = false
+    /// Подсказки первого полёта.
+    var hintsEnabled = true
 }

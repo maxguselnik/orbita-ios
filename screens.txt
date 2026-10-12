@@ -1,1 +1,1 @@
-flight ascent orbit lunaSurface
+hangar flight ascent staging chute landed crash orbit lunaSurface

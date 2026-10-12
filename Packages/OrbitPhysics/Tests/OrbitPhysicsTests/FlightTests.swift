@@ -158,6 +158,25 @@ struct FlightTests {
         #expect(all.contains { if case .crash = $0 { return true }; return false })
     }
 
+    @Test func crashedWreckRotatesWithBody() {
+        let r = Bodies.terra.radius + 3_000
+        let sim = FlightSim(design: .orbit, body: .terra, position: Vec3(r, 0, 0), velocity: Vec3(-200, 0, 0))
+        run(sim, limit: 200) { s, _ in s.activeSituation == .crashed }
+        #expect(sim.activeSituation == .crashed)
+        let b0 = World.toBodyFixed(sim.activeStateVector.position, body: .terra, time: sim.time)
+        let speed0 = (sim.activeStateVector.velocity - World.spin(.terra).cross(sim.activeStateVector.position)).length
+        #expect(speed0 < 1e-6)
+        run(sim, limit: 60, frame: 0.5)
+        let b1 = World.toBodyFixed(sim.activeStateVector.position, body: .terra, time: sim.time)
+        #expect((b1 - b0).length < 1, "сместилось на \((b1 - b0).length) м")
+        // На рельсах тоже.
+        sim.send(.setWarp(index: 6))
+        run(sim, limit: 3_000, frame: 1)
+        let b2 = World.toBodyFixed(sim.activeStateVector.position, body: .terra, time: sim.time)
+        #expect((b2 - b0).length < 1, "на рельсах сместилось на \((b2 - b0).length) м")
+        #expect(sim.activeSituation == .crashed)
+    }
+
     @Test func warpAutoResetBeforeAtmosphere() {
         // Орбита с Пе 30 км: на рельсах до входа в атмосферу.
         let ra = Bodies.terra.radius + 120_000, rp = Bodies.terra.radius + 30_000

@@ -7,7 +7,12 @@ import SwiftUI
 struct FlightHUDView: View {
     let model: FlightHUDModel
     var frameRate: FrameRate = .hz90
+    /// Подсказки первого полёта включены в настройках.
+    var hintsEnabled = true
+    /// Выход в ангар (пауза, панель результата); модель HUD о `GameFlow` не знает.
+    var onHangar: () -> Void = {}
 
+    @AppStorage(HUDHint.doneKey) private var hintsDone = false
     @State private var driver = FrameDriver()
     @Environment(\.scenePhase) private var scenePhase
 
@@ -54,9 +59,26 @@ struct FlightHUDView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: model.toast)
+        .overlay(alignment: .top) {
+            if hintsEnabled, !hintsDone, let hint = model.hint, !model.isPaused {
+                HintBanner(hint: hint) { model.dismissHints() }
+                    .padding(.top, 62 + 42)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: model.hint)
+        .overlay(alignment: .bottom) {
+            if let result = model.result, !model.isPaused {
+                FlightResultPanel(result: result, onHangar: onHangar,
+                                  onRetry: { model.restart() },
+                                  onContinue: { model.dismissResult() })
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.25), value: model.result)
         .overlay {
             if model.isPaused {
-                PauseMenu(model: model)
+                PauseMenu(model: model, onHangar: onHangar)
             }
         }
         .onAppear {
