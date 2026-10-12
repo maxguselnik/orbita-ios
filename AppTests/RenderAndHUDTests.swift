@@ -49,6 +49,7 @@ struct RenderAndHUDTests {
         let model = FlightHUDModel(makeSimulation: {
             let sim = FlightSim(design: .orbit)
             sim.setInput(ControlInput(throttle: 0.65))
+            _ = sim.advance(realDelta: 0) // опубликовать заданный ввод в снимке
             return sim
         })
         #expect(model.throttle == 0.65)
