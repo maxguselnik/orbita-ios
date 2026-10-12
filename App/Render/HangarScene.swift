@@ -157,7 +157,7 @@ final class HangarScene: HangarPreview {
         [SIMD2(outer, -t / 2), SIMD2(outer, t / 2), SIMD2(inner, t / 2), SIMD2(inner, -t / 2), SIMD2(outer, -t / 2)]
     }
 
-    private func replaceChildren(of entity: Entity, with mesh: MeshResource?, material: any Material) {
+    private func replaceChildren(of entity: Entity, with mesh: MeshResource?, material: any RealityKit.Material) {
         for c in Array(entity.children) { c.removeFromParent() }
         if let mesh { entity.addChild(ModelEntity(mesh: mesh, materials: [material])) }
     }
@@ -249,7 +249,7 @@ final class HangarScene: HangarPreview {
             lines.lathe([SIMD2(r1, 0), SIMD2(r1, 0.08), SIMD2(r0, 0.08), SIMD2(r0, 0)], segments: 64)
         }
 
-        let list: [(MeshBuilder, any Material, String)] = [
+        let list: [(MeshBuilder, any RealityKit.Material, String)] = [
             (floor, floorMat, "hangarFloor"), (wall, wallMat, "hangarWall"), (ribs, ribMat, "hangarRibs"),
             (pad, padMat, "hangarPad"), (lines, lineMat, "hangarLines"),
         ]
