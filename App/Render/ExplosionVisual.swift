@@ -11,9 +11,12 @@ final class ExplosionVisual {
     let root = Entity()
     /// Тело, в инерциальной системе которого задан центр, и точка аварии на грунте.
     let body: BodyID
-    let center: D3
+    var center: D3
     /// Вертикаль в точке аварии (инерциальная система).
-    let up: D3
+    var up: D3
+    /// Точка аварии в осях тела (направление и радиус): тело вращается, взрыв и обломки — вместе с грунтом.
+    var fixedDirection = Vec3.unitZ
+    var fixedRadius = 0.0
     let startTime: Double
 
     private struct Ball {

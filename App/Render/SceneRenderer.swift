@@ -197,6 +197,8 @@ final class SceneRenderer: FlightRenderer {
                 let ex = ExplosionVisual(body: frame, center: dir * (body.radius + gh), up: dir,
                                          size: max(activeVisual.stackHeight * 0.5, 3), seed: active.id &+ 7,
                                          startTime: renderTime)
+                ex.fixedDirection = World.toBodyFixed(vec3(dir), body: frame, time: snapshot.time)
+                ex.fixedRadius = body.radius + gh
                 explosions.append(ex)
                 root.addChild(ex.root)
             }
@@ -204,6 +206,10 @@ final class SceneRenderer: FlightRenderer {
             exploded.remove(active.id)
         }
         for ex in explosions {
+            // Точка аварии вращается вместе с телом.
+            let up = World.fromBodyFixed(ex.fixedDirection, body: ex.body, time: snapshot.time).d3
+            ex.up = up
+            ex.center = up * ex.fixedRadius
             let rel = RenderFrame.bodyCenter(ex.body, in: frame, luna: luna) + ex.center - eye
             let on = simd_length(rel) < 300_000
             if ex.root.isEnabled != on { ex.root.isEnabled = on }
