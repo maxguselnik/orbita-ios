@@ -10,6 +10,8 @@ struct HangarView: View {
     @Environment(GameSettings.self) private var settings
     @State private var selected: Int?
     @State private var tab: CatalogTab = .pods
+    /// Пресет, ожидающий подтверждения замены проекта.
+    @State private var pendingPreset: VesselDesign?
 
     private static let catalogWidth: CGFloat = 216
     private static let stackWidth: CGFloat = 232
@@ -42,6 +44,19 @@ struct HangarView: View {
         .background(Color(red: 0.05, green: 0.06, blue: 0.09).ignoresSafeArea())
         .onChange(of: design.parts, initial: true) { refreshScene() }
         .onChange(of: selected) { refreshScene() }
+        .confirmationDialog(
+            "Заменить проект пресетом «\(pendingPreset?.name ?? "")»?",
+            isPresented: Binding(get: { pendingPreset != nil }, set: { if !$0 { pendingPreset = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Заменить", role: .destructive) {
+                if let preset = pendingPreset { load(preset) }
+                pendingPreset = nil
+            }
+            Button("Отмена", role: .cancel) { pendingPreset = nil }
+        } message: {
+            Text("Текущий проект будет потерян.")
+        }
     }
 
     // MARK: - Верхняя полоса
@@ -52,10 +67,10 @@ struct HangarView: View {
         return HStack(spacing: 10) {
             Menu {
                 ForEach(Array(VesselDesign.presets.enumerated()), id: \.offset) { _, preset in
-                    Button(preset.name) { load(preset) }
+                    Button(preset.name) { requestLoad(preset) }
                 }
                 Divider()
-                Button("Очистить", role: .destructive) { load(HangarEditing.cleared) }
+                Button("Очистить", role: .destructive) { requestLoad(HangarEditing.cleared) }
             } label: {
                 HStack(spacing: 4) {
                     Text("Пресеты").font(.system(size: 14, weight: .bold))
@@ -199,10 +214,20 @@ struct HangarView: View {
     private func delete() {
         guard let i = validSelection else { return }
         var parts = flow.design.parts
-        HangarEditing.remove(&parts, index: i)
+        let next = HangarEditing.remove(&parts, index: i)
         flow.design.parts = parts
-        selected = nil
+        selected = next
         feedbackTap()
+    }
+
+    /// Спрашивает подтверждение, если текущий проект не пуст и отличается от нового.
+    private func requestLoad(_ design: VesselDesign) {
+        let current = flow.design.parts
+        if current.isEmpty || current == design.parts || current == HangarEditing.cleared.parts {
+            load(design)
+        } else {
+            pendingPreset = design
+        }
     }
 
     private func load(_ design: VesselDesign) {
