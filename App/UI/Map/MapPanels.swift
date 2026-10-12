@@ -285,6 +285,8 @@ struct ManeuverPanel: View {
                         .padding(.horizontal, 8)
                 }
                 .buttonStyle(HUDButtonStyle())
+                .disabled(!model.canWarpToManeuver)
+                .opacity(model.canWarpToManeuver ? 1 : 0.4)
                 .accessibilityLabel("Ускорить время до узла")
                 Button {
                     model.deleteManeuver()

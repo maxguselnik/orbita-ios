@@ -98,6 +98,7 @@ struct WarpMenu: View {
                 } label: {
                     Label("До узла манёвра", systemImage: "forward.end.fill")
                 }
+                .disabled(!model.canWarpToManeuver)
             }
             ForEach(Array(TimeWarp.levels.enumerated()), id: \.offset) { index, factor in
                 Button {

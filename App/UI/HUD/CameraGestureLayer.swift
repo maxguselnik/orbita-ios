@@ -22,13 +22,20 @@ struct CameraGestureLayer: View {
         Color.clear
             .contentShape(Rectangle())
             .gesture(rotate.simultaneously(with: zoom))
-            .simultaneousGesture(
-                TapGesture(count: 2).onEnded { model.cameraReset() }
-            )
-            .simultaneousGesture(
-                SpatialTapGesture().onEnded { value in model.mapTap(at: value.location) }
-            )
+            .simultaneousGesture(taps)
             .accessibilityHidden(true)
+    }
+
+    /// Двойной тап — сброс камеры; одиночный (если второй не последовал) — тап по карте.
+    private var taps: some Gesture {
+        TapGesture(count: 2)
+            .exclusively(before: SpatialTapGesture())
+            .onEnded { value in
+                switch value {
+                case .first: model.cameraReset()
+                case .second(let tap): model.mapTap(at: tap.location)
+                }
+            }
     }
 
     private var rotate: some Gesture {

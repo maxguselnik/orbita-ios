@@ -62,7 +62,18 @@ final class FlightHUDModel {
     /// Карта: прогноз, отметки, проекция в экран (через рендер).
     let map: MapModel
     /// Ручка Δv узла, которую держит палец (карта); применяется в `tick`, перерисовки не вызывает.
-    @ObservationIgnored var maneuverDrag: ManeuverDrag?
+    @ObservationIgnored var maneuverDrag: ManeuverDrag? {
+        didSet {
+            // Перетаскивание закончилось любым способом — отправляем итоговое значение.
+            if maneuverDrag == nil { commitDragDraft() }
+        }
+    }
+    /// Локальный черновик узла во время перетаскивания: в физику уходит не чаще `MapModel.editInterval`.
+    @ObservationIgnored private var dragDraft: ManeuverNode?
+    @ObservationIgnored private var dragDirty = false
+    @ObservationIgnored private var lastDragSend: TimeInterval = 0
+    /// «К узлу» имеет смысл: узел есть и до прожига больше `ManeuverStatus.warpLead`. Меняется редко.
+    private(set) var canWarpToManeuver = false
 
     /// Оси джойстика и кнопки крена; пишутся жестами, читаются в `tick`, перерисовки не вызывают.
     @ObservationIgnored var pitchInput = 0.0
@@ -105,6 +116,7 @@ final class FlightHUDModel {
         self.warp = Self.warpStatus(t)
         self.solidLocked = Self.solidLocked(t)
         self.maneuverNode = t.maneuver?.node
+        self.canWarpToManeuver = Self.canWarp(t)
         if let scenario, scenario.opensMap {
             map.focus = scenario.mapFocus
             map.isOpen = true
@@ -162,6 +174,8 @@ final class FlightHUDModel {
 
     /// Перезапуск полёта.
     func restart() {
+        dragDraft = nil
+        dragDirty = false
         sim = makeSimulation()
         publish(sim.snapshot)
         throttle = 0
@@ -268,6 +282,11 @@ final class FlightHUDModel {
     /// Кнопка «Карта»: полёт ↔ карта.
     func toggleMap() {
         maneuverDrag = nil
+        // Джойстик и кнопки крена исчезают из иерархии вместе с жестом: сбрасываем ввод вручную.
+        pitchInput = 0
+        yawInput = 0
+        rollLeftPressed = false
+        rollRightPressed = false
         isPanelOpen = false
         map.isOpen.toggle()
     }
@@ -305,12 +324,18 @@ final class FlightHUDModel {
     }
 
     func deleteManeuver() {
+        dragDraft = nil
+        dragDirty = false
         maneuverDrag = nil
         send(.setManeuver(nil))
     }
 
     /// Ускорение «на рельсах» до начала прожига.
     func warpToManeuver() {
+        guard canWarpToManeuver else {
+            if telemetry.maneuver != nil { notify("До узла меньше \(Int(ManeuverStatus.warpLead)) с") }
+            return
+        }
         send(.warpToManeuver)
     }
 
@@ -320,7 +345,7 @@ final class FlightHUDModel {
     /// Удерживаемая ручка Δv: скорость изменения растёт с отводом пальца и временем удержания.
     private func applyManeuverDrag(now: TimeInterval, delta: Double) {
         guard var drag = maneuverDrag else { return }
-        guard map.isOpen, var node = telemetry.maneuver?.node else {
+        guard map.isOpen, var node = dragDraft ?? telemetry.maneuver?.node else {
             maneuverDrag = nil
             return
         }
@@ -333,7 +358,22 @@ final class FlightHUDModel {
         let deltaV = rate * drag.handle.sign * delta
         guard deltaV != 0, deltaV.isFinite else { return }
         drag.handle.axis.add(deltaV, to: &node)
-        sim.send(.setManeuver(node))
+        dragDraft = node
+        if now - lastDragSend >= MapModel.editInterval {
+            lastDragSend = now
+            sim.send(.setManeuver(node))
+            dragDirty = false
+        } else {
+            dragDirty = true
+        }
+    }
+
+    /// Итог перетаскивания, не ушедший в физику из-за ограничения частоты.
+    private func commitDragDraft() {
+        let node = dragDraft
+        dragDraft = nil
+        if dragDirty, let node { send(.setManeuver(node)) }
+        dragDirty = false
     }
 
     // MARK: - Публикация кадра
@@ -351,6 +391,13 @@ final class FlightHUDModel {
         if solidLocked != solid { solidLocked = solid }
         let node = t.maneuver?.node
         if maneuverNode != node { maneuverNode = node }
+        let canWarp = Self.canWarp(t)
+        if canWarpToManeuver != canWarp { canWarpToManeuver = canWarp }
+    }
+
+    private static func canWarp(_ t: FlightTelemetry) -> Bool {
+        guard let status = t.maneuver else { return false }
+        return status.timeToBurn > ManeuverStatus.warpLead
     }
 
     private static func stageStatus(_ t: FlightTelemetry) -> StageStatus {
