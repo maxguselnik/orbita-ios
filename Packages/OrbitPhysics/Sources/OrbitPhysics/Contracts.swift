@@ -24,7 +24,8 @@ public struct ControlInput: Sendable, Hashable, Codable {
     public var pitch: Double
     public var yaw: Double
     public var roll: Double
-    /// Поступательное RCS −1…1 по осям корабля.
+    /// Поступательное RCS −1…1 по осям корабля (x — правый борт, y — нос/вперёд, z — спина/вверх).
+    /// Действует, только когда RCS включено (`FlightCommand.setRCS`) и есть монотопливо.
     public var translation: Vec3
 
     public init(throttle: Double = 0, pitch: Double = 0, yaw: Double = 0, roll: Double = 0, translation: Vec3 = .zero) {
@@ -48,6 +49,9 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     case setManeuver(ManeuverNode?)
     /// Ускорение «на рельсах» до узла: само сбрасывается до ×1 за `ManeuverStatus.warpLead` до начала прожига.
     case warpToManeuver
+    /// Включить/выключить РСУ. Включённое РСУ даёт поступательную тягу по `ControlInput.translation`
+    /// и добавляет момент к повороту (ручному и SAS), расходуя монотопливо.
+    case setRCS(Bool)
 }
 
 // MARK: - Состояние
@@ -81,13 +85,19 @@ public struct VesselState: Sendable, Hashable {
     public var firingEngines: [Int]
     public var chute: ChuteState
     public var chuteDeploy: Double
+    /// Сопла РСУ в этом кадре, оси корабля −1…1: поступательная команда (`translation`)
+    /// и поворотная (`rotation`: x — тангаж, y — крен, z — рыскание со знаком оси +Z).
+    /// Нули — РСУ молчит (выключено, нет топлива или нет команды). Только у активного корабля.
+    public var rcsTranslation: Vec3
+    public var rcsRotation: Vec3
 
     public init(id: VesselID, body: BodyID, position: Vec3, velocity: Vec3,
                 attitude: Quat = .identity, angularVelocity: Vec3 = .zero,
                 mass: Double, throttle: Double = 0,
                 situation: VesselSituation = .prelaunch, isActive: Bool = true,
                 parts: [PartID] = [], firingEngines: [Int] = [],
-                chute: ChuteState = .none, chuteDeploy: Double = 0) {
+                chute: ChuteState = .none, chuteDeploy: Double = 0,
+                rcsTranslation: Vec3 = .zero, rcsRotation: Vec3 = .zero) {
         self.id = id
         self.body = body
         self.position = position
@@ -102,6 +112,8 @@ public struct VesselState: Sendable, Hashable {
         self.firingEngines = firingEngines
         self.chute = chute
         self.chuteDeploy = chuteDeploy
+        self.rcsTranslation = rcsTranslation
+        self.rcsRotation = rcsRotation
     }
 }
 
@@ -187,6 +199,7 @@ public struct NavballVectors: Sendable, Hashable {
         self.surfacePrograde = surfacePrograde
         self.target = target
         self.maneuver = maneuver
+        self.rcs = rcs
     }
 }
 
@@ -234,6 +247,30 @@ public struct MissionRecord: Sendable, Hashable {
         self.lunaOrbit = lunaOrbit
         self.landedLuna = landedLuna
         self.returnedFromSpace = returnedFromSpace
+    }
+}
+
+/// РСУ активного корабля для HUD.
+public struct RCSStatus: Sendable, Hashable {
+    /// Есть ли на корабле блоки РСУ.
+    public var available: Bool
+    /// Включено ли РСУ (команда `setRCS`); сохраняется, даже если блоков нет.
+    public var enabled: Bool
+    /// Монотопливо на всём корабле, кг: остаток и ёмкость.
+    public var monoMass: Double
+    public var monoCapacity: Double
+    /// Сопла работают в этом кадре.
+    public var firing: Bool
+
+    public var monoFraction: Double { monoCapacity > 0 ? monoMass / monoCapacity : 0 }
+
+    public init(available: Bool = false, enabled: Bool = false, monoMass: Double = 0,
+                monoCapacity: Double = 0, firing: Bool = false) {
+        self.available = available
+        self.enabled = enabled
+        self.monoMass = monoMass
+        self.monoCapacity = monoCapacity
+        self.firing = firing
     }
 }
 
@@ -352,6 +389,8 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var mission: MissionRecord
     /// Узел манёвра активного корабля (nil — нет).
     public var maneuver: ManeuverStatus?
+    /// РСУ активного корабля.
+    public var rcs: RCSStatus
 
     public init(altitude: Double = 0, heightAboveTerrain: Double = 0, speed: Double = 0,
                 surfaceSpeed: Double = 0, verticalSpeed: Double = 0, dynamicPressure: Double = 0,
@@ -363,7 +402,7 @@ public struct FlightTelemetry: Sendable, Hashable {
                 staticPressure: Double = 0, pitch: Double = 0, heading: Double = 0, roll: Double = 0,
                 navball: NavballVectors = NavballVectors(), chute: ChuteState = .none, chuteSafe: Bool = false,
                 warpIndex: Int = 0, warpBlocked: WarpResetReason? = nil, mission: MissionRecord = MissionRecord(),
-                maneuver: ManeuverStatus? = nil) {
+                maneuver: ManeuverStatus? = nil, rcs: RCSStatus = RCSStatus()) {
         self.altitude = altitude
         self.heightAboveTerrain = heightAboveTerrain
         self.speed = speed
@@ -395,6 +434,7 @@ public struct FlightTelemetry: Sendable, Hashable {
         self.warpBlocked = warpBlocked
         self.mission = mission
         self.maneuver = maneuver
+        self.rcs = rcs
     }
 }
 

@@ -4,6 +4,8 @@ import Foundation
 
 public enum PartKind: String, Sendable, Hashable, Codable {
     case pod, probe, chute, decoupler, tank, legs, engine
+    /// Блок РСУ (поступательные и поворотные сопла на монотопливе, свой запас) и бак монотоплива.
+    case rcs, monoTank
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
@@ -11,6 +13,7 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case t100, t200, t400, t800, j64
     case legs
     case shtil, vikhr, titan, molot
+    case rcsBlock, m100
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -22,6 +25,7 @@ public struct PartSpec: Sendable, Hashable {
     public let kind: PartKind
     public let dryMass: Double
     /// Топливо: для баков — жидкое, для РДТТ — твёрдое внутри двигателя.
+    /// Для `.rcs` и `.monoTank` — монотопливо.
     public let fuelMass: Double
     public let thrustVacuum: Double
     public let ispSeaLevel: Double
@@ -69,6 +73,9 @@ public enum PartCatalog {
         make(.vikhr, "«Вихрь»", .engine, dry: 1.5, thrust: 215, isp: (250, 320), h: 1.3, w: 1.25),
         make(.titan, "«Титан»", .engine, dry: 6, thrust: 1630, isp: (285, 310), h: 2.4, w: 2.5),
         make(.molot, "РДТТ «Молот»", .engine, dry: 0.75, fuel: 2.81, thrust: 227, isp: (170, 195), solid: true, h: 3.6, w: 1.25),
+        // Блок РСУ: тяга — на одно направление (сумма сопел), Isp монотоплива.
+        make(.rcsBlock, "Блок РСУ «Рой»", .rcs, dry: 0.08, fuel: 0.06, thrust: 2, isp: (100, 240), h: 0.3, w: 1.25),
+        make(.m100, "Бак монотоплива М-100", .monoTank, dry: 0.04, fuel: 0.16, h: 0.45, w: 1.25),
     ]
 
     private static let byID: [PartID: PartSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
