@@ -152,9 +152,12 @@ final class AtmosphereVisual {
         let q = simd_quatf(from: F3(0, 0, 1), to: -dirF)
         for (i, e) in rings.enumerated() {
             // Пик колпака (0.85 внешнего радиуса) — на радиусе x0·(1 + spacing·i).
+            // Кольца не в одной плоскости: иначе z-конфликт даёт зубчатые клинья. Дальние — крупнее
+            // в той же пропорции, угловой размер прежний; порядок прозрачных — от дальнего к ближнему.
+            let depth = dp * (1 + 0.004 * Double(n - 1 - i))
             let peak = x0 * (1 + spacing * Double(i))
-            let ro = Float(dp * peak / 0.85)
-            e.position = dirF * Float(dp)
+            let ro = Float(depth * peak / 0.85)
+            e.position = dirF * Float(depth)
             e.orientation = q
             e.scale = F3(ro, ro, 1)
         }

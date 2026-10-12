@@ -124,14 +124,17 @@ enum Palette {
     }
 
     /// Фрактальный шум около 0 (примерно ±0.5): крупные пятна материков/морей и мелкая россыпь.
-    /// Октавы мельче трёх ячеек патча не берутся, поэтому на грубых уровнях LOD цвет тот же, без мерцания;
+    /// Октавы мельче 2 % радиуса не берутся (одинаково на всех уровнях LOD, `cell` не используется);
     /// октавы суммируются без перенормировки — детализация лишь добавляется.
     static func fbm(_ d: D3, radius: Double, cell: Double) -> Double {
         var sum = 0.0
         var amp = 1.0
         var wavelength = radius * 0.9
+        // Минимальная длина волны не зависит от уровня LOD: иначе соседние патчи разных уровней
+        // получают разный цвет и видны квадратами.
+        let minWavelength = radius * 0.02
         for _ in 0..<6 {
-            if wavelength < cell * 3 { break }
+            if wavelength < minWavelength { break }
             sum += amp * (valueNoise(d * (radius / wavelength)) - 0.5)
             amp *= 0.5
             wavelength *= 0.38
