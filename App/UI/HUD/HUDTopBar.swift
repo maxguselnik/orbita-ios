@@ -10,6 +10,7 @@ struct MissionTimeBar: View {
         HStack(spacing: 0) {
             MissionClock(model: model)
             WarpButtons(model: model)
+                .tutorialAnchor(.warp)
             Button {
                 model.pause()
             } label: {

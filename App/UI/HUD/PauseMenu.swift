@@ -4,6 +4,8 @@ import SwiftUI
 struct PauseMenu: View {
     let model: FlightHUDModel
     let onHangar: () -> Void
+    /// Запуск урока «Первый полёт».
+    var onTutorial: () -> Void = {}
 
     @State private var note: String?
 
@@ -28,6 +30,7 @@ struct PauseMenu: View {
                     item("Перезапуск", systemImage: "arrow.counterclockwise") { model.restart() }
                     item("Ангар", systemImage: "wrench.and.screwdriver") { onHangar() }
                 }
+                item("Обучение", systemImage: "graduationcap") { onTutorial() }
 
                 Text(note ?? " ")
                     .font(.system(size: 12, weight: .medium))

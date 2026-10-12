@@ -131,6 +131,12 @@ struct AttitudeControls: View {
                 .position(x: Self.rollRightRect.midX, y: Self.rollRightRect.midY)
             FineControlToggle(model: model)
                 .position(x: Self.pillCenter.x, y: Self.pillCenter.y)
+            // Рамка кнопки ▶ крестовины для обучения.
+            Color.clear
+                .frame(width: 52, height: 52)
+                .tutorialAnchor(.dpadRight)
+                .position(x: Self.circleCenter.x + Self.radius * 0.62, y: Self.circleCenter.y)
+                .allowsHitTesting(false)
         }
         .frame(width: Self.frameSize.width, height: Self.frameSize.height, alignment: .topLeading)
     }

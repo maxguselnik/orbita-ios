@@ -298,6 +298,11 @@ struct ThrottleGauge: View {
     /// Радиус ручки.
     static let knobRadius: CGFloat = 7
 
+    /// Рамка для обучения: дуга тяги вместе с метками MAX и 0 (координаты кластера).
+    static var lessonRect: CGRect {
+        CGRect(x: NavballCluster.ringOrigin.x - 30, y: NavballCluster.ringOrigin.y + 26, width: 78, height: 104)
+    }
+
     /// Зона касания дуги в координатах кластера: от верхнего до нижнего конца дуги, ниже — ничего.
     static var touchRect: CGRect {
         CGRect(x: NavballCluster.ringOrigin.x - 4, y: NavballCluster.ringOrigin.y + 28, width: 52, height: 100)
@@ -366,6 +371,11 @@ struct ThrottleGauge: View {
                         model.throttle = max(0, model.throttle - 0.1)
                     }
                 }
+            Color.clear
+                .frame(width: Self.lessonRect.width, height: Self.lessonRect.height)
+                .tutorialAnchor(.throttle)
+                .position(x: Self.lessonRect.midX, y: Self.lessonRect.midY)
+                .allowsHitTesting(false)
             ThrottleEndLabel(title: "MAX", label: "Полная тяга", pulse: guide == .fullThrottle, enabled: !locked) {
                 model.throttle = 1
             }

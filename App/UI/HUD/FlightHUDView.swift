@@ -16,6 +16,8 @@ struct FlightHUDView: View {
     var hintsEnabled = true
     /// Выход в ангар (пауза, панель результата); модель HUD о `GameFlow` не знает.
     var onHangar: () -> Void = {}
+    /// «Обучение» в меню паузы: запуск урока (модель HUD о `GameFlow` не знает).
+    var onTutorial: () -> Void = {}
 
     @AppStorage(HUDHint.doneKey) private var hintsDone = false
     @State private var driver = FrameDriver()
@@ -24,7 +26,9 @@ struct FlightHUDView: View {
 
     var body: some View {
         let mapOpen = model.map.isOpen
-        let guide = hintsEnabled ? model.guide : nil
+        // Пока идёт урок, подсказки первого полёта и помощник подъёма не дублируют его (маркер цели на навболе остаётся).
+        let inLesson = model.tutorial?.isActive == true
+        let guide = hintsEnabled && !inLesson ? model.guide : nil
         ZStack(alignment: .bottom) {
             // Под всеми контролами: получает только касания по пустому месту.
             // Размер всей области — для проекции карты (рендер во весь экран).
@@ -44,7 +48,7 @@ struct FlightHUDView: View {
                 MapLayer(model: model)
                 MapFocusPicker(model: model, showLegend: $showLegend)
             } else {
-                FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled)
+                FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
             }
         }
         .overlay(alignment: .top) {
@@ -62,14 +66,14 @@ struct FlightHUDView: View {
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
-                if hintsEnabled, !hintsDone, let hint = model.hint, !model.isPaused,
+                if hintsEnabled, !inLesson, !hintsDone, let hint = model.hint, !model.isPaused,
                    hint != .stage, hint != .throttle {
                     HintBanner(hint: hint) { model.dismissHints() }
                         .frame(width: 300)
                         .transition(.opacity)
                 }
             }
-            .padding(.top, mapOpen ? 54 : 60)
+            .padding(.top, mapOpen ? 54 : (inLesson ? 120 : 60))
         }
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .animation(.easeOut(duration: 0.2), value: model.hint)
@@ -100,9 +104,14 @@ struct FlightHUDView: View {
             }
         }
         .animation(.snappy(duration: 0.25), value: model.result)
+        .overlayPreferenceValue(TutorialAnchorKey.self) { anchors in
+            if let tutorial = model.tutorial {
+                TutorialOverlay(controller: tutorial, model: model, anchors: anchors, onHangar: onHangar)
+            }
+        }
         .overlay {
             if model.isPaused {
-                PauseMenu(model: model, onHangar: onHangar)
+                PauseMenu(model: model, onHangar: onHangar, onTutorial: onTutorial)
             }
         }
         .onAppear {
@@ -136,6 +145,8 @@ struct FlightLayer: View {
     let model: FlightHUDModel
     let guide: HUDAction?
     let hintsEnabled: Bool
+    /// Идёт урок: помощник подъёма в строке состояния выключен, маркер цели и карточка миссии остаются.
+    var inLesson = false
 
     var body: some View {
         ZStack {
@@ -161,7 +172,7 @@ struct FlightLayer: View {
     private var topCenter: some View {
         VStack(spacing: 3) {
             AltimeterPanel(model: model)
-            FlightStatusView(model: model, ascentEnabled: hintsEnabled)
+            FlightStatusView(model: model, ascentEnabled: hintsEnabled && !inLesson)
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -196,7 +207,8 @@ struct FlightLayer: View {
             let fits = MissionCard.fitsExpanded(stackHeight: stackHeight, blockTop: capsuleTop)
             VStack(alignment: .leading, spacing: MissionCard.gap) {
                 StageStackView(model: model)
-                MissionCard(model: model, enabled: hintsEnabled, autoExpand: fits)
+                MissionCard(model: model, enabled: hintsEnabled || inLesson, autoExpand: fits)
+                    .tutorialAnchor(.mission)
             }
             .padding(.top, 36)
             .padding(.leading, 6)
@@ -209,6 +221,7 @@ struct FlightLayer: View {
         VStack(alignment: .leading, spacing: 6) {
             ManeuverBadgeHost(model: model)
             StageButton(model: model, highlighted: guide == .stage)
+                .tutorialAnchor(.stageButton)
         }
         .padding(.leading, Self.stageLeading)
         .padding(.bottom, Self.controlCenterFromBottom - StageButton.height / 2)
@@ -217,7 +230,7 @@ struct FlightLayer: View {
     }
 
     private var bottomCenter: some View {
-        NavballCluster(model: model, ascentEnabled: hintsEnabled, guide: guide)
+        NavballCluster(model: model, ascentEnabled: hintsEnabled || inLesson, guide: guide)
             .padding(.bottom, NavballCluster.lift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }

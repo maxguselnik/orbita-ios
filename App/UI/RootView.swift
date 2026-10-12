@@ -24,7 +24,8 @@ struct RootView: View {
                 if let flight {
                     FlightHUDView(model: flight, frameRate: settings.frameRate,
                                   hintsEnabled: settings.hintsEnabled,
-                                  onHangar: exitToHangar)
+                                  onHangar: exitToHangar,
+                                  onTutorial: { flow.startTutorial(.firstFlight) })
                         .id(flow.flightID)
                 }
             }
@@ -44,7 +45,7 @@ struct RootView: View {
     private func startFlight() {
         let feedback = feedback ?? makeFeedback()
         renderer.reset()
-        let model = FlightHUDModel(makeSimulation: { [flow] in flow.makeSimulation() }, scenario: flow.scenario)
+        let model = FlightHUDModel(makeSimulation: { [flow] in flow.makeSimulation() }, scenario: flow.scenario, tutorial: flow.tutorial)
         model.feedback = feedback
         feedback.recalibrate()
         feedback.setPaused(false)

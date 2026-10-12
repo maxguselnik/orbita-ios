@@ -148,6 +148,9 @@ final class FlightHUDModel {
         }
     }
 
+    /// Интерактивный урок (nil — обычный полёт). Пока он держит физику на паузе, `tick` принимает ввод, но не двигает мир.
+    let tutorial: TutorialController?
+
     @ObservationIgnored private var sim: any FlightSimulation
     private let makeSimulation: () -> any FlightSimulation
     @ObservationIgnored private var lastTick: TimeInterval?
@@ -159,8 +162,10 @@ final class FlightHUDModel {
     @ObservationIgnored private var cameraPending = false
 
     /// `scenario` — сцена отладки/CI: сцены карты открывают карту сразу.
-    init(makeSimulation: @escaping () -> any FlightSimulation = { MockFlight() }, scenario: DemoScenario? = nil) {
+    init(makeSimulation: @escaping () -> any FlightSimulation = { MockFlight() }, scenario: DemoScenario? = nil,
+         tutorial: TutorialID? = nil) {
         self.makeSimulation = makeSimulation
+        self.tutorial = tutorial.map { TutorialController(id: $0) }
         self.map = MapModel()
         let sim = makeSimulation()
         self.sim = sim
@@ -186,6 +191,7 @@ final class FlightHUDModel {
             map.focus = scenario.mapFocus
             map.isOpen = true
         }
+        saveTutorialCheckpoint()
     }
 
     /// Один кадр игрового цикла; `now` — время кадра в секундах (CACurrentMediaTime).
@@ -208,6 +214,12 @@ final class FlightHUDModel {
             translation: rcs.enabled ? translationInput : .zero
         ))
         applyManeuverDrag(now: now, delta: delta)
+        if let tutorial, tutorial.holdsPhysics {
+            // Пауза урока: мир стоит, но сцена рисуется (камера), а действия игрока доходят до шага.
+            feedback?.frame(snapshot: snapshot, events: [], frameDelta: delta)
+            tutorialFrame(tutorial, delta: 0)
+            return
+        }
         let events = sim.advance(realDelta: delta)
         publish(sim.snapshot)
         feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
@@ -216,6 +228,64 @@ final class FlightHUDModel {
         if let message = events.compactMap(Self.message(for:)).last {
             show(message, now: now)
         }
+        if let tutorial { tutorialFrame(tutorial, delta: delta) }
+    }
+
+    // MARK: - Обучение
+
+    /// Один кадр урока: действия игрока и телеметрия → шаг; пауза физики синхронизируется со звуком.
+    private func tutorialFrame(_ tutorial: TutorialController, delta: Double) {
+        guard tutorial.isActive else { return }
+        let held = tutorial.holdsPhysics
+        let input = LessonInput(telemetry: telemetry, throttle: throttle,
+                                yawRightHeld: attitudeHeld[.yawRight] != nil)
+        if tutorial.update(input, delta: delta) { saveTutorialCheckpoint() }
+        // К скруглению игра сама возвращается к ×1.
+        if tutorial.step == .circularize, telemetry.warpIndex > 0 {
+            send(.setWarp(index: 0))
+        }
+        if tutorial.holdsPhysics != held { feedback?.setPaused(tutorial.holdsPhysics || isPaused) }
+    }
+
+    /// Контрольная точка в начале шага (у симуляций без отката — nil, повтор шага недоступен).
+    private func saveTutorialCheckpoint() {
+        guard let tutorial else { return }
+        let point = (sim as? FlightCheckpointing).map { LessonCheckpoint(sim: $0.checkpoint(), throttle: throttle) }
+        tutorial.saveCheckpoint(point, telemetry: telemetry)
+    }
+
+    /// «Понятно» / «Поехали» в пузыре урока.
+    func tutorialAcknowledge() {
+        guard let tutorial else { return }
+        if tutorial.acknowledge(telemetry) { saveTutorialCheckpoint() }
+        feedback?.setPaused(tutorial.holdsPhysics || isPaused)
+    }
+
+    /// «Повторить шаг»: откат к началу шага, ввод сброшен, игра на паузе. Без контрольной точки — просто продолжить.
+    func tutorialRepeat() {
+        guard let tutorial else { return }
+        guard let saved = tutorial.saved, let checkpointing = sim as? FlightCheckpointing else {
+            tutorial.dismissFailure(telemetry)
+            return
+        }
+        checkpointing.restore(saved.sim)
+        throttle = saved.throttle
+        resetAttitudeInput()
+        fineControl = false
+        resetTranslationInput()
+        sim.setInput(ControlInput(throttle: throttle))
+        publish(sim.snapshot)
+        map.invalidate()
+        feedback?.renderer?.reset()
+        feedback?.frame(snapshot: snapshot, events: [], frameDelta: 0)
+        tutorial.didRestore(telemetry)
+        feedback?.setPaused(true)
+    }
+
+    /// «Выйти из урока»: полёт продолжается обычным.
+    func exitTutorial() {
+        tutorial?.exit()
+        feedback?.setPaused(isPaused)
     }
 
     func send(_ command: FlightCommand) {
@@ -276,6 +346,8 @@ final class FlightHUDModel {
         maneuverDrag = nil
         map.invalidate()
         advisor = FlightAdvisor()
+        tutorial?.restartLesson(telemetry)
+        saveTutorialCheckpoint()
         totalStages = 0
         result = nil
         hint = nil
@@ -283,6 +355,7 @@ final class FlightHUDModel {
         feedback?.recalibrate()
         pendingCamera = CameraInput(reset: true)
         resume()
+        if let tutorial, tutorial.holdsPhysics { feedback?.setPaused(true) }
     }
 
     /// «Продолжить» на панели результата: скрыть до следующей посадки.

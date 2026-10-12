@@ -17,6 +17,8 @@ struct HangarView: View {
     @State private var draftName = ""
     /// Пресет, ожидающий подтверждения замены проекта.
     @State private var pendingPreset: VesselDesign?
+    /// Предложение урока «Первый полёт» при первом показе ангара.
+    @State private var showTutorialOffer = false
 
     private static let catalogWidth: CGFloat = 216
     private static let stackWidth: CGFloat = 232
@@ -52,6 +54,11 @@ struct HangarView: View {
         .onChange(of: design.parts, initial: true) {
             attachment = undoStack.isEmpty && selected == nil ? design.parts.count : min(attachment, design.parts.count)
             refreshScene()
+        }
+        .overlay { tutorialOffer }
+        .onAppear {
+            // Сцены отладки/CI (`-screen`) предложение не показывают.
+            if !TutorialProgress.wasOffered, DemoScenario.fromArguments == nil { showTutorialOffer = true }
         }
         .onChange(of: selected) { refreshScene() }
         .onChange(of: attachment) { scene.markAttachment(attachment) }
@@ -123,6 +130,14 @@ struct HangarView: View {
                 .buttonStyle(HUDButtonStyle()).disabled(redoStack.isEmpty)
                 .accessibilityLabel("Повторить правку")
 
+            Button { flow.startTutorial(.firstFlight) } label: {
+                Label("Обучение", systemImage: "graduationcap")
+                    .font(.system(size: 12, weight: .bold))
+                    .lineLimit(1)
+            }
+            .buttonStyle(HUDButtonStyle())
+            .accessibilityLabel("Обучение: первый полёт")
+
             Spacer(minLength: 0)
 
             HStack(spacing: 12) {
@@ -151,6 +166,41 @@ struct HangarView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .hudBackground()
+    }
+
+    /// Карточка-предложение урока: «Начать» запускает урок, «Позже» прячет предложение; оба помечают его показанным.
+    @ViewBuilder private var tutorialOffer: some View {
+        if showTutorialOffer {
+            ZStack {
+                Color.black.opacity(0.6).ignoresSafeArea()
+                VStack(spacing: 10) {
+                    Text(TutorialID.firstFlight.title)
+                        .font(.system(size: 20, weight: .heavy))
+                    Text("Научим выходить на орбиту за 5 минут")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(HUDStyle.secondaryText)
+                        .multilineTextAlignment(.center)
+                    HStack(spacing: 8) {
+                        Button("Позже") {
+                            TutorialProgress.markOffered()
+                            showTutorialOffer = false
+                        }
+                        .buttonStyle(HUDButtonStyle())
+                        Button("Начать") {
+                            TutorialProgress.markOffered()
+                            showTutorialOffer = false
+                            flow.startTutorial(.firstFlight)
+                        }
+                        .buttonStyle(HUDButtonStyle(isActive: true))
+                    }
+                    .font(.system(size: 16, weight: .bold))
+                }
+                .foregroundStyle(.white)
+                .padding(18)
+                .frame(width: 340)
+                .hudBackground(Color.black.opacity(0.85), corner: 18)
+            }
+        }
     }
 
     private func metric(_ label: String, _ value: String, color: Color = .white) -> some View {
