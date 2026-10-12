@@ -27,12 +27,17 @@ final class RenderMaterials {
     let plumeOuter: UnlitMaterial
     let plumeCore: UnlitMaterial
     let plumeSolid: UnlitMaterial
+    /// Полупрозрачный ореол факела (см. `VesselVisual.transparentPlumeGlow`).
+    let plumeGlow: UnlitMaterial
 
     private init() {
         // Факел непрозрачный: прозрачный факел на подъёме ронял рендер в симуляторе (см. отчёт).
         plumeOuter = UnlitMaterial(color: UIColor(red: 1.0, green: 0.52, blue: 0.16, alpha: 1))
         plumeCore = UnlitMaterial(color: UIColor(red: 1.0, green: 0.93, blue: 0.74, alpha: 1))
         plumeSolid = UnlitMaterial(color: UIColor(red: 1.0, green: 0.70, blue: 0.30, alpha: 1))
+        var glow = UnlitMaterial(color: UIColor(red: 1.0, green: 0.55, blue: 0.20, alpha: 1))
+        glow.blending = .transparent(opacity: .init(floatLiteral: 0.28))
+        plumeGlow = glow
     }
 }
 
