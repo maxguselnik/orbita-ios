@@ -61,10 +61,15 @@ struct FlightHUDView: View {
                 NavballView(model: model)
             }
         }
-        .overlay(alignment: .top) {
-            if !mapOpen { FlightStatusView(model: model).padding(.top, 60) }
+        .overlay(alignment: .topLeading) {
+            if !mapOpen {
+                FlightStatusView(model: model)
+                    .frame(width: 220)
+                    .padding(.leading, 120)
+                    .padding(.top, 60)
+            }
         }
-        .overlay(alignment: .top) {
+        .overlay(alignment: .topLeading) {
             if let toast = model.toast {
                 Text(toast.text)
                     .font(.system(size: 14, weight: .semibold))
@@ -72,17 +77,22 @@ struct FlightHUDView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
                     .hudBackground(corner: 10)
-                    .padding(.top, 102)
+                    .frame(width: 220)
+                    .padding(.leading, 120)
+                    .padding(.top, 114)
                     .id(toast.id)
                     .transition(.opacity)
                     .allowsHitTesting(false)
             }
         }
         .animation(.easeOut(duration: 0.2), value: model.toast)
-        .overlay(alignment: .top) {
-            if hintsEnabled, !hintsDone, let hint = model.hint, !model.isPaused {
+        .overlay(alignment: .topLeading) {
+            if hintsEnabled, !hintsDone, let hint = model.hint, !model.isPaused,
+               hint != .stage, hint != .throttle {
                 HintBanner(hint: hint) { model.dismissHints() }
-                    .padding(.top, 144)
+                    .frame(width: 220)
+                    .padding(.leading, 120)
+                    .padding(.top, 166)
                     .transition(.opacity)
             }
         }

@@ -45,6 +45,49 @@ struct RenderAndHUDTests {
         #expect(advisor.hint == .chute)
     }
 
+    @Test func initialAndRestartThrottleMatchSimulation() {
+        let model = FlightHUDModel(makeSimulation: {
+            let sim = FlightSim(design: .orbit)
+            sim.setInput(ControlInput(throttle: 0.65))
+            return sim
+        })
+        #expect(model.throttle == 0.65)
+        model.throttle = 0.2
+        model.tick(now: 1)
+        #expect(model.throttle == 0.2)
+        model.restart()
+        #expect(model.throttle == 0.65)
+    }
+
+    @Test func autopilotThrottleIsReflectedInHUD() {
+        let model = FlightHUDModel(makeSimulation: {
+            ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in sim.time >= 1 }
+        })
+        #expect(model.throttle > 0)
+        model.throttle = 0 // автопилот игнорирует ручной ввод в сцене отладки
+        model.tick(now: 1)
+        #expect(model.throttle > 0)
+        #expect(model.throttle == model.snapshot.vessels.first?.throttle)
+    }
+
+    @Test func solidThrottleLocksOnlyWithoutLiquidEngines() {
+        let solid = FlightHUDModel(makeSimulation: {
+            let sim = FlightSim(design: .jump)
+            sim.send(.stage)
+            _ = sim.advance(realDelta: 0.1)
+            return sim
+        })
+        #expect(solid.solidLocked)
+        let mixed = FlightHUDModel(makeSimulation: {
+            let sim = FlightSim(design: VesselDesign(name: "", parts: [.podK1, .t400, .vikhr, .molot]))
+            sim.send(.stage)
+            _ = sim.advance(realDelta: 0.1)
+            return sim
+        })
+        #expect(mixed.telemetry.solidBurning)
+        #expect(!mixed.solidLocked)
+    }
+
     @Test func lodTransitionsNeverRenderParentAndChildrenTogether() async throws {
         let lod = PlanetLOD(body: .terra)
         lod.material = SimpleMaterial(color: .green, roughness: 1, isMetallic: false)

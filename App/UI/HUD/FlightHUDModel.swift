@@ -15,6 +15,7 @@ struct StageStatus: Equatable {
     var remaining: Int
     var chute: ChuteState
     var action: StageAction
+    var hasSolid: Bool
 }
 
 /// Ускорение времени для меню: меняется редко.
@@ -118,6 +119,7 @@ final class FlightHUDModel {
         self.solidLocked = Self.solidLocked(t)
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
+        self.throttle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? 0
         if let scenario, scenario.opensMap {
             map.focus = scenario.mapFocus
             map.isOpen = true
@@ -179,7 +181,6 @@ final class FlightHUDModel {
         dragDirty = false
         sim = makeSimulation()
         publish(sim.snapshot)
-        throttle = 0
         pitchInput = 0
         yawInput = 0
         rollLeftPressed = false
@@ -381,6 +382,8 @@ final class FlightHUDModel {
 
     private func publish(_ snapshot: WorldSnapshot) {
         self.snapshot = snapshot
+        let currentThrottle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? throttle
+        if throttle != currentThrottle { throttle = currentThrottle }
         let t = snapshot.telemetry
         telemetry = t
         if sas != t.sas { sas = t.sas }
@@ -402,7 +405,7 @@ final class FlightHUDModel {
     }
 
     private static func stageStatus(_ t: FlightTelemetry) -> StageStatus {
-        StageStatus(remaining: t.stages.count, chute: t.chute, action: t.nextStageAction)
+        StageStatus(remaining: t.stages.count, chute: t.chute, action: t.nextStageAction, hasSolid: t.stages.first?.hasSolid ?? false)
     }
 
     private static func warpStatus(_ t: FlightTelemetry) -> WarpStatus {
@@ -410,7 +413,7 @@ final class FlightHUDModel {
     }
 
     private static func solidLocked(_ t: FlightTelemetry) -> Bool {
-        t.stages.first?.hasSolid == true && t.solidBurning
+        t.stages.first?.hasSolid == true && t.stages.first?.hasLiquidEngine != true && t.solidBurning
     }
 
     private func show(_ text: String, now: TimeInterval) {

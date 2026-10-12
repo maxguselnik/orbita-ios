@@ -37,7 +37,8 @@ struct ThrottleSlider: View {
     var body: some View {
         GeometryReader { geo in
             let height = geo.size.height
-            let level = CGFloat(min(max(value, 0), 1))
+            let displayed = solidLocked ? 1 : value
+            let level = CGFloat(min(max(displayed, 0), 1))
             ZStack(alignment: .bottom) {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(HUDStyle.control)
@@ -66,7 +67,7 @@ struct ThrottleSlider: View {
                     .offset(y: -max(0, height * level - 6))
 
                 VStack(spacing: 2) {
-                    Text(HUDFormat.percent(value))
+                    Text(HUDFormat.percent(displayed))
                         .font(.system(size: 15, weight: .bold).monospacedDigit())
                     Text(solidLocked ? "РДТТ" : "ТЯГА")
                         .font(.system(size: 9, weight: .bold))
@@ -83,7 +84,7 @@ struct ThrottleSlider: View {
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { drag in
-                        guard height > 0 else { return }
+                        guard height > 0, !solidLocked else { return }
                         value = Double(min(max(1 - drag.location.y / height, 0), 1))
                     }
             )
@@ -91,8 +92,9 @@ struct ThrottleSlider: View {
         .frame(minHeight: 82)
         .accessibilityElement()
         .accessibilityLabel("Тяга")
-        .accessibilityValue(HUDFormat.percent(value))
+        .accessibilityValue(solidLocked ? "РДТТ работает на полной тяге, регулировка невозможна" : HUDFormat.percent(value))
         .accessibilityAdjustableAction { direction in
+            guard !solidLocked else { return }
             if direction == .increment {
                 value = min(1, value + 0.1)
             } else if direction == .decrement {

@@ -460,7 +460,7 @@ final class MockFlight: FlightSimulation {
                 deltaV: deltaV, twr: twr, twrVacuum: twr * 1.1,
                 fuelFraction: stage.fuelCapacity > 0 ? stage.fuelMass / stage.fuelCapacity : 0,
                 burnTime: stage.fuelFlow > 0 ? stage.fuelMass / stage.fuelFlow : 0,
-                hasSolid: stage.solid, fuelMass: stage.fuelMass, fuelCapacity: stage.fuelCapacity))
+                hasSolid: stage.solid, fuelMass: stage.fuelMass, fuelCapacity: stage.fuelCapacity, hasLiquidEngine: stage.thrust > 0 && !stage.solid))
             massAbove -= stage.mass
         }
 

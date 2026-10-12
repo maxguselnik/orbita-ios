@@ -61,7 +61,7 @@ jobs:
           UDID=$(xcrun simctl list devices booted -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next(x['udid'] for r in d.values() for x in r if x['state']=='Booted' and x['name'].startswith('iPhone')))")
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
             -destination "platform=iOS Simulator,id=$UDID" \
-            -configuration Debug test CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath build -configuration Debug test CODE_SIGNING_ALLOWED=NO \
             SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Публикация в ветку ci-screens
         if: github.event_name == 'push'

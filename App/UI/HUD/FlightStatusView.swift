@@ -37,7 +37,9 @@ struct FlightStatusView: View {
     private func detail(_ t: FlightTelemetry) -> String {
         if t.situation == .crashed { return "Перезапустите полёт или вернитесь в ангар" }
         if t.situation == .prelaunch {
-            if t.nextStageAction == .ignite { return "1. Зажигание  →  2. Тяга MAX" }
+            if t.nextStageAction == .ignite {
+                return t.stages.first?.hasSolid == true ? "Зажигание сразу запустит РДТТ" : "1. Зажигание  →  2. Тяга MAX"
+            }
             if t.thrust < 1 { return "Установите тягу слева; РДТТ работает без регулировки" }
             if let stage = t.stages.first, stage.twr < 1 { return "Тяги недостаточно для взлёта · TWR < 1" }
             return "Двигатели работают · ожидается отрыв"

@@ -151,11 +151,13 @@ public struct StageInfo: Sendable, Hashable {
     public var burnTime: Double
     /// Есть ли РДТТ (нельзя дросселировать).
     public var hasSolid: Bool
+    /// Жидкостные двигатели остаются регулируемыми даже вместе с РДТТ.
+    public var hasLiquidEngine: Bool
 
     /// Тяговооружённость в вакууме.
     public var twrVacuum: Double
 
-    public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool, fuelMass: Double = 0, fuelCapacity: Double = 0) {
+    public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool, fuelMass: Double = 0, fuelCapacity: Double = 0, hasLiquidEngine: Bool = false) {
         self.deltaV = deltaV
         self.twr = twr
         self.twrVacuum = twrVacuum
@@ -164,6 +166,7 @@ public struct StageInfo: Sendable, Hashable {
         self.fuelFraction = fuelFraction
         self.burnTime = burnTime
         self.hasSolid = hasSolid
+        self.hasLiquidEngine = hasLiquidEngine
     }
 }
 

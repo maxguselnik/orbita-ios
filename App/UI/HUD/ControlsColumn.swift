@@ -302,7 +302,7 @@ struct StageButton: View {
         case .none: "НЕТ ДЕЙСТВИЙ"
         }
         let detail: String = switch t.action {
-        case .ignite: "затем установите тягу"
+        case .ignite: t.hasSolid ? "РДТТ нельзя остановить" : "затем установите тягу"
         case .separate: "сбросить нижнюю ступень"
         case .armChute: "вооружить парашют"
         case .none: "ступени завершены"

@@ -107,9 +107,9 @@ struct HintBanner: View {
                 .foregroundStyle(HUDStyle.accent)
                 .padding(.leading, 12)
             Text(hint.text)
-                .font(.system(size: 14, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(.white)
-                .lineLimit(2)
+                .lineLimit(3)
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
             Button(action: onClose) {
