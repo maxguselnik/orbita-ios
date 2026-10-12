@@ -153,5 +153,54 @@ struct MissionTests {
         #expect(sim.activeSituation == .landed || sim.activeSituation == .splashed)
         #expect(all.contains(.chuteOpened))
         #expect(!all.contains { if case .crash = $0 { return true }; return false })
+        let m = sim.snapshot.telemetry.mission
+        #expect(m.launched && m.reachedSpace && m.reachedOrbit)
+        #expect(m.enteredLunaSOI && m.lunaOrbit && m.landedLuna && m.returnedFromSpace)
+        #expect(m.maxAltitude > 1_000_000, "макс. высота \(m.maxAltitude)")
+        #expect(m.maxSpeed > 1_000 && m.maxGForce > 1 && m.maxGForce < 15)
+    }
+
+    @Test func missionRecordOnPadAndOrbit() {
+        let pad = FlightSim(design: .orbit)
+        _ = pad.advance(realDelta: 1)
+        #expect(pad.snapshot.telemetry.mission == MissionRecord())
+        let (sim, _, _) = ascend(.orbit)
+        let m = sim.snapshot.telemetry.mission
+        #expect(m.launched && m.reachedSpace && m.reachedOrbit)
+        #expect(!m.enteredLunaSOI && !m.lunaOrbit && !m.landedLuna && !m.returnedFromSpace)
+        #expect(m.maxAltitude >= 78_000 && m.maxSpeed > 2_000)
+        #expect(m.maxGForce > 1.2 && m.maxGForce < 12, "перегрузка \(m.maxGForce)")
+    }
+
+    @Test func missionRecordOnlyGrows() {
+        let sim = FlightSim(design: .jump)
+        sim.setInput(ControlInput(throttle: 1))
+        sim.send(.stage)
+        var prev = sim.snapshot.telemetry.mission
+        for _ in 0..<6_000 {
+            _ = sim.advance(realDelta: 1.0 / 30)
+            let m = sim.snapshot.telemetry.mission
+            #expect(m.maxAltitude >= prev.maxAltitude && m.maxSpeed >= prev.maxSpeed && m.maxGForce >= prev.maxGForce)
+            #expect(!prev.launched || m.launched)
+            prev = m
+            if sim.activeSituation == .landed || sim.activeSituation == .splashed || sim.activeSituation == .crashed { break }
+        }
+        #expect(prev.launched && (!prev.returnedFromSpace || prev.reachedSpace))
+        #expect(prev.maxAltitude > 100)
+    }
+
+    @Test func missionRecordFlightInit() {
+        let s = circularOrbit(altitude: 100_000)
+        let sim = FlightSim(design: .orbit, body: .terra, position: s.position, velocity: s.velocity)
+        _ = sim.advance(realDelta: 1)
+        let m = sim.snapshot.telemetry.mission
+        #expect(m.launched && m.reachedSpace && m.reachedOrbit)
+        // На рельсах вехи тоже копятся: орбита Луны.
+        let l = circularOrbit(altitude: 50_000, body: Bodies.luna)
+        let moon = FlightSim(design: .orbit, body: .luna, position: l.position, velocity: l.velocity)
+        moon.send(.setWarp(index: 6))
+        _ = moon.advance(realDelta: 1)
+        let lm = moon.snapshot.telemetry.mission
+        #expect(lm.enteredLunaSOI && lm.lunaOrbit && !lm.reachedOrbit && !lm.landedLuna)
     }
 }

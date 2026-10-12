@@ -23,6 +23,8 @@ protocol FlightRenderer: AnyObject {
     var cameraMode: CameraMode { get set }
     func apply(_ camera: CameraInput)
     func update(snapshot: WorldSnapshot, events: [SimEvent], frameDelta: Double)
+    /// Новый полёт (старт из ангара, перезапуск): убрать корабли, обломки и эффекты прошлого полёта, сбросить камеру.
+    func reset()
 }
 
 /// Поток D: звук.

@@ -50,9 +50,9 @@ final class GameHaptics: FlightHaptics {
                 play(HapticPatterns.touchdown(speed: speed))
             case .splashdown(let speed):
                 play(HapticPatterns.splashdown(speed: speed))
-            case .crash:
+            case .crash(let speed):
                 stopRumble()
-                play(patterns.crash)
+                play(HapticPatterns.crash(speed: speed))
             default:
                 break
             }
@@ -120,6 +120,8 @@ final class GameHaptics: FlightHaptics {
         dropRumble()
         engine?.stop(completionHandler: nil)
         engineRunning = false
+        lastStartAttempt = nil
+        lastSend = nil
     }
 
     // MARK: - Гул двигателей
@@ -237,11 +239,6 @@ struct HapticPatterns {
         .transient(0, intensity: 0.6, sharpness: 0.3),
         .continuous(0.02, duration: 0.25, intensity: 0.4, sharpness: 0.1, fade: true),
     ])
-    let crash = HapticPatterns.make([
-        .transient(0, intensity: 1, sharpness: 1),
-        .continuous(0, duration: 0.8, intensity: 1, sharpness: 0.3, fade: true),
-        .transient(0.15, intensity: 0.8, sharpness: 0.7),
-    ])
     /// Гул двигателей: долгое непрерывное событие, зацикливается плеером.
     let rumble = HapticPatterns.make([
         .continuous(0, duration: 30, intensity: 1, sharpness: 0.2, fade: false),
@@ -250,6 +247,16 @@ struct HapticPatterns {
     static func touchdown(speed: Double) -> CHHapticPattern? {
         let k = Float(0.35 + min(max(speed, 0) / 10, 1) * 0.65)
         return make([.transient(0, intensity: k, sharpness: 0.4)])
+    }
+
+    /// Авария: сила растёт со скоростью удара (от 0.6 до 1 на 30 м/с).
+    static func crash(speed: Double) -> CHHapticPattern? {
+        let k = Float(0.6 + min(max(speed, 0) / 30, 1) * 0.4)
+        return make([
+            .transient(0, intensity: k, sharpness: 1),
+            .continuous(0, duration: 0.8, intensity: k, sharpness: 0.3, fade: true),
+            .transient(0.15, intensity: k * 0.8, sharpness: 0.7),
+        ])
     }
 
     static func splashdown(speed: Double) -> CHHapticPattern? {

@@ -10,7 +10,7 @@ final class ProceduralAudio: FlightAudio {
     var isEnabled = true {
         didSet {
             guard isEnabled != oldValue else { return }
-            if isEnabled { pendingStop?.cancel(); pendingStop = nil } else { fadeOutAndStop() }
+            if isEnabled { resumeClean() } else { fadeOutAndStop() }
         }
     }
 
@@ -153,15 +153,29 @@ final class ProceduralAudio: FlightAudio {
         Self.observeEngine(engine, into: engineObservers, flags: flags)
     }
 
+    /// Новый полёт или снятие с паузы: отменяем остановку и просим синтезатор сбросить прошлые уровни и хвосты.
+    private func resumeClean() {
+        pendingStop?.cancel()
+        pendingStop = nil
+        let old = control
+        control = SynthControl()
+        control.sampleRate = old.sampleRate
+        control.serial = old.serial &+ 1
+        control.shots = old.shots
+        control.resetToken = old.resetToken &+ 1
+        push()
+    }
+
     private func fadeOutAndStop() {
         control.master = 0
         control.serial &+= 1
         push()
         pendingStop?.cancel()
         pendingStop = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(150))
+            try? await Task.sleep(for: .milliseconds(500))
             guard let self, !Task.isCancelled, !self.isEnabled else { return }
             self.engine.stop()
+            self.lastStartAttempt = nil
             self.pendingStop = nil
         }
     }

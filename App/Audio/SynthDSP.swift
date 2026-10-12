@@ -30,6 +30,8 @@ struct SynthControl: Sendable {
     var shots = OneShotCounters()
     /// Скорость последнего касания или удара, м/с.
     var impactSpeed = 0.0
+    /// Растёт при каждом включении звука (новый полёт): рендер сбрасывает уровни, лупы и хвосты прошлого полёта.
+    var resetToken: UInt32 = 0
 }
 
 struct OneShotCounters: Sendable, Equatable {
@@ -117,6 +119,7 @@ final class SynthDSP: @unchecked Sendable {
     private var c = SynthControl()
     private var seenShots = OneShotCounters()
     private var lastSerial: UInt64 = 0
+    private var seenReset: UInt32 = 0
     private var staleSamples = 0
     private var sampleRate = 48_000.0
 
@@ -181,6 +184,10 @@ final class SynthDSP: @unchecked Sendable {
         if c.sampleRate != sampleRate, c.sampleRate > 0 {
             recompute(sampleRate: c.sampleRate)
         }
+        if c.resetToken != seenReset {
+            seenReset = c.resetToken
+            resetState()
+        }
         if c.serial != lastSerial {
             lastSerial = c.serial
             staleSamples = 0
@@ -200,6 +207,18 @@ final class SynthDSP: @unchecked Sendable {
         smoothPad = 1 - exp(-1 / (1.5 * rate))
         engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
         for i in voices.indices { voices[i].active = false }
+    }
+
+    /// Новый полёт: обнуляем непрерывные звуки, хвосты и фильтры. `sMaster` не трогаем — он сам плавно нарастёт.
+    private func resetState() {
+        sThrust = 0; sSolid = 0; sAir = c.air
+        sWind = 0; sHeat = 0; sChute = 0; sSpace = 0
+        crackleEnv = 0
+        engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
+        for i in voices.indices { voices[i].active = false }
+        seenShots = c.shots
+        lastSerial = c.serial
+        staleSamples = 0
     }
 
     /// Раз в 32 сэмпла: частоты фильтров и свипы.
@@ -420,10 +439,12 @@ final class SynthDSP: @unchecked Sendable {
             start(Shot(wave: .noise, mode: .low, f0: 500, f1: 100, duration: 0.6, volume: 0.5), scale: k)
         }
         if s.crash != seenShots.crash {
-            start(Shot(wave: .noise, mode: .low, f0: 1800, f1: 60, duration: 2.4, volume: 1.3), scale: 1)
-            start(Shot(wave: .saw, f0: 70, f1: 25, duration: 1.8, volume: 0.8), scale: 1)
-            start(Shot(wave: .noise, mode: .band, f0: 4000, f1: 800, duration: 0.5, volume: 0.5, q: 0.7), scale: 1)
-            start(Shot(wave: .noise, mode: .low, f0: 600, f1: 80, duration: 1.2, volume: 0.6, delay: 0.18), scale: 1)
+            // Громкость растёт со скоростью удара: от 0.6 до полной на 30 м/с и выше.
+            let k = 0.6 + min(impact / 30, 1) * 0.4
+            start(Shot(wave: .noise, mode: .low, f0: 1800, f1: 60, duration: 2.4, volume: 1.3), scale: k)
+            start(Shot(wave: .saw, f0: 70, f1: 25, duration: 1.8, volume: 0.8), scale: k)
+            start(Shot(wave: .noise, mode: .band, f0: 4000, f1: 800, duration: 0.5, volume: 0.5, q: 0.7), scale: k)
+            start(Shot(wave: .noise, mode: .low, f0: 600, f1: 80, duration: 1.2, volume: 0.6, delay: 0.18), scale: k)
         }
     }
 }

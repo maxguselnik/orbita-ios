@@ -43,6 +43,10 @@ final class FlightHUDModel {
     /// РДТТ горит — тяга не регулируется.
     private(set) var solidLocked: Bool
     private(set) var toast: HUDToast?
+    /// Панель итогов полёта: авария или посадка.
+    private(set) var result: FlightResult?
+    /// Подсказка первого полёта (показывает вьюха, если подсказки включены).
+    private(set) var hint: HUDHint?
     /// Тяга 0…1 — положение ползунка, сохраняется между кадрами.
     var throttle: Double = 0
     var isPaused = false
@@ -70,6 +74,7 @@ final class FlightHUDModel {
     @ObservationIgnored private var sim: any FlightSimulation
     private let makeSimulation: () -> any FlightSimulation
     @ObservationIgnored private var lastTick: TimeInterval?
+    @ObservationIgnored private var advisor = FlightAdvisor()
     @ObservationIgnored private var toastExpiry: TimeInterval = 0
     @ObservationIgnored private var toastCounter = 0
     /// Жесты камеры, накопленные с прошлого кадра.
@@ -110,6 +115,7 @@ final class FlightHUDModel {
         let events = sim.advance(realDelta: delta)
         publish(sim.snapshot)
         feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
+        advise(events: events, now: now)
         if let message = events.compactMap(Self.message(for:)).last {
             show(message, now: now)
         }
@@ -147,9 +153,35 @@ final class FlightHUDModel {
         rollRightPressed = false
         toast = nil
         isPanelOpen = false
+        advisor = FlightAdvisor()
+        result = nil
+        hint = nil
+        feedback?.renderer?.reset()
         feedback?.recalibrate()
         pendingCamera = CameraInput(reset: true)
         resume()
+    }
+
+    /// «Продолжить» на панели результата: скрыть до следующей посадки.
+    func dismissResult() {
+        advisor.dismissResult()
+        result = nil
+    }
+
+    /// Крестик на плашке: подсказки скрыты до конца полёта.
+    func dismissHints() {
+        advisor.dismissHints()
+        hint = nil
+    }
+
+    private func advise(events: [SimEvent], now: TimeInterval) {
+        let wasSafe = advisor.landedSafely
+        advisor.update(telemetry, throttle: throttle, events: events, now: now)
+        if result != advisor.result { result = advisor.result }
+        if hint != advisor.hint { hint = advisor.hint }
+        if advisor.landedSafely, !wasSafe {
+            UserDefaults.standard.set(true, forKey: HUDHint.doneKey)
+        }
     }
 
     /// Сообщение-заглушка для ещё не готовых функций.
