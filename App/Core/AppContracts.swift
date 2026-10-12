@@ -1,3 +1,4 @@
+import CoreGraphics
 import OrbitPhysics
 
 // Контракты между потоками B (рендер), C (UI), D (звук/вибрация). Описание — docs/CONTRACTS.md.
@@ -27,6 +28,44 @@ protocol FlightRenderer: AnyObject {
     func update(snapshot: WorldSnapshot, events: [SimEvent], frameDelta: Double)
     /// Новый полёт (старт из ангара, перезапуск): убрать корабли, обломки и эффекты прошлого полёта, сбросить камеру.
     func reset()
+
+    // MARK: Карта (этап 5)
+
+    /// Карта вместо полёта: тела в масштабе, орбиты, отметки. Жесты камеры (`apply`) крутят камеру карты.
+    var isMapMode: Bool { get set }
+    /// Вокруг чего вращается камера карты.
+    var mapFocus: MapFocus { get set }
+    /// Последние данные карты; рендер хранит их до следующего вызова.
+    func updateMap(_ map: MapSnapshot)
+    /// Размер 3D-вьюхи в точках (для проекции), выставляет UI.
+    var viewSize: CGSize { get set }
+    /// Точка `position` (инерциальная система тела `body`, м, на время последнего снимка) → точки экрана
+    /// в текущем кадре карты; nil — за камерой или карта выключена.
+    func project(_ position: Vec3, body: BodyID) -> CGPoint?
+    /// Тап по орбите: время ближайшей точки текущей траектории (до манёвра) не дальше `maxDistance` pt; nil — мимо.
+    func orbitPick(at point: CGPoint, maxDistance: CGFloat) -> Double?
+}
+
+/// Фокус камеры карты.
+enum MapFocus: String, CaseIterable, Sendable {
+    case vessel, terra, luna
+}
+
+/// Данные карты: прогноз траектории, орбита после узла, отметки. Считает `MapModel` (ведущий).
+struct MapSnapshot: Sendable {
+    /// Время симуляции, на которое сделан прогноз.
+    var time: Double = 0
+    /// Текущая орбита (участки патченных коник).
+    var trajectory: Trajectory?
+    /// Узел и орбита после него.
+    var maneuver: ManeuverPrediction?
+    /// Ап/Пе, AN/DN, входы/выходы SOI, падение, узел — для текущей орбиты и орбиты после узла.
+    var markers: [MapMarker] = []
+    /// Фаза Луны относительно корабля на орбите Терры, рад (nil — не на орбите Терры), и гомановская фаза.
+    var lunaPhase: Double?
+    var hohmannPhase: Double?
+
+    static let empty = MapSnapshot()
 }
 
 /// Поток D: звук.

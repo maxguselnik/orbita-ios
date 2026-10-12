@@ -150,6 +150,14 @@ final class ScenarioFlight: FlightSimulation {
         sim.send(command)
     }
 
+    func predictTrajectory(maxPatches: Int) -> Trajectory {
+        sim.predictTrajectory(maxPatches: maxPatches)
+    }
+
+    func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction? {
+        sim.predictManeuver(node, maxPatches: maxPatches)
+    }
+
     func advance(realDelta: Double) -> [SimEvent] {
         guard let ap = autopilot, !ap.isFinished else { return sim.advance(realDelta: realDelta) }
         pending += realDelta
