@@ -52,6 +52,31 @@ for scene in "${SCENES[@]}"; do
   if ! xcrun simctl spawn "$UDID" launchctl list | awk '$3 ~ /com\.maxguselnik\.orbita/ && $1 != "-" { found = 1 } END { exit !found }'; then
     echo "::error::Сцена $scene: приложение упало"
     CRASHED="$CRASHED $scene"
+    # Отчёт о падении (симулятор пишет его на хост): причина и стек упавшего потока.
+    REPORT=$(ls -t ~/Library/Logs/DiagnosticReports/Orbita* 2>/dev/null | head -1 || true)
+    if [ -n "$REPORT" ]; then
+      echo "::group::Отчёт о падении: $REPORT"
+      python3 - "$REPORT" <<'PY' || head -c 6000 "$REPORT"
+import json, sys
+text = open(sys.argv[1]).read()
+head, _, body = text.partition("\n")
+try:
+    r = json.loads(body)
+except Exception:
+    print(text[:6000]); sys.exit()
+print(r.get("exception"), r.get("termination", {}).get("indicator"))
+for line in r.get("asi", {}).values():
+    print(line)
+images = r.get("usedImages", [])
+for th in r.get("threads", []):
+    if th.get("triggered"):
+        for f in th.get("frames", [])[:40]:
+            img = images[f["imageIndex"]].get("name", "?") if f.get("imageIndex") is not None and f["imageIndex"] < len(images) else "?"
+            print(img, f.get("symbol", hex(f.get("imageOffset", 0))), f.get("sourceFile", ""), f.get("sourceLine", ""))
+PY
+      echo "::endgroup::"
+      cp "$REPORT" "$OUT/$scene-crash.ips" || true
+    fi
   fi
   # Приложение только landscape, а симулятор в портрете: поворачиваем снимок.
   sips -r 270 "$OUT/$scene.png" >/dev/null
