@@ -42,18 +42,27 @@ if [ ! -d "$APP" ]; then
     -derivedDataPath build -configuration Debug build CODE_SIGNING_ALLOWED=NO -quiet
 fi
 
+# Метка времени перед каждой командой симулятора: видно, что тормозит.
+t() { echo "[$(date +%T)] $*"; }
+t "старт, симулятор $UDID"
 if ! xcrun simctl list devices | grep "$UDID" | grep -q Booted; then
   xcrun simctl boot "$UDID" || true
 fi
+t "bootstatus"
 xcrun simctl bootstatus "$UDID" -b
 xcrun simctl ui "$UDID" appearance dark || true
+t "install"
 xcrun simctl install "$UDID" "$APP"
 
 for scene in "${SCENES[@]}"; do
+  t "$scene: terminate"
   xcrun simctl terminate "$UDID" com.maxguselnik.orbita 2>/dev/null || true
+  t "$scene: launch"
   xcrun simctl launch "$UDID" com.maxguselnik.orbita -screen "$scene"
   sleep 6
+  t "$scene: screenshot"
   xcrun simctl io "$UDID" screenshot "$OUT/$scene.png"
+  t "$scene: проверка падения"
   # Приложение должно быть живо после 6 с сцены, иначе — падение рендера или физики.
   if ! xcrun simctl spawn "$UDID" launchctl list | awk '$3 ~ /com\.maxguselnik\.orbita/ && $1 != "-" { found = 1 } END { exit !found }'; then
     echo "::error::Сцена $scene: приложение упало"

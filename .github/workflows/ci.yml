@@ -54,6 +54,7 @@ jobs:
         # «[screens: none]» — без снимков; «[screens: all]» — полный список (screens-all.txt);
         # без метки — набор по умолчанию из screens.txt. Берёт готовую сборку и загруженный симулятор.
         if: github.event_name == 'push'
+        timeout-minutes: 15
         env:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
