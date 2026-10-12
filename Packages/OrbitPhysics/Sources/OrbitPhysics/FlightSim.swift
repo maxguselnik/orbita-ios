@@ -74,6 +74,8 @@ public final class FlightSim: FlightSimulation {
     /// Системы Терры и Луны параллельны (сдвиг без поворота), поэтому при смене SOI вектор не меняется.
     private(set) var maneuverDeltaV: Vec3 = .zero
     private(set) var maneuverRemaining: Vec3 = .zero
+    /// Сожжённый вектор (инерциальный): сумма ускорения тяги × h с момента первой установки узла.
+    private(set) var maneuverBurned: Vec3 = .zero
     /// `warpToManeuver` активен: рельсы остановятся за `ManeuverStatus.warpLead` с до начала прожига.
     private(set) var warpToManeuverActive = false
 
@@ -484,7 +486,10 @@ public final class FlightSim: FlightSimulation {
         }
 
         // Оставшийся импульс узла уменьшается только тягой двигателей.
-        if maneuverNode != nil { maneuverRemaining -= thrustAcc * h }
+        if maneuverNode != nil {
+            maneuverRemaining -= thrustAcc * h
+            maneuverBurned += thrustAcc * h
+        }
 
         let proper = thrustAcc + dragAcc
         lastProperAccel = proper.length
@@ -1055,23 +1060,28 @@ public final class FlightSim: FlightSimulation {
         guard let node else {
             maneuverDeltaV = .zero
             maneuverRemaining = .zero
+            maneuverBurned = .zero
             warpToManeuverActive = false
             return
         }
         // Состояние в момент узла: по прогнозу патченными кониками (узел в прошлом — текущее).
         var sv = activeStateVector
         if node.time > time {
-            let pre = TrajectoryPredictor.predict(body: active.body, state: sv, time: time)
+            let pre = TrajectoryPredictor.predict(body: active.body, state: sv, time: time,
+                                                maxPatches: TrajectoryPredictor.defaultMapPatches)
             if let s = pre.state(at: node.time) { sv = s.state }
         }
         let dv = TrajectoryPredictor.deltaVVector(node: node, position: sv.position, velocity: sv.velocity)
         maneuverDeltaV = dv.x.isFinite && dv.y.isFinite && dv.z.isFinite ? dv : .zero
-        maneuverRemaining = maneuverDeltaV
+        // Сожжённое сохраняется: правка узла посреди прожига не вызывает пережог.
+        maneuverRemaining = maneuverDeltaV - maneuverBurned
     }
 
-    /// Прожиг выполнен: остаток < 1 м/с или пошёл против исходного направления.
+    /// Прожиг выполнен: полный импульс ≥ 1 м/с и (остаток < 1 м/с или пошёл против исходного направления).
+    /// Узел с нулевым импульсом не выполнен.
     var maneuverDone: Bool {
-        maneuverRemaining.length < 1 || maneuverRemaining.dot(maneuverDeltaV) < 0
+        guard maneuverDeltaV.length >= 1 else { return false }
+        return maneuverRemaining.length < 1 || maneuverRemaining.dot(maneuverDeltaV) < 0
     }
 
     /// Время прожига оставшегося импульса на полной тяге текущей ступени при давлении `p`, с.
@@ -1108,9 +1118,15 @@ public final class FlightSim: FlightSimulation {
 
     /// Прогноз орбиты после узла манёвра и время прожига по текущей тяге и массе.
     public func predictManeuver(_ node: ManeuverNode, maxPatches: Int = 3) -> ManeuverPrediction? {
+        predictManeuver(node, using: nil, maxPatches: maxPatches)
+    }
+
+    /// То же, но с уже посчитанной траекторией до узла (`predictTrajectory`), без повторного прогноза.
+    public func predictManeuver(_ node: ManeuverNode, using trajectory: Trajectory?,
+                                maxPatches: Int = TrajectoryPredictor.defaultMapPatches) -> ManeuverPrediction? {
         let perf = active.ship.currentStagePerformance(pressure: 0)
         return TrajectoryPredictor.predict(node: node, body: active.body, state: activeStateVector, time: time,
                                            mass: active.ship.mass, thrust: perf.thrust, isp: perf.isp,
-                                           maxPatches: maxPatches)
+                                           maxPatches: maxPatches, preTrajectory: trajectory)
     }
 }
