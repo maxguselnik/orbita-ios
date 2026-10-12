@@ -120,7 +120,8 @@ enum PatchBuilder {
                 }
                 let uv = Palette.terrainUV(body: body, direction: d, height: h,
                                            noise: hashNoise(d, scale: noiseScale), cell: cellSize,
-                                           slope: 1 - simd_dot(normal, d))
+                                           slope: 1 - simd_dot(normal, d),
+                                           craterShade: body == .luna ? Terrain.craterShade(body: body, direction: vec3(d)) : 0)
                 mesh.vertex(f3(pts[k] - center), f3(normal), uv)
             }
         }

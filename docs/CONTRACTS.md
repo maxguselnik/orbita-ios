@@ -32,6 +32,8 @@ UI (C) ── CameraInput ──┘
 - Узел манёвра (этап 5): `FlightCommand.setManeuver(ManeuverNode?)` — поставить/изменить/удалить узел активного корабля (один узел); `warpToManeuver` — рельсы до узла, сброс до ×1 за `ManeuverStatus.warpLead` с до начала прожига (`WarpResetReason.maneuver`). `SASMode.maneuver` — держать нос по оставшемуся импульсу. `FlightTelemetry.maneuver: ManeuverStatus?` — время до узла, Δv полный и оставшийся (уменьшается тягой), время прожига, начало прожига, `isDone` (только при импульсе узла ≥ 1 м/с); `navball.maneuver` — направление оставшегося импульса. Остаток = Δv узла − сожжённое тягой с момента постановки узла (правка узла посреди прожига сожжённое не теряет; удаление узла его обнуляет). Без тяги (`burnTime` = ∞) `timeToBurn` = `timeToNode`.
 - `FlightSimulation.predictTrajectory(maxPatches:)`, `predictManeuver(_:maxPatches:)` — прогноз патченными кониками для карты. `MapMarkers.compute(_:afterManeuver:)` — Ап/Пе, AN/DN, SOI, падение по участкам (`MapMarker`, координаты в инерциальной системе тела участка; `soiExit(b)` — тело, из SOI которого выходим). Число участков прогноза — `TrajectoryPredictor.defaultMapPatches` (4).
 
+- `Terrain.craterShade(body:direction:)` — оттенок малых кратеров Луны −1 (дно) … +1 (вал), 0 вне кратеров и на Терре; малые кратеры (25 м–2.5 км) входят в `Terrain.height`, биом не меняют.
+
 - `VesselState.parts` (сверху вниз), `firingEngines` (индексы деталей с факелом), `chute`, `chuteDeploy` 0…1 — для рендера корабля и отделённых ступеней.
 - Оси корабля: нос +Y, спина +Z, правый борт +X; pitch>0 — нос к +Z, yaw>0 — к +X, roll>0 — правый борт вниз. На площадке +X — восток, +Z — юг. `position` — нижняя точка стека; `angularVelocity` — инерциальная.
 
