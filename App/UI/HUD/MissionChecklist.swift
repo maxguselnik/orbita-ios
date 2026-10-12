@@ -70,8 +70,9 @@ struct MissionCard: View {
     let model: FlightHUDModel
     /// Подсказки включены в настройках.
     var enabled = true
-    /// Стопка ступеней длинная: карточка всегда в одну строку (не упирается в блок кнопок ориентации).
-    var forceCollapsed = false
+    /// Развёрнутая карточка помещается над крестовиной: на площадке она развёрнута по умолчанию. Иначе по умолчанию
+    /// свёрнута, но тап разворачивает её поверх крестовины (карточка выше в ZStack и перехватывает касания).
+    var autoExpand = true
 
     @State private var override: Bool?
 
@@ -85,7 +86,7 @@ struct MissionCard: View {
 
     var body: some View {
         if enabled, model.missionActive {
-            let expanded = !forceCollapsed && (override ?? model.onPad)
+            let expanded = override ?? (model.onPad && autoExpand)
             let done = model.missionProgress
             let complete = done >= MissionChecklist.titles.count
             Button {

@@ -270,6 +270,27 @@ struct RenderAndHUDTests {
         #expect(model.attitudeAxes(now: 20) == (0, 0, 0))
     }
 
+    @Test func dpadSectorsDeadZoneAndDiagonal() {
+        typealias S = DPadSector
+        let r: CGFloat = 75
+        #expect(S.sector(for: CGPoint(x: 0, y: -50), radius: r) == .up)
+        #expect(S.sector(for: CGPoint(x: 0, y: 50), radius: r) == .down)
+        #expect(S.sector(for: CGPoint(x: -50, y: 0), radius: r) == .left)
+        #expect(S.sector(for: CGPoint(x: 50, y: 0), radius: r) == .right)
+        // Мёртвая зона 18 % радиуса (13.5 pt).
+        #expect(S.sector(for: .zero, radius: r) == nil)
+        #expect(S.sector(for: CGPoint(x: 9, y: 9), radius: r) == nil)
+        #expect(S.sector(for: CGPoint(x: 0, y: -14), radius: r) == .up)
+        // Диагональ: побеждает вертикаль; чуть в сторону от диагонали — горизонталь.
+        #expect(S.sector(for: CGPoint(x: 30, y: -30), radius: r) == .up)
+        #expect(S.sector(for: CGPoint(x: -30, y: 30), radius: r) == .down)
+        #expect(S.sector(for: CGPoint(x: 31, y: -30), radius: r) == .right)
+        #expect(S.sector(for: CGPoint(x: -31, y: -30), radius: r) == .left)
+        // За краем круга сектор сохраняется.
+        #expect(S.sector(for: CGPoint(x: 200, y: 10), radius: r) == .right)
+        #expect(Set(S.allCases.map(\.button)).count == 4)
+    }
+
     @Test func compactLayoutFitsScreenWithoutOverlaps() {
         let model = FlightHUDModel()
         func fitted<V: View>(_ view: V) -> CGSize {
@@ -283,16 +304,21 @@ struct RenderAndHUDTests {
         let mm = fitted(ControlsCluster(model: model, guide: nil))
         let rcs = fitted(RCSControls(model: model))
         let block = fitted(AttitudeControls(model: model))
-        let fine = fitted(FineControlToggle(model: model))
         let stack = fitted(StageStackView(model: model))
-        #expect(block == CGSize(width: AttitudeControls.side, height: AttitudeControls.side))
-        #expect(fine.width >= HUDStyle.minTouch && fine.height >= HUDStyle.minTouch)
+        #expect(block == AttitudeControls.frameSize)
         #expect(stack.height <= CGFloat(StageStackView.maxRows) * 22 + 9)
 
-        // Кадр 852×393, боковые безопасные зоны ≈ 59 pt, нижняя игнорируется. Прямоугольники (x, y, ширина, высота).
+        // Кадр 852×393, боковые безопасные зоны ≈ 59 pt, нижняя игнорируется. Прямоугольники в координатах экрана.
         let safe: CGFloat = 59
         let screen = CGRect(x: 0, y: 0, width: 852, height: 393)
-        let blockRect = CGRect(x: safe + 16, y: 393 - FlightLayer.attitudeBottom - block.height, width: block.width, height: block.height)
+        let origin = CGPoint(
+            x: safe + AttitudeControls.circleLeading - (AttitudeControls.circleCenter.x - AttitudeControls.radius),
+            y: 393 - AttitudeControls.bottomInset - block.height)
+        func onScreen(_ r: CGRect) -> CGRect { r.offsetBy(dx: origin.x, dy: origin.y) }
+        let circle = onScreen(AttitudeControls.circleRect)
+        let rollL = onScreen(AttitudeControls.rollLeftRect)
+        let rollR = onScreen(AttitudeControls.rollRightRect)
+        let pill = onScreen(AttitudeControls.pillRect)
         let ringRect = CGRect(x: (852 - ring.width) / 2, y: 393 - (ring.height - NavballCluster.overhang),
                               width: ring.width, height: ring.height - NavballCluster.overhang)
         let stageRect = CGRect(x: 852 - safe - 6 - stage.width, y: 393 - 24 - stage.height,
@@ -300,35 +326,45 @@ struct RenderAndHUDTests {
         let mmRect = CGRect(x: stageRect.minX - 6 - mm.width, y: 393 - 24 - mm.height, width: mm.width, height: mm.height)
         let rcsRect = CGRect(x: 852 - safe - 6 - rcs.width, y: stageRect.minY - mm.height - 6 - rcs.height - 4,
                              width: rcs.width, height: rcs.height)
-        let allRight = [stageRect, mmRect, rcsRect]
-        for r in [blockRect, ringRect] + allRight { #expect(screen.contains(r)) }
-        #expect(!blockRect.intersects(ringRect) && ringRect.maxX < mmRect.minX)
-        #expect(!mmRect.intersects(stageRect) && !rcsRect.intersects(mmRect) && !rcsRect.intersects(stageRect))
-        #expect(!rcsRect.intersects(ringRect) && !rcsRect.intersects(blockRect))
-        // Крест: ▲ выше ◀ ▶, ▼ ниже них, ◀ левее ▶; нижний край блока ≥ 40 pt от низа, центр креста ≈ 140 pt.
-        let c = AttitudeControls.cell, g = AttitudeControls.gap
-        func cell(_ col: Int, _ row: Int) -> CGRect {
-            CGRect(x: blockRect.minX + CGFloat(col) * (c + g), y: blockRect.minY + CGFloat(row) * (c + g), width: c, height: c)
+        let left = [circle, rollL, rollR, pill]
+        let right = [stageRect, mmRect, rcsRect]
+        for r in left + right + [ringRect] { #expect(screen.contains(r)) }
+        // Левая группа: попарно без пересечений, и без пересечений с навболом и правой группой.
+        // Кнопки крена намеренно заходят на дугу круга (их центры вне круга), «ТОЧНО» круг не задевает.
+        func gap(_ r: CGRect, toCenterOf c: CGRect) -> CGFloat {
+            let dx = max(r.minX - c.midX, 0, c.midX - r.maxX), dy = max(r.minY - c.midY, 0, c.midY - r.maxY)
+            return (dx * dx + dy * dy).squareRoot()
         }
-        let up = cell(1, 0), left = cell(0, 1), right = cell(2, 1), down = cell(1, 2)
-        #expect(up.maxY < left.minY && up.maxY < right.minY && down.minY > left.maxY && down.minY > right.maxY)
-        #expect(left.maxX < right.minX)
-        #expect(393 - blockRect.maxY >= 40)
-        #expect(abs((393 - cell(1, 1).midY) - 140) <= 4)
-        #expect(c >= HUDStyle.minTouch && g >= 6)
+        #expect(!rollL.intersects(rollR) && !rollL.intersects(pill) && !rollR.intersects(pill))
+        #expect(gap(pill, toCenterOf: circle) >= AttitudeControls.radius)
+        for c in [rollL, rollR] { #expect(gap(CGRect(origin: CGPoint(x: c.midX, y: c.midY), size: .zero), toCenterOf: circle) > AttitudeControls.radius) }
+        for a in left { for b in right + [ringRect] { #expect(!a.intersects(b)) } }
+        #expect(!mmRect.intersects(stageRect) && !rcsRect.intersects(mmRect) && !rcsRect.intersects(stageRect))
+        #expect(!rcsRect.intersects(ringRect) && ringRect.maxX < mmRect.minX)
+        // Размеры и положение: круг ≥ 40 pt от низа, центр ≈ 140 pt, слева safe + 20, зоны касания ≥ 44 pt.
+        #expect(circle.width == 150 && 393 - circle.maxY >= 40)
+        #expect(abs((393 - circle.midY) - 140) <= 4)
+        #expect(abs(circle.minX - (safe + 20)) < 0.5)
+        for r in [rollL, rollR, pill] { #expect(r.width >= HUDStyle.minTouch && r.height >= HUDStyle.minTouch) }
+        #expect(rollL.maxY < circle.midY && rollL.midX < circle.midX && rollR.midX > circle.midX)
+        #expect(pill.minX > circle.midX && pill.midY > circle.midY)
         #expect(393 - stageRect.maxY >= 24)
-        // Левая колонка: стопка и карточка выше блока; если развёрнутая не помещается — карточка свёрнута.
-        let expandedCard = fitted(MissionCard(model: model, forceCollapsed: false))
+        // Левая колонка: стопка и карточка; если развёрнутая не помещается над крестовиной — по умолчанию свёрнута.
+        let expandedCard = fitted(MissionCard(model: model, autoExpand: true))
         #expect(expandedCard.height <= MissionCard.expandedHeight)
+        let leftBlockTop = rollL.minY
         for rows in [3, 5] {
             let shown = min(rows, StageStackView.maxRows)
             let stackH = CGFloat(shown) * 22 + CGFloat(shown - 1) * 3
-            let fits = MissionCard.fitsExpanded(stackHeight: stackH, blockTop: blockRect.minY)
-            let card = fitted(MissionCard(model: model, forceCollapsed: !fits))
+            let fits = MissionCard.fitsExpanded(stackHeight: stackH, blockTop: leftBlockTop)
+            let card = fitted(MissionCard(model: model, autoExpand: fits))
             #expect(card.width <= MissionCard.width)
             let cardRect = CGRect(x: safe + 6, y: 36 + stackH + 6, width: card.width, height: card.height)
-            #expect(cardRect.maxY < blockRect.minY || cardRect.maxX < blockRect.minX)
-            if !fits { #expect(card.height < 40) }
+            // По умолчанию карточка не заходит на крестовину и крен; развёрнутая (по тапу) перекрывает их сверху.
+            if !fits {
+                #expect(card.height < 40)
+                #expect(cardRect.maxY <= leftBlockTop)
+            }
         }
     }
 }

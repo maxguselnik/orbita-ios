@@ -142,8 +142,8 @@ struct FlightLayer: View {
             topLeft
             topCenter
             topRight
-            leftColumn
             bottomLeft
+            leftColumn
             bottomCenter
             bottomRight
         }
@@ -181,20 +181,17 @@ struct FlightLayer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
-    /// Отступ нижнего ряда блока ориентации от нижнего края, pt (центр креста ≈ 140 pt над краем).
-    static let attitudeBottom: CGFloat = 56
-
-    /// Стопка ступеней под строкой времени и карточка миссии; если развёрнутая карточка упирается в блок кнопок
-    /// ориентации, она сворачивается в одну строку.
+    /// Стопка ступеней под строкой времени и карточка миссии. Карточка стоит в ZStack выше крестовины: развёрнутая
+    /// (по тапу) перекрывает её и перехватывает касания. По умолчанию развёрнута, только если помещается над крестовиной.
     private var leftColumn: some View {
         GeometryReader { geo in
-            let blockTop = geo.size.height - Self.attitudeBottom - AttitudeControls.side
+            let blockTop = geo.size.height - AttitudeControls.bottomInset - AttitudeControls.frameSize.height
             let rows = CGFloat(StageStackView.rowCount(model: model))
             let stackHeight = rows > 0 ? rows * StageGroupRow.height + (rows - 1) * 3 : 0
             let fits = MissionCard.fitsExpanded(stackHeight: stackHeight, blockTop: blockTop)
             VStack(alignment: .leading, spacing: 6) {
                 StageStackView(model: model)
-                MissionCard(model: model, enabled: hintsEnabled, forceCollapsed: !fits)
+                MissionCard(model: model, enabled: hintsEnabled, autoExpand: fits)
             }
             .padding(.top, 36)
             .padding(.leading, 6)
@@ -202,12 +199,11 @@ struct FlightLayer: View {
         }
     }
 
-    /// Блок кнопок ориентации в левом нижнем углу, поднят над краем (боковую безопасную зону даёт родитель).
+    /// Круглая крестовина ориентации в левом нижнем углу (боковую безопасную зону даёт родитель); на площадке не приглушена.
     private var bottomLeft: some View {
         AttitudeControls(model: model)
-            .opacity(model.onPad ? 0.5 : 1)
-            .padding(.leading, 16)
-            .padding(.bottom, Self.attitudeBottom)
+            .padding(.leading, AttitudeControls.circleLeading - (AttitudeControls.circleCenter.x - AttitudeControls.radius))
+            .padding(.bottom, AttitudeControls.bottomInset)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
     }
 
