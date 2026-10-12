@@ -19,6 +19,8 @@ jobs:
       - name: Тесты
         run: swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors
 
+  # Одно задание на macOS: сборка один раз (build-for-testing), тесты приложения и снимки на том же симуляторе.
+  # Тесты OrbitPhysics здесь не гоняются — их покрывает physics-linux.
   ios:
     name: iOS (macOS)
     runs-on: macos-15
@@ -26,61 +28,42 @@ jobs:
       - uses: actions/checkout@v4
       - name: Версии
         run: xcodebuild -version && swift --version
-      - name: Тесты OrbitPhysics
-        run: swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors
       - name: XcodeGen
         run: brew install xcodegen && xcodegen generate
-      - name: Сборка под симулятор
+      - name: Выбор симулятора
+        # Один раз: UDID уходит в $GITHUB_ENV и используется сборкой, тестами и снимками.
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; phones=[x for rt,r in d.items() if 'iOS' in rt for x in r if x['name'].startswith('iPhone')]; exact=[x for x in phones if x['name']=='iPhone 16 Pro']; print((exact or phones)[-1]['udid'])")
+          echo "Симулятор: $UDID"
+          echo "SCREENS_UDID=$UDID" >> "$GITHUB_ENV"
+      - name: Сборка (под симулятор, с тестами)
         run: |
           set -o pipefail
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
-            -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build -configuration Debug build \
+            -destination "platform=iOS Simulator,id=$SCREENS_UDID" \
+            -derivedDataPath build -configuration Debug build-for-testing \
             CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
-
       - name: Регрессии рендера и HUD
         run: |
           set -o pipefail
-          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; phones=[x for rt,r in d.items() if 'iOS' in rt for x in r if x['name'].startswith('iPhone')]; exact=[x for x in phones if x['name']=='iPhone 16 Pro']; print((exact or phones)[-1]['udid'])")
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
-            -destination "platform=iOS Simulator,id=$UDID" \
-            -derivedDataPath build -configuration Debug test CODE_SIGNING_ALLOWED=NO \
-            SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
-
-  screens:
-    name: Скриншоты (симулятор)
-    needs: ios
-    runs-on: macos-15
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-      - name: XcodeGen
-        run: brew install xcodegen && xcodegen generate
+            -destination "platform=iOS Simulator,id=$SCREENS_UDID" \
+            -derivedDataPath build -configuration Debug test-without-building CODE_SIGNING_ALLOWED=NO
       - name: Снимки
-        # Только сцены, затронутые изменением: в сообщении коммита «[screens: ascent orbit]»;
-        # «[screens: none]» — без снимков; без метки — все из screens.txt.
+        # Только на push. В сообщении коммита «[screens: ascent orbit]» — только эти сцены;
+        # «[screens: none]» — без снимков; «[screens: all]» — полный список (screens-all.txt);
+        # без метки — набор по умолчанию из screens.txt. Берёт готовую сборку и загруженный симулятор.
+        if: github.event_name == 'push'
         env:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           PICK=$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[screens: *\([^]]*\)\].*/\1/p' | head -1)
           if [ "$PICK" = "none" ]; then echo "Снимки пропущены ([screens: none])"; mkdir -p screens; exit 0; fi
+          if [ "$PICK" = "all" ]; then PICK=$(cat screens-all.txt); fi
           scripts/ci-screens.sh ${PICK:-$(cat screens.txt 2>/dev/null || echo flight)}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: screens-${{ github.sha }}
           path: screens/
-      - name: Публикация в ветку ci-screens
-        if: github.event_name == 'push'
-        # Ветка большая (старые видео), push иногда обрывается (HTTP 408) — снимки есть и в артефакте.
-        continue-on-error: true
-        timeout-minutes: 10
-        run: |
-          DEST="${GITHUB_REF_NAME}/${GITHUB_SHA::7}"
-          git config user.name "orbita-ci"
-          git config user.email "orbita-ci@users.noreply.github.com"
-          git fetch --depth 1 origin ci-screens && git worktree add -B ci-screens ../pub origin/ci-screens \
-            || { git worktree add --orphan -b ci-screens ../pub; }
-          mkdir -p "../pub/$DEST" && cp screens/* "../pub/$DEST/"
-          cd ../pub && git add -A && git commit -qm "Снимки $DEST" && git push origin ci-screens
+          if-no-files-found: ignore

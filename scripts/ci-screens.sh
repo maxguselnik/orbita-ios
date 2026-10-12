@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# CI (macOS): собирает приложение под симулятор, снимает скриншоты в landscape и проверяет, что сцены не падают.
+# CI (macOS): снимает скриншоты в landscape и проверяет, что сцены не падают.
+# Берёт готовую сборку build/Build/Products/Debug-iphonesimulator/Orbita.app (собирает, только если её нет)
+# и симулятор из SCREENS_UDID (если не задан — подбирает сам; уже загруженный не загружается заново).
 # Результат — в каталоге screens/. Использование: scripts/ci-screens.sh [сцена ...]
 # Сцена передаётся приложению аргументом запуска `-screen <имя>` (по умолчанию — flight).
 set -euo pipefail
@@ -11,8 +13,9 @@ OUT=screens
 CRASHED=""
 mkdir -p "$OUT"
 
+UDID="${SCREENS_UDID:-}"
 # Нужное устройство, а если на раннере его нет — самый новый доступный iPhone.
-UDID=$(xcrun simctl list devices available -j | python3 -c "
+[ -n "$UDID" ] || UDID=$(xcrun simctl list devices available -j | python3 -c "
 import json,sys
 d=json.load(sys.stdin)['devices']
 phones=[(rt,x) for rt,r in d.items() if 'iOS' in rt for x in r if x['name'].startswith('iPhone')]
@@ -32,13 +35,16 @@ print(r[-1]['identifier'] if r else '')")
 fi
 echo "Симулятор: $UDID"
 
-xcodebuild -project Orbita.xcodeproj -scheme Orbita \
-  -destination "platform=iOS Simulator,id=$UDID" \
-  -derivedDataPath build -configuration Debug build CODE_SIGNING_ALLOWED=NO -quiet
-
 APP=build/Build/Products/Debug-iphonesimulator/Orbita.app
+if [ ! -d "$APP" ]; then
+  xcodebuild -project Orbita.xcodeproj -scheme Orbita \
+    -destination "platform=iOS Simulator,id=$UDID" \
+    -derivedDataPath build -configuration Debug build CODE_SIGNING_ALLOWED=NO -quiet
+fi
 
-xcrun simctl boot "$UDID" || true
+if ! xcrun simctl list devices | grep "$UDID" | grep -q Booted; then
+  xcrun simctl boot "$UDID" || true
+fi
 xcrun simctl bootstatus "$UDID" -b
 xcrun simctl ui "$UDID" appearance dark || true
 xcrun simctl install "$UDID" "$APP"
@@ -46,9 +52,9 @@ xcrun simctl install "$UDID" "$APP"
 for scene in "${SCENES[@]}"; do
   xcrun simctl terminate "$UDID" com.maxguselnik.orbita 2>/dev/null || true
   xcrun simctl launch "$UDID" com.maxguselnik.orbita -screen "$scene"
-  sleep 8
+  sleep 6
   xcrun simctl io "$UDID" screenshot "$OUT/$scene.png"
-  # Приложение должно быть живо после 8 с сцены, иначе — падение рендера или физики.
+  # Приложение должно быть живо после 6 с сцены, иначе — падение рендера или физики.
   if ! xcrun simctl spawn "$UDID" launchctl list | awk '$3 ~ /com\.maxguselnik\.orbita/ && $1 != "-" { found = 1 } END { exit !found }'; then
     echo "::error::Сцена $scene: приложение упало"
     CRASHED="$CRASHED $scene"
