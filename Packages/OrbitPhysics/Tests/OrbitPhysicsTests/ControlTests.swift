@@ -104,3 +104,22 @@ struct ControlTests {
         #expect(abs(burned - pred.burnTime) < 0.1)
     }
 }
+
+@Suite("Контрольная точка")
+struct CheckpointTests {
+    @Test func restoreReplaysIdentically() {
+        let sim = FlightSim(design: .orbit)
+        sim.setInput(ControlInput(throttle: 1))
+        sim.send(.stage)
+        for _ in 0..<300 { _ = sim.advance(realDelta: 0.02) }
+        let cp = sim.checkpoint()
+        for _ in 0..<300 { _ = sim.advance(realDelta: 0.02) }
+        let first = sim.snapshot.vessels[0].position
+        let alt = sim.snapshot.telemetry.altitude
+        sim.restore(cp)
+        #expect(sim.snapshot.telemetry.altitude < alt)
+        for _ in 0..<300 { _ = sim.advance(realDelta: 0.02) }
+        let second = sim.snapshot.vessels[0].position
+        #expect((first - second).length < 1e-6)
+    }
+}

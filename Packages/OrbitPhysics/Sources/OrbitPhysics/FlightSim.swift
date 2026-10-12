@@ -113,6 +113,49 @@ public final class FlightSim: FlightSimulation {
     /// Вызовы Кеплера для активного корабля в последнем кадре «на рельсах» (для тестов и замеров).
     private(set) var lastRailsKeplerCalls = 0
 
+    // MARK: Контрольная точка
+
+    /// Полное состояние мира для отката (обучение: «Повторить шаг»).
+    public func checkpoint() -> SimCheckpoint {
+        SimCheckpoint(time: time, warpIndex: warpIndex, sas: sas, rcsEnabled: rcsEnabled,
+                      autopilotDirection: autopilotDirection, maneuverNode: maneuverNode,
+                      maneuverDeltaV: maneuverDeltaV, maneuverRemaining: maneuverRemaining,
+                      maneuverBurned: maneuverBurned, warpToManeuverActive: warpToManeuverActive,
+                      vessels: vessels, activeID: activeID, nextID: nextID, input: input, hold: hold,
+                      launchTime: launchTime, lastThrust: lastThrust, lastSolidThrust: lastSolidThrust,
+                      lastProperAccel: lastProperAccel, qPeak: qPeak, qPeakReported: qPeakReported,
+                      mission: mission, railsBacklog: railsBacklog)
+    }
+
+    /// Вернуть мир в контрольную точку; накопленные события сбрасываются, снимок пересчитывается.
+    public func restore(_ c: SimCheckpoint) {
+        time = c.time
+        warpIndex = c.warpIndex
+        sas = c.sas
+        rcsEnabled = c.rcsEnabled
+        autopilotDirection = c.autopilotDirection
+        maneuverNode = c.maneuverNode
+        maneuverDeltaV = c.maneuverDeltaV
+        maneuverRemaining = c.maneuverRemaining
+        maneuverBurned = c.maneuverBurned
+        warpToManeuverActive = c.warpToManeuverActive
+        vessels = c.vessels
+        activeID = c.activeID
+        nextID = c.nextID
+        input = c.input
+        hold = c.hold
+        launchTime = c.launchTime
+        lastThrust = c.lastThrust
+        lastSolidThrust = c.lastSolidThrust
+        lastProperAccel = c.lastProperAccel
+        qPeak = c.qPeak
+        qPeakReported = c.qPeakReported
+        mission = c.mission
+        railsBacklog = c.railsBacklog
+        events.removeAll()
+        rebuildSnapshot()
+    }
+
     // MARK: Создание
 
     /// Корабль на стартовой площадке Терры.
@@ -1213,4 +1256,31 @@ public final class FlightSim: FlightSimulation {
                                            mass: active.ship.mass, thrust: perf.thrust, isp: perf.isp,
                                            maxPatches: maxPatches, preTrajectory: trajectory)
     }
+}
+
+/// Снимок внутреннего состояния `FlightSim` (см. `FlightSim.checkpoint()`); содержимое закрыто.
+public struct SimCheckpoint: Sendable {
+    let time: Double
+    let warpIndex: Int
+    let sas: SASMode
+    let rcsEnabled: Bool
+    let autopilotDirection: Vec3?
+    let maneuverNode: ManeuverNode?
+    let maneuverDeltaV: Vec3
+    let maneuverRemaining: Vec3
+    let maneuverBurned: Vec3
+    let warpToManeuverActive: Bool
+    let vessels: [Vessel]
+    let activeID: VesselID
+    let nextID: VesselID
+    let input: ControlInput
+    let hold: Quat
+    let launchTime: Double?
+    let lastThrust: Double
+    let lastSolidThrust: Double
+    let lastProperAccel: Double
+    let qPeak: Double
+    let qPeakReported: Bool
+    let mission: MissionRecord
+    let railsBacklog: Double
 }

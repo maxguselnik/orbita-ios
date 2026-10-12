@@ -10,6 +10,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case hangarEmpty
     /// На площадке, «Орбита».
     case flight
+    /// Урок «Первый полёт» на площадке (первый шаг).
+    case tutorial
     /// Подъём на автопилоте, около max Q.
     case ascent
     /// Подъём на автопилоте, около 1 Маха (конденсационный конус, тряска).
@@ -42,6 +44,11 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Карта при входе в сферу влияния Луны, фокус на Луне.
     case mapLuna
 
+    /// Урок обучения, который открывает сцена.
+    var tutorial: TutorialID? {
+        self == .tutorial ? .firstFlight : nil
+    }
+
     /// Сцена открывается на карте.
     var opensMap: Bool {
         switch self {
@@ -65,7 +72,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .hangarEmpty, .flight:
+        case .hangar, .hangarEmpty, .flight, .tutorial:
             return FlightSim(design: .orbit)
         case .ascent:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in sim.time >= 55 }

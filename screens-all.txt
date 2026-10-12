@@ -1,1 +1,1 @@
-hangarEmpty hangar flight ascent transonic staging reentry chute landed crash orbit lunaSurface lunaDescent map mapManeuver mapLuna rcs
+hangarEmpty hangar flight ascent transonic staging reentry chute landed crash orbit lunaSurface lunaDescent tutorial map mapManeuver mapLuna rcs

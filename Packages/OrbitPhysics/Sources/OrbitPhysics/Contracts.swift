@@ -504,3 +504,11 @@ public protocol FlightSimulation: AnyObject {
     /// Прогноз после узла манёвра; nil — узел невозможен (например, корабль на грунте).
     func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction?
 }
+
+/// Контрольная точка для отката (обучение). Симуляции без поддержки возвращают nil.
+public protocol FlightCheckpointing: AnyObject {
+    func checkpoint() -> SimCheckpoint
+    func restore(_ checkpoint: SimCheckpoint)
+}
+
+extension FlightSim: FlightCheckpointing {}
