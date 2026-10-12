@@ -38,3 +38,12 @@ protocol FlightHaptics: AnyObject {
     var isEnabled: Bool { get set }
     func update(snapshot: WorldSnapshot, events: [SimEvent])
 }
+
+/// Поток B: 3D-превью корабля в ангаре. UI (C) показывает его через `HangarSceneView`.
+@MainActor
+protocol HangarPreview: AnyObject {
+    /// Стек деталей сверху вниз; `selected` — индекс подсвеченной детали.
+    func show(parts: [PartID], selected: Int?)
+    /// Вращение и зум камеры вокруг корабля (жесты из UI), `reset` — исходный ракурс.
+    func apply(_ camera: CameraInput)
+}

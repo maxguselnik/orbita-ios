@@ -183,6 +183,42 @@ public enum TimeWarp {
     public static let physicalCount = 4
 }
 
+/// Итоги полёта активного корабля с момента старта (для экрана результата). Только растёт.
+public struct MissionRecord: Sendable, Hashable {
+    /// Корабль покинул площадку или начальную точку.
+    public var launched: Bool
+    /// Максимальная высота над уровнем моря текущего тела, м; максимальная орбитальная скорость, м/с; перегрузка, g.
+    public var maxAltitude: Double
+    public var maxSpeed: Double
+    public var maxGForce: Double
+    /// Выше атмосферы Терры (70 км).
+    public var reachedSpace: Bool
+    /// Перицентр над атмосферой Терры (замкнутая орбита).
+    public var reachedOrbit: Bool
+    public var enteredLunaSOI: Bool
+    /// Замкнутая орбита вокруг Луны с перицентром выше рельефа.
+    public var lunaOrbit: Bool
+    /// Посадка на Луну (landed без аварии).
+    public var landedLuna: Bool
+    /// Посадка или приводнение на Терре после выхода в космос.
+    public var returnedFromSpace: Bool
+
+    public init(launched: Bool = false, maxAltitude: Double = 0, maxSpeed: Double = 0, maxGForce: Double = 0,
+                reachedSpace: Bool = false, reachedOrbit: Bool = false, enteredLunaSOI: Bool = false,
+                lunaOrbit: Bool = false, landedLuna: Bool = false, returnedFromSpace: Bool = false) {
+        self.launched = launched
+        self.maxAltitude = maxAltitude
+        self.maxSpeed = maxSpeed
+        self.maxGForce = maxGForce
+        self.reachedSpace = reachedSpace
+        self.reachedOrbit = reachedOrbit
+        self.enteredLunaSOI = enteredLunaSOI
+        self.lunaOrbit = lunaOrbit
+        self.landedLuna = landedLuna
+        self.returnedFromSpace = returnedFromSpace
+    }
+}
+
 /// Готовые для HUD величины активного корабля.
 public struct FlightTelemetry: Sendable, Hashable {
     public var altitude: Double
@@ -227,6 +263,8 @@ public struct FlightTelemetry: Sendable, Hashable {
     /// Индекс в `TimeWarp.levels` и почему выше нельзя (nil — можно).
     public var warpIndex: Int
     public var warpBlocked: WarpResetReason?
+    /// Итоги полёта (экран результата).
+    public var mission: MissionRecord
 
     public init(altitude: Double = 0, heightAboveTerrain: Double = 0, speed: Double = 0,
                 surfaceSpeed: Double = 0, verticalSpeed: Double = 0, dynamicPressure: Double = 0,
@@ -237,7 +275,7 @@ public struct FlightTelemetry: Sendable, Hashable {
                 gForce: Double = 0, body: BodyID = .terra, situation: VesselSituation = .prelaunch,
                 staticPressure: Double = 0, pitch: Double = 0, heading: Double = 0, roll: Double = 0,
                 navball: NavballVectors = NavballVectors(), chute: ChuteState = .none, chuteSafe: Bool = false,
-                warpIndex: Int = 0, warpBlocked: WarpResetReason? = nil) {
+                warpIndex: Int = 0, warpBlocked: WarpResetReason? = nil, mission: MissionRecord = MissionRecord()) {
         self.altitude = altitude
         self.heightAboveTerrain = heightAboveTerrain
         self.speed = speed
@@ -267,6 +305,7 @@ public struct FlightTelemetry: Sendable, Hashable {
         self.chuteSafe = chuteSafe
         self.warpIndex = warpIndex
         self.warpBlocked = warpBlocked
+        self.mission = mission
     }
 }
 

@@ -49,6 +49,12 @@ final class FlightFeedback {
         syncSettings()
     }
 
+    /// Выход из полёта (в ангар): звук, вибрация и наклон выключаются до следующего `setPaused(false)`.
+    func stop() {
+        setPaused(true)
+        if tilt.isRunning { tilt.stop() }
+    }
+
     /// Новый полёт: текущий наклон телефона станет нулём.
     func recalibrate() {
         tilt.calibrate()
