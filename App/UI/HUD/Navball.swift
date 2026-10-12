@@ -2,37 +2,40 @@ import OrbitPhysics
 import simd
 import SwiftUI
 
-/// Навбол снизу по центру: шкала скорости/курса (тап — орбита/поверхность), 3D-сфера,
-/// слева от сферы — переключатель режима камеры и плашка узла манёвра.
+/// Навбол снизу по центру: 3D-сфера; справа от неё — малая плашка скорости/курса (тап — орбита/поверхность),
+/// слева — значок режима камеры и плашка узла манёвра. Над сферой ничего нет — корабль не перекрыт.
 struct NavballView: View {
     let model: FlightHUDModel
     /// Помощник подъёма включён: на сфере рисуется маркер цели.
     var ascentEnabled = true
 
-    static let diameter: CGFloat = 104
+    static let diameter: CGFloat = 96
 
     var body: some View {
         let t = model.telemetry
         let frame = model.speedFrame(for: t)
-        VStack(spacing: 4) {
-            NavballReadout(telemetry: t, frame: frame) {
-                model.toggleSpeedFrame()
-            }
-            NavballSphere(telemetry: t, frame: frame,
-                          targetPitch: ascentEnabled ? AscentGuide.advice(t)?.targetPitch : nil)
-                .frame(width: Self.diameter, height: Self.diameter)
-                .overlay(alignment: .bottomLeading) {
-                    // Слева от сферы: плашка узла манёвра (если есть) над кнопкой камеры.
-                    VStack(alignment: .trailing, spacing: 6) {
-                        if let status = t.maneuver {
-                            ManeuverBadge(status: status) { model.toggleMap() }
-                        }
-                        CameraModeButton(model: model)
+        NavballSphere(telemetry: t, frame: frame,
+                      targetPitch: ascentEnabled ? AscentGuide.advice(t)?.targetPitch : nil)
+            .frame(width: Self.diameter, height: Self.diameter)
+            .overlay(alignment: .bottomLeading) {
+                // Слева от сферы: плашка узла манёвра (если есть) над значком камеры.
+                VStack(alignment: .trailing, spacing: 6) {
+                    if let status = t.maneuver {
+                        ManeuverBadge(status: status) { model.toggleMap() }
                     }
-                    .fixedSize()
-                    .alignmentGuide(.leading) { $0[.trailing] + 12 }
+                    CameraModeButton(model: model)
                 }
-        }
+                .fixedSize()
+                .alignmentGuide(.leading) { $0[.trailing] + 8 }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // Справа от сферы: скорость и курс.
+                NavballReadout(telemetry: t, frame: frame) {
+                    model.toggleSpeedFrame()
+                }
+                .fixedSize()
+                .alignmentGuide(.trailing) { $0[.leading] - 8 }
+            }
     }
 }
 
@@ -45,26 +48,28 @@ struct NavballReadout: View {
     var body: some View {
         let speed = frame == .orbit ? telemetry.speed : telemetry.surfaceSpeed
         Button(action: onTap) {
-            HStack(spacing: 6) {
-                Text(frame == .orbit ? "ОРБ" : "ПОВ")
-                    .font(.system(size: 10, weight: .heavy))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(frame == .orbit ? HUDStyle.active : NavballPalette.prograde,
-                                in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(spacing: 5) {
+                    Text(frame == .orbit ? "ОРБ" : "ПОВ")
+                        .font(.system(size: 9, weight: .heavy))
+                        .foregroundStyle(.black)
+                        .padding(.horizontal, 4)
+                        .padding(.vertical, 1)
+                        .background(frame == .orbit ? HUDStyle.active : NavballPalette.prograde,
+                                    in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    Text(HUDFormat.heading(telemetry.heading))
+                        .font(.system(size: 11, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(HUDStyle.secondaryText)
+                }
                 Text(HUDFormat.speed(speed))
-                    .font(.system(size: 13, weight: .bold).monospacedDigit())
-                Text(HUDFormat.heading(telemetry.heading))
-                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(HUDStyle.secondaryText)
+                    .font(.system(size: 14, weight: .bold).monospacedDigit())
             }
             .foregroundStyle(.white)
             .lineLimit(1)
             .padding(.horizontal, 8)
-            .frame(minWidth: 150, minHeight: 30)
-            .hudBackground(corner: 8)
             .padding(.vertical, 4)
+            .hudBackground(corner: 8)
+            .frame(minHeight: HUDStyle.minTouch)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -78,23 +83,22 @@ struct NavballReadout: View {
 struct CameraModeButton: View {
     let model: FlightHUDModel
 
-    static let width: CGFloat = 52
+    static let width: CGFloat = HUDStyle.minTouch
 
     var body: some View {
         let mode = model.cameraMode
         Button {
             model.cycleCameraMode()
         } label: {
-            VStack(spacing: 1) {
-                Image(systemName: Self.symbol(mode))
-                    .font(.system(size: 16, weight: .semibold))
-                Text(Self.shortName(mode))
-                    .font(.system(size: 9, weight: .bold))
-                    .lineLimit(1)
-            }
-            .frame(width: Self.width, height: 48)
+            Image(systemName: Self.symbol(mode))
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 36, height: 36)
+                .hudBackground(corner: 18)
+                .frame(width: Self.width, height: Self.width)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(HUDButtonStyle())
+        .buttonStyle(HUDPressStyle())
         .accessibilityLabel("Камера: \(Self.fullName(mode))")
         .accessibilityHint("Переключить режим камеры")
     }

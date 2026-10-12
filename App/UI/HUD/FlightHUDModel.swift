@@ -45,6 +45,10 @@ final class FlightHUDModel {
     private(set) var warp: WarpStatus
     /// РДТТ горит — тяга не регулируется.
     private(set) var solidLocked: Bool
+    /// Корабль на площадке (до отрыва): второстепенные контролы приглушаются. Меняется редко.
+    private(set) var onPad: Bool
+    /// Главное следующее действие (подсветка кнопки); меняется редко.
+    private(set) var guide: HUDAction?
     private(set) var toast: HUDToast?
     /// Панель итогов полёта: авария или посадка.
     private(set) var result: FlightResult?
@@ -119,6 +123,8 @@ final class FlightHUDModel {
         self.stageStatus = Self.stageStatus(t)
         self.warp = Self.warpStatus(t)
         self.solidLocked = Self.solidLocked(t)
+        self.onPad = t.situation == .prelaunch
+        self.guide = Self.guideAction(t)
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
         self.throttle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? 0
@@ -398,10 +404,28 @@ final class FlightHUDModel {
         if self.warp != warp { self.warp = warp }
         let solid = Self.solidLocked(t)
         if solidLocked != solid { solidLocked = solid }
+        let pad = t.situation == .prelaunch
+        if onPad != pad { onPad = pad }
+        let action = Self.guideAction(t)
+        if guide != action { guide = action }
         let node = t.maneuver?.node
         if maneuverNode != node { maneuverNode = node }
         let canWarp = Self.canWarp(t)
         if canWarpToManeuver != canWarp { canWarpToManeuver = canWarp }
+    }
+
+    /// Что подсветить: совет помощника подъёма, затем «Ступень» при пустой ступени и для парашюта.
+    private static func guideAction(_ t: FlightTelemetry) -> HUDAction? {
+        if let action = AscentGuide.advice(t)?.action { return action }
+        if t.nextStageAction == .separate, let stage = t.stages.first,
+           stage.fuelCapacity > 0, stage.fuelFraction < 0.01 {
+            return .stage
+        }
+        if t.nextStageAction == .armChute, t.chute == .stowed, t.chuteSafe,
+           t.verticalSpeed < -5, t.altitude < 30_000, t.mission.launched {
+            return .stage
+        }
+        return nil
     }
 
     private static func canWarp(_ t: FlightTelemetry) -> Bool {

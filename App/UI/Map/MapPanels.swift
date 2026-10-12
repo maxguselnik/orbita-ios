@@ -78,7 +78,7 @@ struct MapSASRow: View {
         let current = model.sas
         let enabled = model.hasManeuver || current == .maneuver
         HStack(spacing: 4) {
-            SASToggleButton(model: model)
+            SASToggleButton(model: model, stacked: true)
             Button {
                 model.send(.setSAS(current == .maneuver ? .hold : .maneuver))
             } label: {

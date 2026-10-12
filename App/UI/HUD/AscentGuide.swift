@@ -6,6 +6,13 @@ struct AscentAdvice: Equatable {
     var text: String
     /// Целевой тангаж, рад (курс всегда 90° — восток); nil — маркер не нужен.
     var targetPitch: Double?
+    /// Кнопка, которую помощник советует нажать прямо сейчас (подсвечивается в HUD).
+    var action: HUDAction?
+}
+
+/// Главное следующее действие игрока: какую кнопку подсветить.
+enum HUDAction: Equatable {
+    case stage, fullThrottle, zeroThrottle
 }
 
 /// Помощник подъёма на Терре: по телеметрии выбирает фазу. Чистая логика без UI.
@@ -37,25 +44,27 @@ enum AscentGuide {
         case .prelaunch:
             let text = t.nextStageAction == .ignite ? "Зажигание → Тяга MAX"
                 : (t.thrust < 1 ? "Тяга MAX" : "Тяга MAX · ждите отрыва")
-            return AscentAdvice(text: text, targetPitch: .pi / 2)
+            let action: HUDAction? = t.nextStageAction == .ignite ? .stage : (t.thrust < 1 ? .fullThrottle : nil)
+            return AscentAdvice(text: text, targetPitch: .pi / 2, action: action)
         case .orbiting:
-            return AscentAdvice(text: "Вы на орбите", targetPitch: nil)
+            return AscentAdvice(text: "Вы на орбите", targetPitch: nil, action: nil)
         case .flying, .suborbital:
             guard t.mission.launched else { return nil }
             if let orbit = t.orbit, orbit.periapsisAltitude > spaceAltitude {
-                return AscentAdvice(text: "Вы на орбите", targetPitch: nil)
+                return AscentAdvice(text: "Вы на орбите", targetPitch: nil, action: nil)
             }
             if t.altitude > spaceAltitude {
-                return AscentAdvice(text: circularization(t), targetPitch: 0)
+                let burnNow = t.thrust < 1 && (circularizationLead(t) ?? 1) <= 0
+                return AscentAdvice(text: circularization(t), targetPitch: 0, action: burnNow ? .fullThrottle : nil)
             }
             if t.verticalSpeed < -5, t.thrust < 1 { return nil }
             let target = targetPitchDegrees(altitude: t.altitude)
             let targetRad = target * .pi / 180
             if let apo = t.orbit?.apoapsisAltitude, apo >= cutoffApoapsis {
                 let text = t.thrust >= 1 ? "Ап 80 км — тяга 0" : "Ап 80 км — инерция до космоса"
-                return AscentAdvice(text: text, targetPitch: targetRad)
+                return AscentAdvice(text: text, targetPitch: targetRad, action: t.thrust >= 1 ? .zeroThrottle : nil)
             }
-            return AscentAdvice(text: ascent(t, target: target), targetPitch: targetRad)
+            return AscentAdvice(text: ascent(t, target: target), targetPitch: targetRad, action: nil)
         default:
             return nil
         }
@@ -89,13 +98,18 @@ enum AscentGuide {
 
     private static func circularization(_ t: FlightTelemetry) -> String {
         if t.thrust >= 1 { return "Скругление: держите ПРОГРАДИЕНТ, тяга до Пе 70 км" }
-        guard let toApo = t.orbit?.timeToApoapsis, toApo.isFinite else {
+        guard let lead = circularizationLead(t) else {
             return "Скругление у Ап: ПРОГРАДИЕНТ, тяга MAX за ~\(Int(defaultBurn)) с"
         }
-        let burn = circularizationBurn(t) ?? defaultBurn
-        let lead = Int((toApo - burn / 2).rounded())
         return lead <= 0 ? "Скругление: ПРОГРАДИЕНТ, тяга MAX сейчас"
             : "Скругление у Ап: ПРОГРАДИЕНТ, тяга MAX за ~\(lead) с"
+    }
+
+    /// Через сколько секунд включать тягу скругления; nil — времени до Ап нет.
+    private static func circularizationLead(_ t: FlightTelemetry) -> Int? {
+        guard let toApo = t.orbit?.timeToApoapsis, toApo.isFinite else { return nil }
+        let burn = circularizationBurn(t) ?? defaultBurn
+        return Int((toApo - burn / 2).rounded())
     }
 
     /// Оценка времени прожига скругления у апоцентра: Δv до круговой скорости, пропорционально Δv ступени.

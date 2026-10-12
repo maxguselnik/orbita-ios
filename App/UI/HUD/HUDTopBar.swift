@@ -1,13 +1,14 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Верхняя полоса: телеметрия в строку и мелкая вторая строка, ускорение времени, язычок панели ступеней, пауза.
+/// Верхняя полоса одной строкой: высота, скорость, Ап, Пе (и «До Ап», когда есть смысл); тап по цифрам
+/// добавляет вертикальную скорость, высоту над землёй и T+. Справа малые кнопки: время, ступени, пауза.
 /// Каждый кадр перерисовываются только числа (`TopBarMetrics`), кнопки — при смене своих полей.
 struct HUDTopBar: View {
     let model: FlightHUDModel
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 6) {
             TopBarMetrics(model: model)
                 .layoutPriority(1)
 
@@ -19,48 +20,78 @@ struct HUDTopBar: View {
                 withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
             } label: {
                 Image(systemName: "list.bullet.rectangle")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(model.isPanelOpen ? Color.black : Color.white)
+                    .frame(width: 38, height: 34)
+                    .hudBackground(model.isPanelOpen ? HUDStyle.active : HUDStyle.control, corner: 9)
+                    .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(HUDButtonStyle(isActive: model.isPanelOpen))
+            .buttonStyle(HUDPressStyle())
             .accessibilityLabel("Ступени, топливо, Δv")
 
             Button {
                 model.pause()
             } label: {
                 Image(systemName: "pause.fill")
-                    .font(.system(size: 18, weight: .semibold))
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 34)
+                    .hudBackground(HUDStyle.control, corner: 9)
+                    .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                    .contentShape(Rectangle())
             }
-            .buttonStyle(HUDButtonStyle())
+            .buttonStyle(HUDPressStyle())
             .accessibilityLabel("Пауза")
         }
         .padding(.horizontal, 6)
-        .padding(.vertical, 3)
+        .padding(.vertical, 1)
         .hudBackground()
     }
 }
 
-/// Главные величины одной строкой (подпись над значением) и мелкая вторая строка с остальным —
-/// единственная часть полосы, читающая кадр.
+/// Главные величины одной строкой (подпись над значением); тап раскрывает вторую группу в той же строке.
+/// Единственная часть полосы, читающая кадр.
 struct TopBarMetrics: View {
     let model: FlightHUDModel
 
+    @State private var expanded = false
+
     var body: some View {
         let t = model.telemetry
-        VStack(alignment: .leading, spacing: 2) {
-            HStack(alignment: .top, spacing: 12) {
+        Button {
+            withAnimation(.snappy(duration: 0.2)) { expanded.toggle() }
+        } label: {
+            HStack(alignment: .center, spacing: 10) {
                 HUDMetric(label: "Высота", value: HUDFormat.distance(t.altitude))
                 HUDMetric(label: "Скорость", value: HUDFormat.speed(t.surfaceSpeed))
                 HUDMetric(label: "Апоцентр", value: HUDFormat.distance(t.orbit?.apoapsisAltitude))
                 HUDMetric(label: "Перицентр", value: HUDFormat.periapsis(t.orbit?.periapsisAltitude))
-                HUDMetric(label: "До апоцентра", value: HUDFormat.countdown(t.orbit?.timeToApoapsis))
+                if Self.showsTimeToApoapsis(t) {
+                    HUDMetric(label: "До Ап", value: HUDFormat.countdown(t.orbit?.timeToApoapsis))
+                }
+                if expanded {
+                    HUDMetric(label: "Верт. скорость", value: HUDFormat.signedSpeed(t.verticalSpeed))
+                    HUDMetric(label: "Над землёй", value: HUDFormat.distance(t.heightAboveTerrain))
+                    HUDMetric(label: "T+", value: HUDFormat.missionTime(t.missionTime))
+                }
+                Image(systemName: expanded ? "chevron.left" : "chevron.right")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(HUDStyle.secondaryText)
             }
-            Text("Вертикальная скорость \(HUDFormat.signedSpeed(t.verticalSpeed)) · над землёй \(HUDFormat.distance(t.heightAboveTerrain)) · \(HUDFormat.missionTime(t.missionTime))")
-                .font(.system(size: 9, weight: .medium).monospacedDigit())
-                .foregroundStyle(HUDStyle.secondaryText)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            .padding(.leading, 4)
+            .frame(minHeight: HUDStyle.minTouch)
+            .contentShape(Rectangle())
         }
-        .padding(.leading, 4)
+        .buttonStyle(.plain)
+        .accessibilityHint("Показать или скрыть вертикальную скорость, высоту над землёй и время полёта")
+    }
+
+    /// «До Ап» нужно в полёте и на орбите, пока апоцентр впереди; на площадке и на земле — нет.
+    static func showsTimeToApoapsis(_ t: FlightTelemetry) -> Bool {
+        let inFlight = t.situation == .flying || t.situation == .suborbital || t.situation == .orbiting
+        guard inFlight, let toApo = t.orbit?.timeToApoapsis, toApo.isFinite else { return false }
+        return toApo > 0
     }
 }
 
@@ -82,7 +113,7 @@ struct HUDMetric: View {
                 // Самое длинное значение («−198.2 км», «12.00 Мм») сжимается, а не обрезается многоточием.
                 .minimumScaleFactor(0.7)
         }
-        .frame(minWidth: 52, alignment: .leading)
+        .frame(minWidth: 46, alignment: .leading)
         .accessibilityElement(children: .combine)
     }
 }
@@ -118,18 +149,19 @@ struct WarpMenu: View {
                 .disabled(t.blocked != nil && index >= TimeWarp.physicalCount)
             }
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 Image(systemName: t.index > 0 ? "forward.fill" : "play.fill")
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: 10, weight: .bold))
                 Text(HUDFormat.warp(t.factor))
-                    .font(.system(size: 15, weight: .bold).monospacedDigit())
+                    .font(.system(size: 13, weight: .bold).monospacedDigit())
                     .lineLimit(1)
             }
             .foregroundStyle(t.index > 0 ? Color.black : Color.white)
-            .padding(.horizontal, 10)
-            .frame(minWidth: 64, minHeight: HUDStyle.minTouch)
+            .padding(.horizontal, 8)
+            .frame(minWidth: 52, minHeight: 34)
+            .hudBackground(t.index > 0 ? HUDStyle.accent : HUDStyle.control, corner: 9)
+            .frame(minHeight: HUDStyle.minTouch)
             .contentShape(Rectangle())
-            .hudBackground(t.index > 0 ? HUDStyle.accent : HUDStyle.control, corner: 10)
         }
         .menuOrder(.fixed)
         .accessibilityLabel("Ускорение времени \(HUDFormat.warp(t.factor))")

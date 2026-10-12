@@ -1,19 +1,24 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Правая колонка: «SAS вкл/выкл», сетка режимов 4×2, джойстик с кнопками крена, «Ступень».
+/// Правая колонка: компактный SAS (режимы — по стрелке), джойстик с кнопками крена, «Ступень».
+/// До отрыва SAS и джойстик приглушены: на площадке главное — «Зажигание» и тяга.
 struct ControlsColumn: View {
     let model: FlightHUDModel
+    /// Действие, которое советует помощник (подсвечивается).
+    var guide: HUDAction?
 
     static let width: CGFloat = 196
 
     var body: some View {
+        let dimmed = model.onPad
         VStack(spacing: 6) {
             Spacer(minLength: 0)
-            SASToggleButton(model: model)
-            SASGrid(model: model)
+            SASControl(model: model)
+                .opacity(dimmed ? 0.5 : 1)
             AttitudeControls(model: model)
-            StageButton(model: model)
+                .opacity(dimmed ? 0.5 : 1)
+            StageButton(model: model, highlighted: guide == .stage)
         }
         .frame(width: Self.width)
     }
@@ -21,9 +26,11 @@ struct ControlsColumn: View {
 
 // MARK: - SAS
 
-/// Сетка режимов SAS 4×2 (включение — отдельной кнопкой `SASToggleButton` над ней).
+/// Сетка режимов SAS 4×2: содержимое всплывающей панели `SASControl`.
 struct SASGrid: View {
     let model: FlightHUDModel
+    /// Вызывается после выбора режима (закрыть панель).
+    var onPick: () -> Void = {}
 
     private static let cell: CGFloat = 46
 
@@ -51,6 +58,7 @@ struct SASGrid: View {
     private func modeButton(_ mode: SASMode, _ current: SASMode) -> some View {
         Button {
             model.send(.setSAS(current == mode ? .hold : mode))
+            onPick()
         } label: {
             VStack(spacing: 1) {
                 SASIcon(mode: mode)
@@ -174,27 +182,68 @@ struct SASIcon: View {
     }
 }
 
-/// SAS вкл/выкл отдельной явной кнопкой (включение — «держать ориентацию»).
+/// SAS одной компактной кнопкой «SAS: ДЕРЖАТЬ»: тап — вкл/выкл. Включённость — точка и цвет текста.
 struct SASToggleButton: View {
     let model: FlightHUDModel
+    /// Узкий вариант (карта): «SAS» и режим в две строки.
+    var stacked = false
 
     var body: some View {
         let current = model.sas
+        let on = current != .off
         Button {
             model.toggleSAS()
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: current == .off ? "power" : "checkmark.circle.fill")
-                    .font(.system(size: 13, weight: .bold))
-                Text(current == .off ? "SAS выключен" : "SAS включён")
-                    .font(.system(size: 13, weight: .heavy))
+                Circle()
+                    .fill(on ? HUDStyle.active : Color.white.opacity(0.3))
+                    .frame(width: 8, height: 8)
+                if stacked {
+                    VStack(spacing: 0) {
+                        Text("SAS").font(.system(size: 12, weight: .heavy))
+                        Text(on ? SASGrid.shortName(current) : "ВЫКЛ").font(.system(size: 9, weight: .bold))
+                    }
+                    .foregroundStyle(on ? HUDStyle.active : Color.white)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                } else {
+                    Text("SAS: " + (on ? SASGrid.shortName(current) : "ВЫКЛ"))
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(on ? HUDStyle.active : Color.white)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                }
             }
             .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch)
         }
-        .buttonStyle(HUDButtonStyle(isActive: current != .off))
-        .accessibilityLabel(current == .off ? "Включить SAS" : "Выключить SAS")
+        .buttonStyle(HUDButtonStyle())
+        .accessibilityLabel(on ? "Выключить SAS, сейчас: " + SASGrid.fullName(current) : "Включить SAS")
+    }
+}
+
+/// SAS в полёте: кнопка вкл/выкл и рядом стрелка — выбор режима во всплывающей панели
+/// (закрывается после выбора или тапом мимо).
+struct SASControl: View {
+    let model: FlightHUDModel
+
+    @State private var picking = false
+
+    var body: some View {
+        HStack(spacing: 4) {
+            SASToggleButton(model: model)
+            Button {
+                picking = true
+            } label: {
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 14, weight: .bold))
+            }
+            .buttonStyle(HUDButtonStyle(isActive: picking))
+            .accessibilityLabel("Выбрать режим SAS")
+            .popover(isPresented: $picking) {
+                SASGrid(model: model) { picking = false }
+                    .padding(10)
+                    .presentationCompactAdaptation(.popover)
+            }
+        }
     }
 }
 
@@ -226,8 +275,8 @@ struct Joystick: View {
     /// Отклонение −1…1 по осям (dy вниз — положительное).
     let onMove: (CGVector) -> Void
 
-    let size: CGFloat = 80
-    private var travel: CGFloat { size / 2 - 20 }
+    let size: CGFloat = 76
+    private var travel: CGFloat { size / 2 - 19 }
     @GestureState private var offset: CGSize = .zero
 
     var body: some View {
@@ -241,7 +290,7 @@ struct Joystick: View {
             .stroke(.white.opacity(0.2), lineWidth: 1)
             Circle()
                 .fill(.white.opacity(offset == .zero ? 0.75 : 0.95))
-                .frame(width: 38, height: 38)
+                .frame(width: 36, height: 36)
                 .shadow(color: .black.opacity(0.5), radius: 3)
                 .offset(offset)
         }
@@ -275,7 +324,7 @@ struct HoldButton: View {
         Image(systemName: systemImage)
             .font(.system(size: 20, weight: .bold))
             .foregroundStyle(pressed ? Color.black : Color.white)
-            .frame(width: HUDStyle.minTouch, height: 56)
+            .frame(width: HUDStyle.minTouch, height: 52)
             .contentShape(Rectangle())
             .hudBackground(pressed ? HUDStyle.active : HUDStyle.control, corner: 10)
             .gesture(
@@ -294,6 +343,8 @@ struct StageButton: View {
     let model: FlightHUDModel
     /// Низкая кнопка (карта: место под панель узла).
     var compact = false
+    /// Помощник советует нажать её сейчас: яркая заливка и пульсирующая обводка.
+    var highlighted = false
 
     var body: some View {
         let t = model.stageStatus
@@ -324,9 +375,11 @@ struct StageButton: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 58)
+            .foregroundStyle(highlighted ? Color.black : HUDStyle.accent)
+            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 52)
         }
-        .buttonStyle(HUDButtonStyle(fill: HUDStyle.accent.opacity(0.85)))
+        .buttonStyle(HUDButtonStyle(fill: highlighted ? HUDStyle.accent : HUDStyle.control))
+        .hudPulse(highlighted && t.action != .none)
         .disabled(t.action == .none)
         .accessibilityLabel(title + ", " + detail)
     }

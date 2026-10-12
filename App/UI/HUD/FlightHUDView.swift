@@ -21,6 +21,7 @@ struct FlightHUDView: View {
 
     var body: some View {
         let mapOpen = model.map.isOpen
+        let guide = hintsEnabled ? model.guide : nil
         ZStack(alignment: .bottom) {
             // Под всеми контролами: получает только касания по пустому месту.
             // Размер всей области — для проекции карты (рендер во весь экран).
@@ -40,14 +41,14 @@ struct FlightHUDView: View {
                 HUDTopBar(model: model)
 
                 HStack(alignment: .bottom, spacing: 8) {
-                    ThrottleColumn(model: model)
+                    ThrottleColumn(model: model, guide: guide)
                     if mapOpen {
                         MapCenterColumn(model: model)
                         MapSideColumn(model: model)
                             .overlay(alignment: .topTrailing) { stagePanel }
                     } else {
                         Spacer(minLength: 0)
-                        ControlsColumn(model: model)
+                        ControlsColumn(model: model, guide: guide)
                             .overlay(alignment: .topTrailing) { stagePanel }
                     }
                 }
@@ -66,7 +67,7 @@ struct FlightHUDView: View {
                 // Одна строка по центру под верхней полосой: состояние и совет помощника подъёма.
                 FlightStatusView(model: model, ascentEnabled: hintsEnabled)
                     .padding(.horizontal, ThrottleColumn.width + 8)
-                    .padding(.top, 58)
+                    .padding(.top, 54)
             }
         }
         .overlay(alignment: .topLeading) {

@@ -35,3 +35,65 @@ struct HUDButtonStyle: ButtonStyle {
             .scaleEffect(configuration.isPressed ? 0.96 : 1)
     }
 }
+
+/// Нажатие без своей подложки: лёгкое затемнение (подложку рисует сама метка).
+struct HUDPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.6 : 1)
+            .scaleEffect(configuration.isPressed ? 0.96 : 1)
+    }
+}
+
+/// Мягкая пульсирующая обводка: «нажмите это», когда помощник советует действие.
+struct HUDPulse: ViewModifier {
+    var active: Bool
+    var corner: CGFloat = 10
+
+    @State private var bright = false
+
+    func body(content: Content) -> some View {
+        content.overlay {
+            if active {
+                RoundedRectangle(cornerRadius: corner + 2, style: .continuous)
+                    .strokeBorder(HUDStyle.accent, lineWidth: 2.5)
+                    .opacity(bright ? 1 : 0.25)
+                    .padding(-3)
+                    .allowsHitTesting(false)
+                    .onAppear {
+                        withAnimation(.easeInOut(duration: 0.8).repeatForever(autoreverses: true)) { bright = true }
+                    }
+                    .onDisappear { bright = false }
+            }
+        }
+    }
+}
+
+extension View {
+    func hudPulse(_ active: Bool, corner: CGFloat = 10) -> some View {
+        modifier(HUDPulse(active: active, corner: corner))
+    }
+}
+
+/// Малая кнопка (MAX, 0): рисуется ниже 44 pt, зона касания — полные 44 × 44.
+struct HUDMiniButton: View {
+    let title: String
+    let label: String
+    var pulse = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: HUDStyle.minTouch, height: 30)
+                .hudBackground(HUDStyle.control, corner: 8)
+                .hudPulse(pulse, corner: 8)
+                .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(HUDPressStyle())
+        .accessibilityLabel(label)
+    }
+}
