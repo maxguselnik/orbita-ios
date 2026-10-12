@@ -1,25 +1,20 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Правый нижний угол (Б4): маленькие MAX и 0, кнопки крена по бокам джойстика 72 pt. До отрыва джойстик
-/// приглушён: на площадке главное — «Зажигание» и тяга.
+/// Колонка MAX и 0 слева от кнопки ступени в правом нижнем углу.
 struct ControlsCluster: View {
     let model: FlightHUDModel
     /// Действие, которое советует помощник (подсвечивает MAX или 0).
     var guide: HUDAction?
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            VStack(spacing: 0) {
-                HUDMiniButton(title: "MAX", label: "Полная тяга", pulse: guide == .fullThrottle) {
-                    model.throttle = 1
-                }
-                HUDMiniButton(title: "0", label: "Тяга ноль", pulse: guide == .zeroThrottle) {
-                    model.throttle = 0
-                }
+        VStack(spacing: 0) {
+            HUDMiniButton(title: "MAX", label: "Полная тяга", pulse: guide == .fullThrottle) {
+                model.throttle = 1
             }
-            AttitudeControls(model: model)
-                .opacity(model.onPad ? 0.5 : 1)
+            HUDMiniButton(title: "0", label: "Тяга ноль", pulse: guide == .zeroThrottle) {
+                model.throttle = 0
+            }
         }
     }
 }
@@ -232,28 +227,7 @@ struct SASToggleButton: View {
     }
 }
 
-// MARK: - Джойстик и крен
-
-/// Виртуальный джойстик тангаж/рыскание (72 pt) и кнопки крена по бокам (удержание).
-struct AttitudeControls: View {
-    let model: FlightHUDModel
-
-    var body: some View {
-        HStack(alignment: .bottom, spacing: 0) {
-            HoldButton(systemImage: "arrow.counterclockwise", label: "Крен влево") { pressed in
-                model.rollLeftPressed = pressed
-            }
-            Joystick(size: 72, label: "Джойстик тангажа и рыскания") { axes in
-                // Палец вверх — нос вверх (+тангаж), вправо — рыскание вправо.
-                model.pitchInput = Double(-axes.dy)
-                model.yawInput = Double(axes.dx)
-            }
-            HoldButton(systemImage: "arrow.clockwise", label: "Крен вправо") { pressed in
-                model.rollRightPressed = pressed
-            }
-        }
-    }
-}
+// MARK: - РСУ и джойстик
 
 /// Поступательное управление РСУ: джойстик 64 pt (вправо и вверх) и кнопки «вперёд/назад» (удержание).
 /// Видно только при включённом РСУ; ввод собирает `FlightHUDModel` и передаёт в `ControlInput.translation`.

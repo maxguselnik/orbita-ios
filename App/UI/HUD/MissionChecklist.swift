@@ -70,14 +70,22 @@ struct MissionCard: View {
     let model: FlightHUDModel
     /// Подсказки включены в настройках.
     var enabled = true
+    /// Стопка ступеней длинная: карточка всегда в одну строку (не упирается в блок кнопок ориентации).
+    var forceCollapsed = false
 
     @State private var override: Bool?
 
     static let width: CGFloat = 150
+    /// Верхняя оценка высоты развёрнутой карточки (цель, 5 шагов, «выполнено»).
+    static let expandedHeight: CGFloat = 112
+    /// Верх стопки ступеней (отступ 36) и зазор между стопкой и карточкой, зазор до блока кнопок.
+    static func fitsExpanded(stackHeight: CGFloat, blockTop: CGFloat) -> Bool {
+        36 + stackHeight + 6 + expandedHeight + 6 <= blockTop
+    }
 
     var body: some View {
         if enabled, model.missionActive {
-            let expanded = override ?? model.onPad
+            let expanded = !forceCollapsed && (override ?? model.onPad)
             let done = model.missionProgress
             let complete = done >= MissionChecklist.titles.count
             Button {

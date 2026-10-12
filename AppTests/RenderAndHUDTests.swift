@@ -235,6 +235,41 @@ struct RenderAndHUDTests {
         #expect(HangarFormat.details(PartCatalog.spec(.m100)).first == "Монотопливо 160 кг")
     }
 
+    @Test func attitudeCurveTapRampAndFine() {
+        typealias C = AttitudeInputCurve
+        #expect(C.value(heldFor: 0, fine: false) == 0.15)
+        #expect(abs(C.value(heldFor: 0.4, fine: false) - 0.575) < 1e-9)
+        #expect(C.value(heldFor: 0.8, fine: false) == 1)
+        #expect(C.value(heldFor: 5, fine: false) == 1)
+        #expect(C.value(heldFor: -1, fine: false) == 0.15)
+        #expect(abs(C.value(heldFor: 5, fine: true) - 0.3) < 1e-9)
+        #expect(abs(C.value(heldFor: 0, fine: true) - 0.045) < 1e-9)
+    }
+
+    @Test func attitudeButtonsFeedControlInput() {
+        let flight = RecordingFlight()
+        let model = FlightHUDModel(makeSimulation: { flight })
+        model.setAttitude(.pitchUp, pressed: true, now: 10)
+        model.setAttitude(.rollRight, pressed: true, now: 10)
+        model.tick(now: 10)
+        model.tick(now: 11)
+        #expect(flight.lastInput.pitch == 1 && flight.lastInput.roll == 1 && flight.lastInput.yaw == 0)
+        // Противоположные кнопки вместе дают 0, отпускание одной возвращает ввод другой.
+        model.setAttitude(.yawLeft, pressed: true, now: 11)
+        model.setAttitude(.yawRight, pressed: true, now: 11)
+        #expect(model.attitudeAxes(now: 12).yaw == 0)
+        model.setAttitude(.yawLeft, pressed: false)
+        #expect(model.attitudeAxes(now: 12).yaw == 1)
+        // Повторное нажатие не сбрасывает разгон; «ТОЧНО» масштабирует и сбрасывается при перезапуске.
+        model.setAttitude(.yawRight, pressed: true, now: 12)
+        #expect(model.attitudeAxes(now: 12).yaw == 1)
+        model.fineControl = true
+        #expect(abs(model.attitudeAxes(now: 12).pitch - 0.3) < 1e-9)
+        model.restart()
+        #expect(!model.fineControl)
+        #expect(model.attitudeAxes(now: 20) == (0, 0, 0))
+    }
+
     @Test func compactLayoutFitsScreenWithoutOverlaps() {
         let model = FlightHUDModel()
         func fitted<V: View>(_ view: V) -> CGSize {
@@ -245,27 +280,56 @@ struct RenderAndHUDTests {
         #expect(ring.height - NavballCluster.overhang <= 150)
         let stage = fitted(StageButton(model: model))
         #expect(stage.height == 40)
-        let controls = fitted(ControlsCluster(model: model, guide: nil))
+        let mm = fitted(ControlsCluster(model: model, guide: nil))
         let rcs = fitted(RCSControls(model: model))
+        let block = fitted(AttitudeControls(model: model))
+        let fine = fitted(FineControlToggle(model: model))
         let stack = fitted(StageStackView(model: model))
-        let card = fitted(MissionCard(model: model))
-        // Карточка под стопкой: до кнопки ступени (снизу 10 + 40) остаётся место.
-        #expect(36 + CGFloat(StageStackView.maxRows) * 22 + 9 + 6 + card.height < 393 - 10 - 40)
-        #expect(card.width <= MissionCard.width)
+        #expect(block == CGSize(width: AttitudeControls.side, height: AttitudeControls.side))
+        #expect(fine.width >= HUDStyle.minTouch && fine.height >= HUDStyle.minTouch)
         #expect(stack.height <= CGFloat(StageStackView.maxRows) * 22 + 9)
 
-        // По горизонтали на кадре 852 pt (боковые безопасные зоны ≈ 59 pt): кнопка ступени, группа РСУ, кольцо, джойстик.
+        // Кадр 852×393, боковые безопасные зоны ≈ 59 pt, нижняя игнорируется. Прямоугольники (x, y, ширина, высота).
         let safe: CGFloat = 59
-        let stageRight = safe + 6 + stage.width
-        let rcsLeft = FlightLayer.rcsCenterX - rcs.width / 2
-        let rcsRight = FlightLayer.rcsCenterX + rcs.width / 2
-        let ringLeft = (852 - ring.width) / 2
-        let ringRight = ringLeft + ring.width
-        let controlsLeft = 852 - safe - 4 - controls.width
-        #expect(stageRight < rcsLeft)
-        #expect(rcsRight < ringLeft - 4)
-        #expect(ringRight + 30 < controlsLeft)
-        #expect(controls.height <= 80 && rcs.height <= 80)
+        let screen = CGRect(x: 0, y: 0, width: 852, height: 393)
+        let blockRect = CGRect(x: safe + 16, y: 393 - FlightLayer.attitudeBottom - block.height, width: block.width, height: block.height)
+        let ringRect = CGRect(x: (852 - ring.width) / 2, y: 393 - (ring.height - NavballCluster.overhang),
+                              width: ring.width, height: ring.height - NavballCluster.overhang)
+        let stageRect = CGRect(x: 852 - safe - 6 - stage.width, y: 393 - 24 - stage.height,
+                               width: stage.width, height: stage.height)
+        let mmRect = CGRect(x: stageRect.minX - 6 - mm.width, y: 393 - 24 - mm.height, width: mm.width, height: mm.height)
+        let rcsRect = CGRect(x: 852 - safe - 6 - rcs.width, y: stageRect.minY - mm.height - 6 - rcs.height - 4,
+                             width: rcs.width, height: rcs.height)
+        let allRight = [stageRect, mmRect, rcsRect]
+        for r in [blockRect, ringRect] + allRight { #expect(screen.contains(r)) }
+        #expect(!blockRect.intersects(ringRect) && ringRect.maxX < mmRect.minX)
+        #expect(!mmRect.intersects(stageRect) && !rcsRect.intersects(mmRect) && !rcsRect.intersects(stageRect))
+        #expect(!rcsRect.intersects(ringRect) && !rcsRect.intersects(blockRect))
+        // Крест: ▲ выше ◀ ▶, ▼ ниже них, ◀ левее ▶; нижний край блока ≥ 40 pt от низа, центр креста ≈ 140 pt.
+        let c = AttitudeControls.cell, g = AttitudeControls.gap
+        func cell(_ col: Int, _ row: Int) -> CGRect {
+            CGRect(x: blockRect.minX + CGFloat(col) * (c + g), y: blockRect.minY + CGFloat(row) * (c + g), width: c, height: c)
+        }
+        let up = cell(1, 0), left = cell(0, 1), right = cell(2, 1), down = cell(1, 2)
+        #expect(up.maxY < left.minY && up.maxY < right.minY && down.minY > left.maxY && down.minY > right.maxY)
+        #expect(left.maxX < right.minX)
+        #expect(393 - blockRect.maxY >= 40)
+        #expect(abs((393 - cell(1, 1).midY) - 140) <= 4)
+        #expect(c >= HUDStyle.minTouch && g >= 6)
+        #expect(393 - stageRect.maxY >= 24)
+        // Левая колонка: стопка и карточка выше блока; если развёрнутая не помещается — карточка свёрнута.
+        let expandedCard = fitted(MissionCard(model: model, forceCollapsed: false))
+        #expect(expandedCard.height <= MissionCard.expandedHeight)
+        for rows in [3, 5] {
+            let shown = min(rows, StageStackView.maxRows)
+            let stackH = CGFloat(shown) * 22 + CGFloat(shown - 1) * 3
+            let fits = MissionCard.fitsExpanded(stackHeight: stackH, blockTop: blockRect.minY)
+            let card = fitted(MissionCard(model: model, forceCollapsed: !fits))
+            #expect(card.width <= MissionCard.width)
+            let cardRect = CGRect(x: safe + 6, y: 36 + stackH + 6, width: card.width, height: card.height)
+            #expect(cardRect.maxY < blockRect.minY || cardRect.maxX < blockRect.minX)
+            if !fits { #expect(card.height < 40) }
+        }
     }
 }
 

@@ -110,6 +110,11 @@ struct StageStackView: View {
     /// Сколько ступеней показывается в стопке (ближайшие к текущей); остальные — в панели.
     static let maxRows = 4
 
+    /// Сколько строк сейчас в стопке (0…`maxRows`).
+    static func rowCount(model: FlightHUDModel) -> Int {
+        min(StageGroup.groups(parts: model.parts, stages: model.telemetry.stages).count, maxRows)
+    }
+
     var body: some View {
         let groups = StageGroup.groups(parts: model.parts, stages: model.telemetry.stages)
         if !groups.isEmpty {
