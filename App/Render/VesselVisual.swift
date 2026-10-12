@@ -1,6 +1,7 @@
 import OrbitPhysics
 import RealityKit
 import simd
+import UIKit
 
 /// 3D-модель корабля: стек деталей сверху вниз, факелы двигателей, купол парашюта.
 /// Корень — нижняя точка стека (`VesselState.position`), ось +Y — нос.
