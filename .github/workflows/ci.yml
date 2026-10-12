@@ -52,10 +52,14 @@ jobs:
       - name: Снимки
         run: scripts/ci-screens.sh $(cat screens.txt 2>/dev/null || echo flight)
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: screens-${{ github.sha }}
           path: screens/
       - name: Публикация в ветку ci-screens
+        # Ветка с видео большая, push иногда обрывается (HTTP 408) — снимки есть и в артефакте.
+        continue-on-error: true
+        timeout-minutes: 10
         run: |
           DEST="${GITHUB_REF_NAME}/${GITHUB_SHA::7}"
           git config user.name "orbita-ci"
