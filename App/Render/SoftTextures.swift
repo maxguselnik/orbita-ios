@@ -20,6 +20,8 @@ final class SoftTextures {
     private(set) var streak: TextureResource?
     private(set) var plasma: TextureResource?
     private(set) var hat: TextureResource?
+    /// Вертикальный градиент дымки у земли: 0 — низ стенки (плотно), 1 — верх (прозрачно).
+    private(set) var haze: TextureResource?
     private var started = false
 
     var isReady: Bool {
@@ -31,12 +33,13 @@ final class SoftTextures {
         guard !started else { return }
         started = true
         Task { [weak self] in
-            let puff = await Self.make(width: 64, height: 64, Self.puffPixel)
+            let puff = await Self.make(width: 128, height: 128, Self.puffPixel)
             let outer = await Self.make(width: 128, height: 4, Self.plumeOuterPixel)
             let core = await Self.make(width: 128, height: 4, Self.plumeCorePixel)
             let streak = await Self.make(width: 128, height: 4, Self.streakPixel)
             let plasma = await Self.make(width: 128, height: 4, Self.plasmaPixel)
             let hat = await Self.make(width: 128, height: 4, Self.hatPixel)
+            let haze = await Self.make(width: 128, height: 4, Self.hazePixel)
             guard let self else { return }
             self.puff = puff
             self.plumeOuter = outer
@@ -44,6 +47,7 @@ final class SoftTextures {
             self.streak = streak
             self.plasma = plasma
             self.hat = hat
+            self.haze = haze
         }
     }
 
@@ -66,16 +70,19 @@ final class SoftTextures {
         return t * t * (3 - 2 * t)
     }
 
-    /// Мягкий неправильный клуб: радиальное затухание, лёгкая неровность контура.
+    /// Мягкий клуб с неровным («кудрявым») контуром: светлый верх, тёплые светлые края, серо-голубой низ.
     private static let puffPixel: Pixel = { x, y in
         let dx = x * 2 - 1, dy = y * 2 - 1
         let r = (dx * dx + dy * dy).squareRoot()
         let a = atan2(dy, dx)
-        let edge = 1 + 0.10 * sin(3 * a + 1.0) + 0.07 * sin(5 * a + 2.0) + 0.04 * sin(9 * a)
+        let edge = 1 + 0.10 * sin(3 * a + 1.0) + 0.07 * sin(5 * a + 2.0) + 0.05 * sin(9 * a) + 0.035 * sin(14 * a + 0.6)
         let t = 1 - r / edge
-        let alpha = smooth(t * 1.6)
-        let shade = 0.82 + 0.18 * (0.5 - 0.5 * dy)
-        return SIMD4(shade, shade, shade, alpha * alpha * (3 - 2 * alpha))
+        let alpha = smooth(t * 1.5)
+        // Внутри — «бугры»: затемнение в ложбинах, подсветка сверху-слева.
+        let lump = 0.5 + 0.5 * sin(6.0 * dx + 2.0 * sin(5 * dy)) * sin(5.0 * dy + 1.3)
+        let up = 0.5 - 0.5 * dy
+        let shade = 0.70 + 0.30 * up + 0.07 * (lump - 0.5) - 0.06 * smooth(r * 0.9)
+        return SIMD4(shade * 0.98, shade, min(1, shade * 1.04 + 0.03 * (1 - up)), alpha * alpha * (3 - 2 * alpha))
     }
 
     /// Факел: от сопла (x = 0) к концу (x = 1): цвет жёлтый → оранжевый, прозрачность → 0.
@@ -100,6 +107,11 @@ final class SoftTextures {
         let c = SIMD3<Double>(1.0, 0.95, 0.8) + (SIMD3<Double>(1.0, 0.5, 0.15) - SIMD3<Double>(1.0, 0.95, 0.8)) * x
         let a = pow(max(0, 1 - x), 1.2) * (0.35 + 0.65 * smooth(x / 0.1))
         return SIMD4(c.x, c.y, c.z, a)
+    }
+
+    /// Дымка: плотная у земли, к верху плавно в ноль.
+    private static let hazePixel: Pixel = { x, _ in
+        SIMD4(1, 1, 1, pow(max(0, 1 - x), 1.7))
     }
 
     /// Колпак для колец лимба: 0 → 1 → 0 по ширине.
