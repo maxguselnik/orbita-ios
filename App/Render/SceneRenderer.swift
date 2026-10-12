@@ -20,6 +20,10 @@ final class SceneRenderer: FlightRenderer {
 
     /// Корень сцены; добавляется в RealityView.
     let root = Entity()
+    /// Всё полётное (тела, корабли, эффекты, небо); в режиме карты выключено.
+    private let flightRoot = Entity()
+    /// Сцена карты.
+    private let map = MapVisual()
     private let camera = PerspectiveCamera()
     private let sky = SkyVisual()
     private let terra = PlanetLOD(body: .terra)
@@ -43,23 +47,28 @@ final class SceneRenderer: FlightRenderer {
     init() {
         camera.camera.fieldOfViewInDegrees = 60
         camera.camera.near = 0.1
-        camera.camera.far = 1.0e7
+        camera.camera.far = Self.flightFar
         root.addChild(camera)
-        root.addChild(sky.root)
-        root.addChild(terra.root)
-        root.addChild(luna.root)
-        root.addChild(pad.root)
-        root.addChild(atmosphere.root)
-        root.addChild(clouds.root)
-        root.addChild(effects.root)
+        root.addChild(flightRoot)
+        root.addChild(map.root)
+        flightRoot.addChild(sky.root)
+        flightRoot.addChild(terra.root)
+        flightRoot.addChild(luna.root)
+        flightRoot.addChild(pad.root)
+        flightRoot.addChild(atmosphere.root)
+        flightRoot.addChild(clouds.root)
+        flightRoot.addChild(effects.root)
         pad.root.isEnabled = false
 
         Task { [weak self] in
             let terraTex = await Palette.texture([Palette.terraRow, Palette.terraPolarRow])
             let lunaTex = await Palette.texture([Palette.lunaRow, Palette.lunaCraterRow])
             guard let self else { return }
-            self.terra.material = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1))
-            self.luna.material = Self.terrainMaterial(lunaTex, fallback: UIColor(white: 0.5, alpha: 1))
+            let terraMat = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1))
+            let lunaMat = Self.terrainMaterial(lunaTex, fallback: UIColor(white: 0.5, alpha: 1))
+            self.terra.material = terraMat
+            self.luna.material = lunaMat
+            self.map.setMaterials(terra: terraMat, luna: lunaMat)
         }
     }
 
@@ -75,8 +84,58 @@ final class SceneRenderer: FlightRenderer {
     }
 
     func apply(_ input: CameraInput) {
+        if isMapMode {
+            if input.reset {
+                map.camera.needsDefault = true
+            } else {
+                map.camera.apply(orbit: input.orbitDelta, zoom: input.zoomFactor)
+            }
+            return
+        }
         rig.apply(orbit: input.orbitDelta, zoom: input.zoomFactor, reset: input.reset)
     }
+
+    // MARK: - Карта
+
+    var isMapMode = false {
+        didSet {
+            guard isMapMode != oldValue else { return }
+            flightRoot.isEnabled = !isMapMode
+            map.root.isEnabled = isMapMode
+            if isMapMode {
+                map.willShow()
+            } else {
+                // Полётная камера: следующий `update` вернёт положение, поле зрения и ближнюю плоскость.
+                camera.camera.far = Self.flightFar
+            }
+        }
+    }
+
+    var mapFocus: MapFocus {
+        get { map.focus }
+        set { map.focus = newValue }
+    }
+
+    var viewSize: CGSize {
+        get { map.viewSize }
+        set { map.viewSize = newValue }
+    }
+
+    func updateMap(_ snapshot: MapSnapshot) {
+        map.updateMap(snapshot)
+    }
+
+    func project(_ position: Vec3, body: BodyID) -> CGPoint? {
+        guard isMapMode else { return nil }
+        return map.project(position, body: body)
+    }
+
+    func orbitPick(at point: CGPoint, maxDistance: CGFloat) -> Double? {
+        guard isMapMode else { return nil }
+        return map.orbitPick(at: point, maxDistance: maxDistance)
+    }
+
+    private static let flightFar: Float = 1.0e7
 
     /// Новый полёт: убрать корабли, обломки и эффекты, сбросить камеру и внутреннее состояние.
     func reset() {
@@ -95,9 +154,15 @@ final class SceneRenderer: FlightRenderer {
         clouds.reset()
         effects.reset()
         shake = CameraShake()
+        map.reset()
     }
 
     func update(snapshot: WorldSnapshot, events: [SimEvent], frameDelta: Double) {
+        if isMapMode {
+            // Полёт не обновляется: только карта и её камера.
+            map.update(snapshot: snapshot, dt: frameDelta, camera: camera)
+            return
+        }
         guard let active = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel }) ?? snapshot.vessels.first
         else { return }
         renderTime += frameDelta
@@ -216,7 +281,7 @@ final class SceneRenderer: FlightRenderer {
                 ex.fixedDirection = World.toBodyFixed(vec3(dir), body: frame, time: snapshot.time)
                 ex.fixedRadius = body.radius + gh
                 explosions.append(ex)
-                root.addChild(ex.root)
+                flightRoot.addChild(ex.root)
             }
         } else {
             exploded.remove(active.id)
@@ -294,7 +359,7 @@ final class SceneRenderer: FlightRenderer {
         }
         let vis = VesselVisual(parts: v.parts)
         vessels[v.id] = vis
-        root.addChild(vis.root)
+        flightRoot.addChild(vis.root)
         return vis
     }
 }
