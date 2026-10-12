@@ -417,6 +417,8 @@ public struct WorldSnapshot: Sendable {
 
 public enum WarpResetReason: String, Sendable, Hashable, Codable {
     case atmosphere, terrain, thrust, soiChange
+    /// `warpToManeuver`: до начала прожига осталось `ManeuverStatus.warpLead` с.
+    case maneuver
 }
 
 /// Одноразовые события шага; звук, вибрация, эффекты и подсказки реагируют на них.
