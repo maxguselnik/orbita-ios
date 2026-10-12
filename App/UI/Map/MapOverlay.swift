@@ -22,14 +22,10 @@ struct MapOverlayFrame: View {
     /// Время кадра: новая дата — новая проекция.
     let date: Date
 
-    var body: some View {
-        let map = model.map
-        let snapshot = map.snapshot
-        let node = NodeHandleLayout(snapshot: snapshot, map: map)
-        let nodeCenter = node?.center
-        // Подписи не должны ложиться на значок корабля, точку узла и ручки Δv.
+    /// Подписи не должны ложиться на значок корабля, точку узла и ручки Δv.
+    private static func obstacles(_ model: FlightHUDModel, node: NodeHandleLayout?) -> [CGRect] {
         var obstacles: [CGRect] = []
-        if let vessel = Self.vesselPoint(model) {
+        if let vessel = vesselPoint(model) {
             obstacles.append(CGRect(x: vessel.x - 24, y: vessel.y - 24, width: 48, height: 48))
         }
         if let node {
@@ -38,7 +34,15 @@ struct MapOverlayFrame: View {
                 obstacles.append(CGRect(x: item.point.x - 22, y: item.point.y - 22, width: 44, height: 44))
             }
         }
-        let labels = MapLabel.layout(snapshot.markers, map: map, obstacles: obstacles)
+        return obstacles
+    }
+
+    var body: some View {
+        let map = model.map
+        let snapshot = map.snapshot
+        let node = NodeHandleLayout(snapshot: snapshot, map: map)
+        let nodeCenter = node?.center
+        let labels = MapLabel.layout(snapshot.markers, map: map, obstacles: Self.obstacles(model, node: node))
         ZStack(alignment: .topLeading) {
             Canvas { context, _ in
                 for label in labels {
