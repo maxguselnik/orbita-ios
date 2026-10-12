@@ -190,7 +190,7 @@ final class SceneRenderer: FlightRenderer {
 
         // Камера в нуле; ближняя плоскость — по ближайшему объекту.
         // Смотрим чуть ниже цели: корабль выше центра кадра, факел и земля не под навболом.
-        let lookPoint = target - cam.up * (camToTarget * 0.2)
+        let lookPoint = target - cam.up * (camToTarget * 0.12)
         camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
         let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)
         var near = clampd(0.25 * min(toVessel, clearance), 0.05, 1_000)
