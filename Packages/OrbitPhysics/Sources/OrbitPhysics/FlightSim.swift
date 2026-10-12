@@ -18,13 +18,17 @@ struct Vessel {
     var fixedAtt: Quat?
     var chute: ChuteState
     var chuteDeploy = 0.0
+    /// Рифление снято: купол наполняется до полного (вторая фаза раскрытия).
+    var chuteDisreefed = false
     var isActive: Bool
 
     var isOnSurface: Bool { situation == .prelaunch || situation == .landed || situation == .splashed }
 
     var state: VesselState {
         VesselState(id: id, body: body, position: r, velocity: v, attitude: q, angularVelocity: w,
-                    mass: ship.mass, throttle: throttle, situation: situation, isActive: isActive)
+                    mass: ship.mass, throttle: throttle, situation: situation, isActive: isActive,
+                    parts: ship.parts.map(\.id), firingEngines: ship.firingEngines(throttle: throttle),
+                    chute: chute, chuteDeploy: chuteDeploy)
     }
 }
 
@@ -44,6 +48,16 @@ public final class FlightSim: FlightSimulation {
     /// Высота, ниже которой парашют может раскрыться, м; и предельная скорость, м/с.
     public static let chuteMaxAltitude = 34_000.0
     public static let chuteMaxSpeed = 450.0
+    /// Раскрытие купола (доля диаметра, 0…1): первая фаза — рифлёный купол до `chuteReefedDeploy`,
+    /// вторая — полный купол ниже `chuteDisreefHeight` над грунтом или медленнее `chuteDisreefSpeed`.
+    static let chuteReefedDeploy = 0.3
+    static let chuteDisreefHeight = 1_500.0
+    static let chuteDisreefSpeed = 250.0
+    /// Скорость наполнения купола, доля диаметра в секунду.
+    static let chuteInflationRate = 0.3
+    /// Предельная перегрузка от сопротивления, при которой купол ещё наполняется, g:
+    /// при большем скоростном напоре наполнение ждёт (как рифовочный шнур/слайдер).
+    static let chuteMaxLoad = 7.0
 
     public private(set) var snapshot = WorldSnapshot.empty
     public private(set) var time: Double
@@ -68,6 +82,13 @@ public final class FlightSim: FlightSimulation {
     private var lastProperAccel = 0.0
     private var qPeak = 0.0
     private var qPeakReported = false
+
+    /// Время «на рельсах», не досчитанное из-за бюджета вызовов Кеплера: переносится на следующий кадр.
+    private(set) var railsBacklog = 0.0
+    /// Бюджет вызовов Кеплера для активного корабля за кадр «на рельсах».
+    static let railsKeplerBudget = 48
+    /// Вызовы Кеплера для активного корабля в последнем кадре «на рельсах» (для тестов и замеров).
+    private(set) var lastRailsKeplerCalls = 0
 
     // MARK: Создание
 
@@ -163,15 +184,27 @@ public final class FlightSim: FlightSimulation {
         }
         let w = TimeWarp.levels[warpIndex]
         if warpIndex < TimeWarp.physicalCount {
-            let total = realDelta * w
-            let n = max(1, Int((total / Self.maxStep).rounded(.up)))
-            let h = total / Double(n)
-            for _ in 0..<n { step(h) }
+            railsBacklog = 0
+            physicalAdvance(realDelta * w)
         } else {
-            railsAdvance(realDelta * w)
+            let total = realDelta * w + railsBacklog
+            railsBacklog = 0
+            let unused = railsAdvance(total)
+            // Авто-сброс посреди кадра: остаток реального времени кадра — физикой на новом уровне.
+            if unused > 0 && warpIndex < TimeWarp.physicalCount {
+                let realLeft: Double = realDelta * min(1, unused / total)
+                physicalAdvance(realLeft * TimeWarp.levels[warpIndex])
+            }
         }
         rebuildSnapshot()
         return events
+    }
+
+    private func physicalAdvance(_ total: Double) {
+        guard total > 0 else { return }
+        let n = max(1, Int((total / Self.maxStep).rounded(.up)))
+        let h = total / Double(n)
+        for _ in 0..<n { step(h) }
     }
 
     // MARK: Ускорение времени
@@ -179,8 +212,10 @@ public final class FlightSim: FlightSimulation {
     /// Почему сейчас нельзя «на рельсы» (nil — можно).
     public func railsBlockReason() -> WarpResetReason? {
         let v = active
-        if v.isOnSurface || v.situation == .crashed { return nil }
+        if v.situation == .crashed { return nil }
+        // Тяга проверяется раньше «на поверхности»: с работающим двигателем рельсы нельзя и на грунте.
         if v.ship.isThrusting(throttle: v.throttle) { return .thrust }
+        if v.isOnSurface { return nil }
         let alt = v.r.length - Bodies.body(v.body).radius
         if alt < World.railsMinimumAltitude(v.body) { return v.body == .terra ? .atmosphere : .terrain }
         return nil
@@ -192,12 +227,15 @@ public final class FlightSim: FlightSimulation {
             i = TimeWarp.physicalCount - 1
             events.append(.warpReset(reason))
         }
+        // Перенесённый остаток рельсов отменяется только при смене уровня.
+        if i != warpIndex { railsBacklog = 0 }
         warpIndex = i
     }
 
     private func resetWarp(_ reason: WarpResetReason) {
         if warpIndex > 0 {
             warpIndex = 0
+            railsBacklog = 0
             events.append(.warpReset(reason))
         }
     }
@@ -351,17 +389,19 @@ public final class FlightSim: FlightSimulation {
         let va = vAir.length
         let qd = 0.5 * rho * va * va
 
+        // Сопротивление корпуса (растёт с углом атаки).
+        let vh = va > 0.05 ? vAir / va : Vec3.zero
+        let cosA = nose.dot(vh)
+        let sin2 = max(0, 1 - cosA * cosA)
+        let bodyCdA = s.ship.dragArea * (1 + 2.5 * sin2)
+
         // Парашют.
         if s.chute == .armed && rho > 0 && alt < Self.chuteMaxAltitude && va < Self.chuteMaxSpeed {
             s.chute = .deploying
             events.append(.chuteDeployed)
         }
         if s.chute == .deploying {
-            s.chuteDeploy = min(1, s.chuteDeploy + h * 0.3)
-            if s.chuteDeploy >= 1 {
-                s.chute = .open
-                events.append(.chuteOpened)
-            }
+            updateChute(&s, h, altitude: alt, airSpeed: va, dynamicPressure: qd, bodyCdA: bodyCdA, mass: m)
         }
         let chuteOut = s.chute == .deploying || s.chute == .open
 
@@ -369,11 +409,9 @@ public final class FlightSim: FlightSimulation {
         var dragAcc = Vec3.zero
         var aeroAlpha = Vec3.zero
         if va > 0.05 && rho > 0 {
-            let vh = vAir / va
-            let cosA = nose.dot(vh)
-            let sin2 = max(0, 1 - cosA * cosA)
-            let chA = chuteOut ? chuteFullCdA * pow(s.chuteDeploy, 3) : 0
-            let cda = s.ship.dragArea * (1 + 2.5 * sin2) + chA
+            let d3: Double = s.chuteDeploy * s.chuteDeploy * s.chuteDeploy
+            let chA: Double = chuteOut ? chuteFullCdA * d3 : 0
+            let cda = bodyCdA + chA
             let dAcc = min(qd * cda / m, va * 0.9 / h)
             dragAcc = vh * -dAcc
             let target = (chuteOut || s.ship.retroStable) ? -vh : vh
@@ -441,6 +479,32 @@ public final class FlightSim: FlightSimulation {
         }
         s.situation = classify(s)
         vessels[ai] = s
+    }
+
+    /// Наполнение купола: две фазы (рифлёный → полный) и ограничение по нагрузке.
+    private func updateChute(_ s: inout Vessel, _ h: Double, altitude alt: Double, airSpeed va: Double,
+                             dynamicPressure qd: Double, bodyCdA: Double, mass m: Double) {
+        if !s.chuteDisreefed && s.chuteDeploy >= Self.chuteReefedDeploy - 1e-9 {
+            let rm: Double = s.r.length
+            let dir = World.toBodyFixed(s.r / rm, body: s.body, time: time)
+            let height: Double = alt - Terrain.surfaceHeight(body: s.body, direction: dir)
+            if height < Self.chuteDisreefHeight || va < Self.chuteDisreefSpeed { s.chuteDisreefed = true }
+        }
+        let target: Double = s.chuteDisreefed ? 1 : Self.chuteReefedDeploy
+        var d: Double = min(target, s.chuteDeploy + h * Self.chuteInflationRate)
+        if qd > 0 {
+            // Купол наполняется, только пока перегрузка от сопротивления не выше предела.
+            let allowed: Double = Self.chuteMaxLoad * standardGravity * m / qd - bodyCdA
+            let frac: Double = clamp(allowed / chuteFullCdA, 0, 1)
+            let dMax: Double = cbrt(frac)
+            d = max(s.chuteDeploy, min(d, dMax))
+        }
+        s.chuteDeploy = d
+        if d >= 1 {
+            s.chuteDeploy = 1
+            s.chute = .open
+            events.append(.chuteOpened)
+        }
     }
 
     private func attitude(_ s: inout Vessel, _ h: Double, mass m: Double, firing: Bool, aero: Vec3) {
@@ -578,9 +642,23 @@ public final class FlightSim: FlightSimulation {
 
     // MARK: Рельсы
 
-    private func railsAdvance(_ total: Double) {
+    /// Событие на участке «на рельсах».
+    private enum RailsEvent {
+        /// Ниже минимальной высоты рельсов (атмосфера/рельеф) — сброс ускорения.
+        case low
+        /// Пересечение границы SOI.
+        case soi
+        /// Исчерпан бюджет вызовов Кеплера — остаток переносится на следующий кадр.
+        case budget
+    }
+
+    /// «Рельсы» для всех кораблей на `total` секунд. Момент входа в атмосферу/к рельефу и выхода
+    /// из SOI Луны — аналитически по элементам орбиты, вход в SOI Луны — консервативным поиском
+    /// с гарантированной оценкой |f''|. Возвращает время, не прожитое на рельсах из-за авто-сброса.
+    private func railsAdvance(_ total: Double) -> Double {
         lastThrust = 0
         lastSolidThrust = 0
+        lastRailsKeplerCalls = 0
         // Отделённые ступени в атмосфере на рельсах не моделируются — удаляются.
         vessels.removeAll { d in
             guard !d.isActive, !d.isOnSurface else { return false }
@@ -591,51 +669,161 @@ public final class FlightSim: FlightSimulation {
             railsOthers(total)
             time += total
             for k in vessels.indices where vessels[k].isOnSurface { updateLanded(k) }
-            return
+            return 0
         }
         var rem = total
-        var guardN = 0
         let idx = activeIndex
         vessels[idx].w = .zero
         lastProperAccel = 0
-        while rem > 1e-9 && guardN < 2_000 {
-            guardN += 1
+        var calls = 0
+        defer { lastRailsKeplerCalls = calls }
+        // Участков немного: событие SOI/высоты завершает кадр, участок без события — последний.
+        for _ in 0..<8 where rem > 1e-9 {
             let s = vessels[idx]
             let b = Bodies.body(s.body)
-            let rm = s.r.length
-            let vm = s.v.length
-            let vr = s.r.dot(s.v) / rm
-            let alt = rm - b.radius
-            let thr = World.railsMinimumAltitude(s.body)
-            var ch = min(rem, 120)
-            if vr < 0 { ch = min(ch, max(0.5, (alt - thr) / -vr * 0.5)) }
-            if s.body == .terra {
-                let d = (s.r - World.lunaPosition(at: time)).length - Bodies.luna.soiRadius
-                ch = min(ch, max(0.5, d / (vm + 700) * 0.8))
-            } else {
-                ch = min(ch, max(0.5, (Bodies.luna.soiRadius - rm) / (vm + 1) * 0.8))
+            let mu = b.mu
+            var horizon = rem
+            var event: RailsEvent?
+            // Время события плюс небольшой запас, чтобы оказаться по ту сторону границы.
+            let nudge = 0.01
+            let rLow: Double = b.radius + World.railsMinimumAltitude(s.body)
+            if let t = Kepler.timeToRadius(rLow, position: s.r, velocity: s.v, mu: mu, outbound: false),
+               t <= horizon {
+                horizon = min(horizon, t + nudge)
+                event = .low
             }
-            let sv = Kepler.propagate(position: s.r, velocity: s.v, mu: b.mu, dt: ch)
+            if s.body == .luna,
+               let t = Kepler.timeToRadius(b.soiRadius, position: s.r, velocity: s.v, mu: mu, outbound: true),
+               t < horizon {
+                horizon = min(horizon, t + nudge)
+                event = .soi
+            }
+            var end: StateVector?
+            if s.body == .terra {
+                switch lunaEntrySearch(s, horizon: horizon, calls: &calls) {
+                case .none: break
+                case .entry(let t, let sv):
+                    horizon = t
+                    end = sv
+                    event = .soi
+                case .budget(let t, let sv):
+                    horizon = t
+                    end = sv
+                    event = .budget
+                }
+            }
+            var sv: StateVector
+            if let e = end {
+                sv = e
+            } else {
+                sv = Kepler.propagate(position: s.r, velocity: s.v, mu: mu, dt: horizon)
+                calls += 1
+            }
+            // Страховка (почти параболическая орбита, где аналитика не применяется):
+            // конец участка ниже минимальной высоты или за SOI — ищем пересечение бисекцией.
+            if event == nil {
+                let outside = s.body == .luna && sv.position.length > b.soiRadius
+                if sv.position.length < rLow || outside {
+                    var lo = 0.0, hi = horizon
+                    var hiState = sv
+                    for _ in 0..<30 {
+                        let mid = 0.5 * (lo + hi)
+                        let m = Kepler.propagate(position: s.r, velocity: s.v, mu: mu, dt: mid)
+                        calls += 1
+                        if m.position.length < rLow || (s.body == .luna && m.position.length > b.soiRadius) {
+                            hi = mid
+                            hiState = m
+                        } else {
+                            lo = mid
+                        }
+                    }
+                    horizon = hi
+                    sv = hiState
+                    event = sv.position.length < rLow ? .low : .soi
+                }
+            }
             vessels[idx].r = sv.position
             vessels[idx].v = sv.velocity
-            railsOthers(ch)
-            time += ch
-            rem -= ch
+            railsOthers(horizon)
+            time += horizon
+            rem -= horizon
             for k in vessels.indices where vessels[k].isOnSurface { updateLanded(k) }
             let oldBody = vessels[idx].body
             checkSOI(idx)
             for k in vessels.indices where k != idx { checkSOI(k) }
+            // Смена SOI сбрасывает ускорение (checkSOI → resetWarp).
             if vessels[idx].body != oldBody { break }
-            let s2 = vessels[idx]
-            let b2 = Bodies.body(s2.body)
-            let rm2 = s2.r.length
-            let vr2 = s2.r.dot(s2.v) / rm2
-            if rm2 - b2.radius < World.railsMinimumAltitude(s2.body) && vr2 < 0 {
-                resetWarp(s2.body == .terra ? .atmosphere : .terrain)
+            if event == .low {
+                resetWarp(s.body == .terra ? .atmosphere : .terrain)
+                break
+            }
+            if event == .budget {
+                railsBacklog = rem
+                rem = 0
                 break
             }
         }
+        if rem > 1e-9 && warpIndex >= TimeWarp.physicalCount {
+            // Рельсы не сброшены, но участки кончились — остаток не теряется.
+            railsBacklog += rem
+            rem = 0
+        }
         vessels[idx].situation = classify(vessels[idx])
+        return max(0, rem)
+    }
+
+    private enum EntrySearch {
+        case none
+        case entry(Double, StateVector)
+        case budget(Double, StateVector)
+    }
+
+    /// Поиск входа в SOI Луны на интервале [0, horizon] для корабля в системе Терры.
+    ///
+    /// f(t) = |r − r_Луны| − R_SOI. Шаг выбирается так, чтобы f не могла обнулиться:
+    /// f(t+τ) ≥ f + f'·τ − A·τ²/2, где A — гарантированная граница |f''| в области
+    /// f ≤ 2f + 1000 км (радиус там не меньше rLo, скорость относительно Луны не больше v_rel).
+    /// Шаг не длиннее (1000 км + f)/v_rel — за него из этой области не выйти.
+    /// Вдали от Луны шаг большой, у границы сходится как метод Ньютона; касание SOI не дробит шаг.
+    private func lunaEntrySearch(_ s: Vessel, horizon: Double, calls: inout Int) -> EntrySearch {
+        let mu: Double = Bodies.terra.mu
+        let soi: Double = Bodies.luna.soiRadius
+        let rL: Double = Bodies.luna.orbitRadius
+        let el = OrbitElements(position: s.r, velocity: s.v, mu: mu)
+        if el.apoapsisRadius < rL - soi || el.periapsisRadius > rL + soi { return .none }
+        let omega: Double = World.lunaAngularRate
+        let vL: Double = rL * omega
+        let aL: Double = vL * omega
+        let alpha: Double = 2 / s.r.length - s.v.lengthSquared / mu
+        // Наименьший радиус на будущей траектории.
+        var rMin: Double = el.periapsisRadius
+        if el.timeToPeriapsis == nil { rMin = s.r.length }
+        func speed(_ r: Double) -> Double { max(0, mu * (2 / r - alpha)).squareRoot() }
+        let margin = 1_000_000.0
+        var t = 0.0
+        var st = StateVector(position: s.r, velocity: s.v)
+        while true {
+            let lp = World.lunaPosition(at: time + t)
+            let lv = World.lunaVelocity(at: time + t)
+            let d: Vec3 = st.position - lp
+            let dm: Double = d.length
+            let f: Double = dm - soi
+            if f <= 0 { return .entry(t, st) }
+            let fd: Double = d.dot(st.velocity - lv) / dm
+            let reach: Double = 2 * f + margin
+            let rLo: Double = max(rMin, rL - soi - reach, 1)
+            let vRel: Double = speed(rLo) + vL
+            let accBound: Double = vRel * vRel / soi + mu / (rLo * rLo) + aL
+            var dt: Double = (fd + (fd * fd + 2 * accBound * f).squareRoot()) / accBound
+            dt = min(dt, (f + margin) / vRel)
+            dt = max(dt, 0.2)
+            if t + dt >= horizon { return .none }
+            // Последний вызов бюджета — на итоговый шаг участка.
+            if calls >= Self.railsKeplerBudget - 1 { return .budget(t, st) }
+            t += dt
+            st = Kepler.propagate(position: s.r, velocity: s.v, mu: mu, dt: t)
+            calls += 1
+        }
     }
 
     private func railsOthers(_ dt: Double) {

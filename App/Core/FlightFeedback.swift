@@ -1,6 +1,7 @@
 import OrbitPhysics
 
-/// Связывает кадр полёта со звуком, вибрацией и наклоном (поток D) по настройкам.
+/// Раздаёт кадр полёта рендеру (B), звуку, вибрации и наклону (D) по настройкам;
+/// принимает жесты камеры от UI (C).
 @MainActor
 final class FlightFeedback {
     private let settings: GameSettings
@@ -8,6 +9,8 @@ final class FlightFeedback {
     private let haptics: any FlightHaptics
     private let tilt = TiltInput()
     private var paused = false
+    /// 3D-сцена; подключает RootView.
+    var renderer: (any FlightRenderer)?
 
     init(settings: GameSettings,
          audio: any FlightAudio = ProceduralAudio(),
@@ -24,10 +27,21 @@ final class FlightFeedback {
         return (sample.pitch, sample.roll)
     }
 
-    func frame(snapshot: WorldSnapshot, events: [SimEvent]) {
+    func frame(snapshot: WorldSnapshot, events: [SimEvent], frameDelta: Double) {
+        renderer?.update(snapshot: snapshot, events: events, frameDelta: frameDelta)
         syncSettings()
         audio.update(snapshot: snapshot, events: events)
         haptics.update(snapshot: snapshot, events: events)
+    }
+
+    /// Жесты камеры за кадр (C → B).
+    func camera(_ input: CameraInput) {
+        renderer?.apply(input)
+    }
+
+    var cameraMode: CameraMode {
+        get { renderer?.cameraMode ?? .follow }
+        set { renderer?.cameraMode = newValue }
     }
 
     func setPaused(_ value: Bool) {

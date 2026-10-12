@@ -132,6 +132,51 @@ public enum Kepler {
         return rk4(position: r0, velocity: v0, mu: mu, dt: dt, step: max(1, abs(dt) / 20_000))
     }
 
+    // MARK: Время до радиуса
+
+    /// Ближайшее время t ≥ 0, когда расстояние до центра станет равным `radius`
+    /// на участке роста (`outbound`) или убывания радиуса; nil — не достигается
+    /// (или орбита почти круговая/параболическая — тогда вызывающий проверяет численно).
+    /// Аналитически через эксцентрическую (гиперболическую) аномалию, без вызовов пропагатора.
+    static func timeToRadius(_ radius: Double, position r0: Vec3, velocity v0: Vec3, mu: Double,
+                             outbound: Bool) -> Double? {
+        let r0m: Double = r0.length
+        let v2: Double = v0.lengthSquared
+        let rv: Double = r0.dot(v0)
+        let alpha: Double = 2 / r0m - v2 / mu
+        let eVec: Vec3 = ((v2 - mu / r0m) * r0 - rv * v0) / mu
+        let e: Double = eVec.length
+        if abs(alpha) * r0m < 1e-9 || e < 1e-9 { return nil }
+        if alpha > 0 {
+            let a: Double = 1 / alpha
+            let cosT: Double = (1 - radius / a) / e
+            guard cosT >= -1 && cosT <= 1 else { return nil }
+            let et0: Double = acos(cosT)
+            let et: Double = outbound ? et0 : 2 * Double.pi - et0
+            let c0: Double = (1 - r0m / a) / e
+            let s0: Double = rv / (e * (mu * a).squareRoot())
+            let e0: Double = atan2(s0, c0)
+            let n: Double = (mu / (a * a * a)).squareRoot()
+            let m0: Double = e0 - e * sin(e0)
+            let mt: Double = et - e * sin(et)
+            var dm: Double = wrap2Pi(mt - m0)
+            // Уже на радиусе (погрешность округления дала почти полный оборот).
+            if dm > 2 * Double.pi - 1e-10 { dm = 0 }
+            return dm / n
+        }
+        let a: Double = -1 / alpha
+        let coshT: Double = (1 + radius / a) / e
+        guard coshT >= 1 else { return nil }
+        let ft0: Double = acosh(coshT)
+        let ft: Double = outbound ? ft0 : -ft0
+        let f0: Double = asinh(rv / (e * (mu * a).squareRoot()))
+        let n: Double = (mu / (a * a * a)).squareRoot()
+        let mt: Double = e * sinh(ft) - ft
+        let m0: Double = e * sinh(f0) - f0
+        let dt: Double = (mt - m0) / n
+        return dt >= -1e-9 ? max(0, dt) : nil
+    }
+
     // MARK: RK4
 
     /// Численное интегрирование задачи двух тел методом RK4 с шагом ≤ `step`.

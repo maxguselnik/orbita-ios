@@ -3,22 +3,25 @@ import SwiftUI
 
 struct RootView: View {
     @Environment(GameSettings.self) private var settings
-    /// Пока без ангара: полёт пресета «Орбита» на настоящей физике. MockFlight — для превью.
-    @State private var flight = FlightHUDModel(makeSimulation: { FlightSim(design: .orbit) })
+    /// Пока без ангара: сценарий из аргумента запуска (по умолчанию «Орбита» на площадке). MockFlight — для превью.
+    @State private var flight = FlightHUDModel(makeSimulation: { DemoScenario.current.makeSimulation() })
+    @State private var renderer = SceneRenderer()
 
     var body: some View {
         ZStack {
-            FlightSceneView()
+            FlightSceneView(renderer: renderer)
                 .ignoresSafeArea()
 
-            FlightHUDView(model: flight)
+            FlightHUDView(model: flight, frameRate: settings.frameRate)
         }
         .background(.black)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
         .onAppear {
             if flight.feedback == nil {
-                flight.feedback = FlightFeedback(settings: settings)
+                let feedback = FlightFeedback(settings: settings)
+                feedback.renderer = renderer
+                flight.feedback = feedback
             }
         }
     }

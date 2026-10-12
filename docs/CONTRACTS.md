@@ -26,9 +26,14 @@ UI (C) ── CameraInput ──┘
 - `stages[0]` — текущая ступень; отдельного номера ступени нет.
 - `SimEvent` — одноразовые события шага для звука, вибрации, эффектов, подсказок.
 
+- `VesselState.parts` (сверху вниз), `firingEngines` (индексы деталей с факелом), `chute`, `chuteDeploy` 0…1 — для рендера корабля и отделённых ступеней.
+- Оси корабля: нос +Y, спина +Z, правый борт +X; pitch>0 — нос к +Z, yaw>0 — к +X, roll>0 — правый борт вниз. На площадке +X — восток, +Z — юг. `position` — нижняя точка стека; `angularVelocity` — инерциальная.
+
 ## Приложение — `App/Core/AppContracts.swift`
 - `FlightRenderer` (B): floating origin — рендер вычитает позицию активного корабля и переводит в Float сам. Принимает `CameraInput` от C.
 - `FlightAudio`, `FlightHaptics` (D): реагируют на снимок и события, выключаются флагом `isEnabled` (из `GameSettings`).
+- `FlightFeedback` (ведущий): каждый кадр раздаёт снимок рендеру (`renderer.update`), звуку и вибрации; жесты камеры из UI идут через `feedback.camera(_:)` и `feedback.cameraMode`.
+- `DemoScenario` (ведущий): аргумент запуска `-screen flight|ascent|staging|orbit|lunaApproach|lunaSurface` — стартовое состояние для CI-скриншотов и отладки (`screens.txt` — список снимаемых сцен).
 - `GameSettings`: частота кадров 60/90/120 (по умолчанию 90), звук, вибрация, наклон (выкл.).
 
 ## Владение папками
