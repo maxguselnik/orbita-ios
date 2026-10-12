@@ -82,7 +82,7 @@ struct HUDMetric: View {
     }
 }
 
-/// Ускорение времени: тап — список уровней из `TimeWarp.levels`.
+/// Ускорение времени: тап — список уровней из `TimeWarp.levels` и «До узла манёвра», если узел есть.
 struct WarpMenu: View {
     let model: FlightHUDModel
 
@@ -91,6 +91,13 @@ struct WarpMenu: View {
         Menu {
             if let reason = t.blocked {
                 Text(verbatim: "Выше \(HUDFormat.warp(TimeWarp.levels[TimeWarp.physicalCount - 1])) нельзя: \(FlightHUDModel.warpReasonText(reason))")
+            }
+            if model.hasManeuver {
+                Button {
+                    model.warpToManeuver()
+                } label: {
+                    Label("До узла манёвра", systemImage: "forward.end.fill")
+                }
             }
             ForEach(Array(TimeWarp.levels.enumerated()), id: \.offset) { index, factor in
                 Button {

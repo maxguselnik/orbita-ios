@@ -3,7 +3,7 @@ import simd
 import SwiftUI
 
 /// Навбол снизу по центру: шкала скорости/курса (тап — орбита/поверхность), 3D-сфера,
-/// слева от сферы — переключатель режима камеры.
+/// слева от сферы — переключатель режима камеры и плашка узла манёвра.
 struct NavballView: View {
     let model: FlightHUDModel
 
@@ -19,8 +19,15 @@ struct NavballView: View {
             NavballSphere(telemetry: t, frame: frame)
                 .frame(width: Self.diameter, height: Self.diameter)
                 .overlay(alignment: .bottomLeading) {
-                    CameraModeButton(model: model)
-                        .offset(x: -(CameraModeButton.width + 12))
+                    // Слева от сферы: плашка узла манёвра (если есть) над кнопкой камеры.
+                    VStack(alignment: .trailing, spacing: 6) {
+                        if let status = t.maneuver {
+                            ManeuverBadge(status: status) { model.toggleMap() }
+                        }
+                        CameraModeButton(model: model)
+                    }
+                    .fixedSize()
+                    .alignmentGuide(.leading) { $0[.trailing] + 12 }
                 }
         }
     }
@@ -120,6 +127,7 @@ enum NavballPalette {
     static let prograde = Color(red: 0.85, green: 0.95, blue: 0.2)
     static let normal = Color(red: 0.90, green: 0.45, blue: 1.0)
     static let radial = Color(red: 0.35, green: 0.88, blue: 1.0)
+    static let maneuver = Color(red: 0.25, green: 0.55, blue: 1.0)
 }
 
 // MARK: - Сфера
@@ -186,6 +194,7 @@ struct NavballSphere: View {
             (.antiNormal, n.normal.map { -$0 }, NavballPalette.normal),
             (.radialOut, n.radialOut, NavballPalette.radial),
             (.radialIn, n.radialOut.map { -$0 }, NavballPalette.radial),
+            (.maneuver, n.maneuver, NavballPalette.maneuver),
         ]
         return candidates.compactMap { mode, vector, color in
             guard let vector, vector.y > 0.02 else { return nil }

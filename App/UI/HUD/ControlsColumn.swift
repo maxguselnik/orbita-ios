@@ -20,7 +20,7 @@ struct ControlsColumn: View {
 
 // MARK: - SAS
 
-/// Сетка SAS: держать, прогрейд, ретрогрейд / нормаль, антинормаль, наружу / внутрь, вкл-выкл.
+/// Сетка SAS: держать, прогрейд, ретрогрейд / нормаль, антинормаль, наружу / внутрь, узел, вкл-выкл.
 struct SASGrid: View {
     let model: FlightHUDModel
 
@@ -41,18 +41,10 @@ struct SASGrid: View {
             }
             GridRow {
                 modeButton(.radialIn, current)
-                Button {
-                    model.toggleSAS()
-                } label: {
-                    VStack(spacing: 1) {
-                        Text("SAS").font(.system(size: 15, weight: .heavy))
-                        Text(current == .off ? "выкл" : "вкл").font(.system(size: 9, weight: .bold))
-                    }
-                    .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch)
-                }
-                .buttonStyle(HUDButtonStyle(isActive: current != .off))
-                .gridCellColumns(2)
-                .accessibilityLabel(current == .off ? "Включить SAS" : "Выключить SAS")
+                modeButton(.maneuver, current)
+                    .disabled(!model.hasManeuver && current != .maneuver)
+                    .opacity(model.hasManeuver || current == .maneuver ? 1 : 0.45)
+                SASToggleButton(model: model)
             }
         }
         .frame(width: Self.cell * 3 + 8)
@@ -85,6 +77,7 @@ struct SASGrid: View {
         case .antiNormal: "АНТИ"
         case .radialOut: "НАРУЖ"
         case .radialIn: "ВНУТРЬ"
+        case .maneuver: "УЗЕЛ"
         }
     }
 
@@ -98,6 +91,7 @@ struct SASGrid: View {
         case .antiNormal: "По антинормали"
         case .radialOut: "Радиально наружу"
         case .radialIn: "Радиально внутрь"
+        case .maneuver: "По узлу манёвра"
         }
     }
 }
@@ -163,8 +157,42 @@ struct SASIcon: View {
                     rays.addLine(to: CGPoint(x: c.x + CGFloat(cos(a)) * outer, y: c.y + CGFloat(sin(a)) * outer))
                 }
                 context.stroke(rays, with: shading, style: style)
+            case .maneuver:
+                // Кольцо и три уголка, смотрящие внутрь, — «по узлу».
+                context.stroke(circle(r * 0.4), with: shading, style: style)
+                var chevrons = Path()
+                for k in 0..<3 {
+                    let a = Double(k) * 2 * .pi / 3 - .pi / 2
+                    let tip = CGPoint(x: c.x + CGFloat(cos(a)) * r * 0.62, y: c.y + CGFloat(sin(a)) * r * 0.62)
+                    for side in [-0.45, 0.45] {
+                        let b = a + side
+                        chevrons.move(to: CGPoint(x: c.x + CGFloat(cos(b)) * r, y: c.y + CGFloat(sin(b)) * r))
+                        chevrons.addLine(to: tip)
+                    }
+                }
+                context.stroke(chevrons, with: shading, style: style)
             }
         }
+    }
+}
+
+/// SAS вкл/выкл (включение — «держать ориентацию»).
+struct SASToggleButton: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        let current = model.sas
+        Button {
+            model.toggleSAS()
+        } label: {
+            VStack(spacing: 1) {
+                Text("SAS").font(.system(size: 15, weight: .heavy))
+                Text(current == .off ? "выкл" : "вкл").font(.system(size: 9, weight: .bold))
+            }
+            .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch)
+        }
+        .buttonStyle(HUDButtonStyle(isActive: current != .off))
+        .accessibilityLabel(current == .off ? "Включить SAS" : "Выключить SAS")
     }
 }
 
@@ -262,6 +290,8 @@ struct HoldButton: View {
 /// Большая кнопка «Ступень»: одно нажатие — `.stage`. На последней ступени выпускает парашют.
 struct StageButton: View {
     let model: FlightHUDModel
+    /// Низкая кнопка (карта: место под панель узла).
+    var compact = false
 
     var body: some View {
         let t = model.stageStatus
@@ -275,14 +305,14 @@ struct StageButton: View {
                     .font(.system(size: 18, weight: .bold))
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).font(.system(size: 17, weight: .heavy))
-                    if !isLast {
+                    if !isLast && !compact {
                         Text("осталось \(t.remaining - 1)")
                             .font(.system(size: 10, weight: .bold).monospacedDigit())
                             .opacity(0.75)
                     }
                 }
             }
-            .frame(maxWidth: .infinity, minHeight: 54)
+            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 54)
         }
         .buttonStyle(HUDButtonStyle(fill: HUDStyle.accent.opacity(0.85)))
         .disabled(isLast && t.chute != .stowed)
