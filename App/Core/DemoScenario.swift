@@ -10,6 +10,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case flight
     /// Подъём на автопилоте, около max Q.
     case ascent
+    /// Подъём на автопилоте, около 1 Маха (конденсационный конус, тряска).
+    case transonic
     /// Подъём на автопилоте, разделение первой ступени.
     case staging
     /// На орбите 80×74 км.
@@ -24,6 +26,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case landed
     /// Капсула без парашюта за секунды до удара о грунт.
     case crash
+    /// Капсула входит в атмосферу на ~2.3 км/с, плазма.
+    case reentry
 
     /// Сценарий из аргумента `-screen`, nil — обычный запуск.
     static var fromArguments: DemoScenario? {
@@ -39,6 +43,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
             return FlightSim(design: .orbit)
         case .ascent:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in sim.time >= 55 }
+        case .transonic:
+            return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in
+                sim.snapshot.telemetry.mach >= 0.95 || sim.time > 120
+            }
         case .staging:
             let initial = FlightSim(design: .orbit).stageCount
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in
@@ -65,6 +73,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
             let sim = Self.descent(chute: false, height: 1_500, speed: 100)
             Self.roll(sim) { $0.snapshot.telemetry.heightAboveTerrain < 120 }
             return sim
+        case .reentry:
+            let sim = Self.entry()
+            Self.roll(sim) { $0.snapshot.telemetry.heating > 0.35 }
+            return sim
         }
     }
 
@@ -79,6 +91,22 @@ enum DemoScenario: String, CaseIterable, Sendable {
         let v = World.surfaceVelocity(body: .terra, position: r) - up * speed
         return FlightSim(design: design, body: .terra, position: r, velocity: v,
                          attitude: Quat(basisX: east, y: up, z: east.cross(up)))
+    }
+
+    /// Капсула К-1 с парашютом на высоте 48 км над площадкой: 2.3 км/с на восток, снижение под 6°, щитом вперёд.
+    private static func entry() -> FlightSim {
+        let design = VesselDesign(name: "Вход", parts: [.chute, .podK1])
+        let fixed = World.padDirection
+        let up = World.fromBodyFixed(fixed, body: .terra, time: 0)
+        let r = up * (Bodies.terra.radius + 48_000)
+        let east = Vec3.unitZ.cross(up).normalized
+        let dir = (east * cos(0.105) - up * sin(0.105)).normalized
+        let v = World.surfaceVelocity(body: .terra, position: r) + dir * 2_300
+        // Нос (+Y) против скорости — щит капсулы впереди.
+        let nose = -dir
+        let side = nose.cross(up).normalized
+        return FlightSim(design: design, body: .terra, position: r, velocity: v,
+                         attitude: Quat(basisX: side, y: nose, z: side.cross(nose)))
     }
 
     /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).

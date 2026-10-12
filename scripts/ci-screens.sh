@@ -8,6 +8,7 @@ cd "$(dirname "$0")/.."
 DEVICE="${SCREENS_DEVICE:-iPhone 16 Pro}"   # 393×852 pt, как iPhone 15 Pro
 SCENES=("${@:-flight}")
 OUT=screens
+CRASHED=""
 mkdir -p "$OUT"
 
 xcodebuild -project Orbita.xcodeproj -scheme Orbita \
@@ -33,9 +34,19 @@ for scene in "${SCENES[@]}"; do
   xcrun simctl launch "$UDID" com.maxguselnik.orbita -screen "$scene"
   sleep 8
   xcrun simctl io "$UDID" screenshot "$OUT/$scene.png"
+  # Приложение должно быть живо после 8 с сцены, иначе — падение рендера или физики.
+  if ! xcrun simctl spawn "$UDID" launchctl list | awk '$3 ~ /com\.maxguselnik\.orbita/ && $1 != "-" { found = 1 } END { exit !found }'; then
+    echo "::error::Сцена $scene: приложение упало"
+    CRASHED="$CRASHED $scene"
+  fi
   kill -INT "$REC"; wait "$REC" || true
   # Приложение только landscape, а симулятор в портрете: поворачиваем снимок.
   sips -r 270 "$OUT/$scene.png" >/dev/null
 done
 
 ls -la "$OUT"
+if [ -n "$CRASHED" ]; then
+  echo "Упали сцены:$CRASHED"
+  ls ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i orbita || true
+  exit 1
+fi
