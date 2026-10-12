@@ -146,6 +146,85 @@ public enum Terrain {
         return out
     }()
 
+
+    // MARK: Малые кратеры Луны (процедурные, по хешу ячейки)
+
+    private struct CraterScale: Sendable {
+        let cell: Double      // размер кубической ячейки, м
+        let rMin: Double      // радиус кратера, м
+        let rMax: Double
+        let chance: Double    // вероятность кратера в ячейке
+        let salt: UInt64
+    }
+
+    // Влияние кратера (вал) доходит до 1.5 радиуса < размера ячейки, поэтому хватает 3×3×3 ячеек.
+    private static let craterScales: [CraterScale] = [
+        CraterScale(cell: 6_000, rMin: 300, rMax: 2_500, chance: 0.85, salt: 0x1111),
+        CraterScale(cell: 1_500, rMin: 80, rMax: 500, chance: 0.85, salt: 0x2222),
+        CraterScale(cell: 400, rMin: 25, rMax: 130, chance: 0.75, salt: 0x3333),
+    ]
+
+    private static func mix(_ x: UInt64) -> UInt64 {
+        var z = x &+ 0x9E37_79B9_7F4A_7C15
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+
+    private static func unitRand(_ h: UInt64) -> Double { Double(h >> 11) / Double(1 << 53) }
+
+    /// Высота (м) и оттенок (−1 дно … +1 вал) малых кратеров в точке `d` (единичный вектор).
+    private static func smallCraters(_ d: Vec3) -> (height: Double, shade: Double) {
+        let R = Bodies.luna.radius
+        let p = d * R
+        var height = 0.0, shade = 0.0
+        for sc in craterScales {
+            let inv = 1 / sc.cell
+            let ix = Int(floor(p.x * inv)), iy = Int(floor(p.y * inv)), iz = Int(floor(p.z * inv))
+            for dx in -1...1 { for dy in -1...1 { for dz in -1...1 {
+                let cx = ix + dx, cy = iy + dy, cz = iz + dz
+                var h = mix(UInt64(bitPattern: Int64(cx)) &* 0x9E37_79B1 ^ sc.salt)
+                h = mix(h ^ UInt64(bitPattern: Int64(cy)) &* 0x85EB_CA77)
+                h = mix(h ^ UInt64(bitPattern: Int64(cz)) &* 0xC2B2_AE3D)
+                if unitRand(h) >= sc.chance { continue }
+                h = mix(h)
+                let jx = unitRand(h)
+                h = mix(h)
+                let jy = unitRand(h)
+                h = mix(h)
+                let jz = unitRand(h)
+                h = mix(h)
+                let rr = unitRand(h)
+                h = mix(h)
+                let depthK = 0.8 + 0.4 * unitRand(h)
+                // Центр — на поверхности: проекция точки ячейки; кратер принадлежит ячейке,
+                // только если проекция осталась внутри неё (иначе его не найдут соседи).
+                let raw = Vec3((Double(cx) + jx) * sc.cell, (Double(cy) + jy) * sc.cell, (Double(cz) + jz) * sc.cell)
+                let len = raw.length
+                if len < 1 { continue }
+                let c = raw * (R / len)
+                if Int(floor(c.x * inv)) != cx || Int(floor(c.y * inv)) != cy || Int(floor(c.z * inv)) != cz { continue }
+                let r = sc.rMin + (sc.rMax - sc.rMin) * rr * rr
+                let dist = (p - c).length
+                let x = dist / r
+                if x >= 1.5 { continue }
+                let depth = 0.2 * r * depthK
+                var bowl = 0.0
+                if x < 1 { let q = 1 - x * x; bowl = q * q }
+                var rim = 0.0
+                if x > 0.6 { let t = (x - 0.6) / 0.9; let s = sin(Double.pi * t); rim = s * s }
+                height += -depth * bowl + 0.04 * r * depthK * rim
+                shade += rim - bowl
+            }}}
+        }
+        return (height, max(-1, min(1, shade)))
+    }
+
+    /// Оттенок малых кратеров Луны: −1 дно, +1 вал, 0 вне кратеров (для раскраски рендером).
+    public static func craterShade(body: BodyID, direction: Vec3) -> Double {
+        body == .luna ? smallCraters(direction.normalized).shade : 0
+    }
+
     private static func waves(_ ws: [Wave], _ d: Vec3) -> Double {
         var h = 0.0
         for w in ws { h += w.amp * sin(w.freq * d.dot(w.dir) + w.phase) }
@@ -172,7 +251,7 @@ public enum Terrain {
             let w = padBlend(d)
             return rawTerra(d) * (1 - w) + padHeight * w
         case .luna:
-            var h = lunaBase + waves(lunaWaves, d)
+            var h = lunaBase + waves(lunaWaves, d) + smallCraters(d).height
             for c in craters {
                 let cosA = d.dot(c.center)
                 // Быстрый отсев: дальше 2 радиусов кратера.
