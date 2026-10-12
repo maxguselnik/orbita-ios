@@ -71,7 +71,7 @@ final class ScenarioFlight: FlightSimulation {
     var snapshot: WorldSnapshot { sim.snapshot }
 
     func setInput(_ input: ControlInput) {
-        if autopilot == nil { sim.setInput(input) }
+        if autopilot?.isFinished ?? true { sim.setInput(input) }
     }
 
     func send(_ command: FlightCommand) {

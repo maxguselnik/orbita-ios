@@ -148,6 +148,7 @@ final class FlightHUDModel {
         toast = nil
         isPanelOpen = false
         feedback?.recalibrate()
+        pendingCamera = CameraInput(reset: true)
         resume()
     }
 
