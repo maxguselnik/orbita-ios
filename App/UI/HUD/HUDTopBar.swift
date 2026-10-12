@@ -9,6 +9,7 @@ struct HUDTopBar: View {
     var body: some View {
         HStack(spacing: 10) {
             TopBarMetrics(model: model)
+                .layoutPriority(1)
 
             Spacer(minLength: 0)
 
@@ -44,7 +45,7 @@ struct TopBarMetrics: View {
 
     var body: some View {
         let t = model.telemetry
-        Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
+        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 3) {
             GridRow {
                 HUDMetric(label: "ВЫС", value: HUDFormat.distance(t.altitude))
                 HUDMetric(label: "СКОР", value: HUDFormat.speed(t.speed))
@@ -53,7 +54,7 @@ struct TopBarMetrics: View {
             }
             GridRow {
                 HUDMetric(label: "Ап", value: HUDFormat.distance(t.orbit?.apoapsisAltitude))
-                HUDMetric(label: "Пе", value: HUDFormat.distance(t.orbit?.periapsisAltitude))
+                HUDMetric(label: "Пе", value: HUDFormat.periapsis(t.orbit?.periapsisAltitude))
                 HUDMetric(label: "до Ап", value: HUDFormat.countdown(t.orbit?.timeToApoapsis))
                 HUDMetric(label: "Т+", value: HUDFormat.clock(t.missionTime))
             }
@@ -76,6 +77,8 @@ struct HUDMetric: View {
                 .font(.system(size: 14, weight: .semibold).monospacedDigit())
                 .foregroundStyle(.white)
                 .lineLimit(1)
+                // Самое длинное значение («−198.2 км», «12.00 Мм») сжимается, а не обрезается многоточием.
+                .minimumScaleFactor(0.7)
                 .frame(minWidth: 66, alignment: .leading)
         }
         .accessibilityElement(children: .combine)

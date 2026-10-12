@@ -24,6 +24,12 @@ enum HUDFormat {
         }
     }
 
+    /// Перицентр для верхней полосы: ниже поверхности — «падение» (короткое слово вместо длинного отрицательного числа).
+    static func periapsis(_ meters: Double?) -> String {
+        if let meters, meters < 0 { return "падение" }
+        return distance(meters)
+    }
+
     /// Скорость: «12.4 м/с», «812 м/с», «12.3 км/с».
     static func speed(_ metersPerSecond: Double) -> String {
         guard metersPerSecond.isFinite else { return dash }

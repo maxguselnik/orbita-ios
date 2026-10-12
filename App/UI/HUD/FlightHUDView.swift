@@ -16,6 +16,7 @@ struct FlightHUDView: View {
 
     @AppStorage(HUDHint.doneKey) private var hintsDone = false
     @State private var driver = FrameDriver()
+    @State private var showLegend = false
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -54,7 +55,7 @@ struct FlightHUDView: View {
             .padding(.top, 4)
 
             if mapOpen {
-                MapFocusPicker(model: model)
+                MapFocusPicker(model: model, showLegend: $showLegend)
             } else {
                 // Навбол строго по центру экрана, независимо от ширины боковых колонок.
                 NavballView(model: model)
@@ -83,6 +84,23 @@ struct FlightHUDView: View {
             }
         }
         .animation(.easeOut(duration: 0.2), value: model.hint)
+        .overlay(alignment: .bottom) {
+            if mapOpen, !model.isPaused {
+                // Пошаговая подсказка карты: над переключателем фокуса, центр экрана свободен.
+                MapHintHost(model: model, hintsEnabled: hintsEnabled)
+                    .padding(.bottom, HUDStyle.minTouch + 16)
+            }
+        }
+        .overlay {
+            if mapOpen, showLegend, !model.isPaused {
+                MapLegendView(onClose: { showLegend = false })
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.15), value: showLegend)
+        .onChange(of: mapOpen) { _, open in
+            if !open { showLegend = false }
+        }
         .overlay(alignment: .bottom) {
             if let result = model.result, !model.isPaused {
                 FlightResultPanel(result: result, onHangar: onHangar,

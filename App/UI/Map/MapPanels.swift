@@ -104,11 +104,28 @@ struct MapCenterColumn: View {
     let model: FlightHUDModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 6) {
             MapInfoPanel(snapshot: model.map.snapshot)
+            if model.map.snapshot.lunaPhase != nil, !model.hasManeuver {
+                lunaButton
+            }
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// «К Луне»: узел гомановского перелёта сам (ближайшая точка орбиты с нужной фазой).
+    private var lunaButton: some View {
+        Button {
+            model.send(.setManeuver(DemoScenario.lunaTransferNode(model.snapshot)))
+        } label: {
+            Label("К Луне", systemImage: "moon.fill")
+                .font(.system(size: 13, weight: .bold))
+                .lineLimit(1)
+                .padding(.horizontal, 10)
+        }
+        .buttonStyle(HUDButtonStyle())
+        .accessibilityLabel("Поставить узел перелёта к Луне")
     }
 }
 
@@ -164,10 +181,29 @@ struct MapInfoPanel: View {
         guard let phase = s.lunaPhase, let target = s.hohmannPhase else { return nil }
         let diff = remainder(phase - target, 2 * Double.pi)
         let ready = abs(diff) < phaseTolerance
-        return MapInfoLine(
-            id: "phase",
-            text: "Фаза Луны \(MapText.degrees(phase)) · нужна \(MapText.degrees(target))" + (ready ? " · пора" : ""),
-            color: ready ? MapPalette.ready : Color.white)
+        var text = "Фаза Луны \(MapText.degrees(phase)) · нужна \(MapText.degrees(target))"
+        if ready {
+            text += " · пора"
+        } else if let wait = waitTime(s, diff: diff) {
+            text += " · " + waitText(wait)
+        }
+        return MapInfoLine(id: "phase", text: text, color: ready ? MapPalette.ready : Color.white)
+    }
+
+    /// Время до нужной фазы, с: разница фаз / (угловая скорость корабля − угловая скорость Луны).
+    static func waitTime(_ s: MapSnapshot, diff: Double) -> Double? {
+        guard let period = ManeuverPanel.period(s) else { return nil }
+        let relative = 2 * Double.pi / period - World.lunaAngularRate
+        guard relative > 1e-9 else { return nil }
+        let ahead = diff < 0 ? diff + 2 * Double.pi : diff
+        let wait = ahead / relative
+        return wait.isFinite ? wait : nil
+    }
+
+    /// «через ~7 мин», «через ~3 ч».
+    static func waitText(_ seconds: Double) -> String {
+        let minutes = max(1, Int((seconds / 60).rounded()))
+        return minutes >= 120 ? "через ~\(minutes / 60) ч" : "через ~\(minutes) мин"
     }
 
     /// Встреча, возврат, падение — по траектории после узла, без узла — по текущей.
@@ -199,6 +235,8 @@ struct MapInfoPanel: View {
 /// Фокус камеры карты: корабль, Терра, Луна. Снизу по центру, на месте навбола.
 struct MapFocusPicker: View {
     let model: FlightHUDModel
+    /// Кнопка «?» открывает легенду карты.
+    @Binding var showLegend: Bool
 
     var body: some View {
         let focus = model.map.focus
@@ -215,6 +253,14 @@ struct MapFocusPicker: View {
                 .buttonStyle(HUDButtonStyle(isActive: focus == item))
                 .accessibilityLabel("Центр карты: \(Self.name(item))")
             }
+            Button {
+                showLegend.toggle()
+            } label: {
+                Image(systemName: "questionmark")
+                    .font(.system(size: 15, weight: .bold))
+            }
+            .buttonStyle(HUDButtonStyle(isActive: showLegend))
+            .accessibilityLabel("Легенда карты и подсказки")
         }
         .padding(4)
         .hudBackground()
