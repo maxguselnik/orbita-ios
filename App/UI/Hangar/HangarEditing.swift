@@ -25,9 +25,12 @@ enum HangarEditing {
         return index + 1
     }
 
-    static func remove(_ parts: inout [PartID], index: Int) {
-        guard parts.indices.contains(index) else { return }
+    /// Удаляет деталь; возвращает индекс соседней (та же позиция, у последней — предыдущая), nil — стек пуст.
+    @discardableResult
+    static func remove(_ parts: inout [PartID], index: Int) -> Int? {
+        guard parts.indices.contains(index) else { return nil }
         parts.remove(at: index)
+        return parts.isEmpty ? nil : min(index, parts.count - 1)
     }
 
     /// Секции сверху вниз; разделитель открывает новую секцию (как `Ship.sections`).

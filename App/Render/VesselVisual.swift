@@ -11,7 +11,11 @@ final class VesselVisual {
     /// Высота стека и низ каждой детали над низом стека, м.
     private(set) var stackHeight: Double = 0
     private var bottoms: [Double] = []
-    private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity)] = [:]
+    /// Низ каждой детали над низом стека, м (для эффектов: сопла двигателей).
+    var partBottoms: [Double] { bottoms }
+    /// Полупрозрачный внешний ореол факела поверх непрозрачных слоёв (отключается, если роняет рендер).
+    static var transparentPlumeGlow = true
+    private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity, glow: ModelEntity?)] = [:]
     private var canopy: Entity?
     private var maxDiameter: Double = 1
 
@@ -78,9 +82,15 @@ final class VesselVisual {
         let core = ModelEntity(mesh: mesh, materials: [mats.plumeCore])
         e.addChild(outer)
         e.addChild(core)
+        var glow: ModelEntity?
+        if Self.transparentPlumeGlow {
+            let g = ModelEntity(mesh: mesh, materials: [mats.plumeGlow])
+            e.addChild(g)
+            glow = g
+        }
         e.isEnabled = false
         root.addChild(e)
-        plumes[index] = (e, outer, core)
+        plumes[index] = (e, outer, core, glow)
     }
 
     private func makeCanopy(top: Double) {
@@ -125,12 +135,19 @@ final class VesselVisual {
             let re = spec.diameter / 2 * (spec.isSolid ? 0.62 : 0.92)
             let thr = spec.isSolid ? 1 : clampd(v.throttle, 0, 1)
             let flick = 1 + 0.06 * sin(time * 53 + Double(i)) + 0.04 * sin(time * 97 + 2 * Double(i))
+            // Отдельное мерцание ядра: оно «дышит» быстрее оболочки.
+            let coreFlick = 1 + 0.09 * sin(time * 71 + 3 * Double(i)) + 0.05 * sin(time * 131 + Double(i))
             let length = spec.diameter * (spec.isSolid ? 7.5 : 2.5 + 6 * thr) * (1 + 0.7 * vac) * flick
             let width = re * (1 + 2.2 * vac) * (0.75 + 0.25 * thr)
             // Непрозрачные слои: широкая оранжевая оболочка короче, узкое светлое ядро длиннее.
             p.outer.scale = F3(Float(width), Float(length * 0.7), Float(width))
             let coreW = Float(width * 0.55)
-            p.core.scale = F3(coreW, Float(length), coreW)
+            p.core.scale = F3(coreW, Float(length * coreFlick), coreW)
+            // Ореол шире и длиннее оболочки; в вакууме расширяется сильнее.
+            if let g = p.glow {
+                let gw = Float(width * (1.35 + 0.5 * vac))
+                g.scale = F3(gw, Float(length * 0.95), gw)
+            }
         }
 
         if let canopy {
