@@ -58,7 +58,14 @@ jobs:
       - name: XcodeGen
         run: brew install xcodegen && xcodegen generate
       - name: Снимки
-        run: scripts/ci-screens.sh $(cat screens.txt 2>/dev/null || echo flight)
+        # Только сцены, затронутые изменением: в сообщении коммита «[screens: ascent orbit]»;
+        # «[screens: none]» — без снимков; без метки — все из screens.txt.
+        env:
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+        run: |
+          PICK=$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[screens: *\([^]]*\)\].*/\1/p' | head -1)
+          if [ "$PICK" = "none" ]; then echo "Снимки пропущены ([screens: none])"; mkdir -p screens; exit 0; fi
+          scripts/ci-screens.sh ${PICK:-$(cat screens.txt 2>/dev/null || echo flight)}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
