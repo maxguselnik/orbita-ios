@@ -16,6 +16,10 @@ struct StageStatus: Equatable {
     var chute: ChuteState
     var action: StageAction
     var hasSolid: Bool
+
+    /// Номер ступени, которую затронет нажатие, — как в стопке ступеней: пуск и отделение — текущая (1),
+    /// парашют — верхняя строка стопки.
+    var number: Int { action == .armChute ? max(remaining, 1) : 1 }
 }
 
 /// Ускорение времени для меню: меняется редко.

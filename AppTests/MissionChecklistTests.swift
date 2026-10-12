@@ -22,7 +22,7 @@ struct MissionChecklistTests {
     @Test func padShowsIgnitionAsCurrent() {
         let t = FlightTelemetry(situation: .prelaunch)
         #expect(states(t) == [.current, .pending, .pending, .pending, .pending])
-        #expect(MissionChecklist.summary(done: 0) == "1/5 · Зажигание")
+        #expect(MissionChecklist.summary(done: 0) == "1/5 · Пуск")
     }
 
     @Test func afterIgnitionVerticalStepIsCurrent() {

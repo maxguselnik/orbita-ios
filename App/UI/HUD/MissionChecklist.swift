@@ -14,7 +14,7 @@ struct MissionStep: Equatable, Identifiable {
 
 /// Чек-лист миссии «Орбита 80 км» (Терра, старт с площадки). Чистая логика по телеметрии; пороги — из `AscentGuide`.
 enum MissionChecklist {
-    static let titles = ["Зажигание", "Вертикально до 1 км", "Разворот на восток",
+    static let titles = ["Пуск", "Вертикально до 1 км", "Разворот на восток",
                          "Ап 80 км, тяга 0", "Скругление у Ап"]
     static let goalTitle = "Цель: орбита 80 км"
     static let doneTitle = "Вы на орбите"
@@ -79,9 +79,11 @@ struct MissionCard: View {
     static let width: CGFloat = 150
     /// Верхняя оценка высоты развёрнутой карточки (цель, 5 шагов, «выполнено»).
     static let expandedHeight: CGFloat = 112
+    /// Зазор между стопкой ступеней и карточкой.
+    static let gap: CGFloat = 4
     /// Верх стопки ступеней (отступ 36) и зазор между стопкой и карточкой, зазор до блока кнопок.
     static func fitsExpanded(stackHeight: CGFloat, blockTop: CGFloat) -> Bool {
-        36 + stackHeight + 6 + expandedHeight + 6 <= blockTop
+        36 + stackHeight + gap + expandedHeight + 4 <= blockTop
     }
 
     var body: some View {

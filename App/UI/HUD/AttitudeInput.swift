@@ -85,24 +85,26 @@ extension View {
     }
 }
 
-/// Круглая крестовина (D-pad) и кнопки крена над «плечами», «ТОЧНО» справа-снизу.
+/// Круглая крестовина (D-pad) справа, кнопки крена над «плечами», «ТОЧНО» снизу-слева.
 /// Палец можно вести из сектора в сектор без отрыва; второй палец в том же круге игнорируется.
 /// Крен — отдельные круглые кнопки со своими жестами, поэтому удерживаются одновременно с крестовиной.
 struct AttitudeControls: View {
     let model: FlightHUDModel
 
-    static let radius: CGFloat = 75
+    static let radius: CGFloat = 70
     static let rollSize: CGFloat = 52
-    static let circleCenter = CGPoint(x: 84, y: 86)
-    /// Центры кнопок крена относительно центра круга: чуть заходят на дугу над верхними «плечами».
-    static let rollOffset = CGSize(width: 56, height: -60)
+    static let circleCenter = CGPoint(x: 126, y: 108)
+    /// Центры кнопок крена относительно центра круга: над «плечами» под углом ≈ 38° от вертикали, расстояние между
+    /// центрами 104 pt ≥ radius + rollSize / 2 + 6 = 102 pt (зазор до круга ≥ 6 pt).
+    static let rollOffset = CGSize(width: 64, height: -82)
     static let pillSize = CGSize(width: 56, height: 44)
-    static let pillCenter = CGPoint(x: circleCenter.x + 98, y: circleCenter.y + 56)
-    static let frameSize = CGSize(width: 210, height: 164)
-    /// Отступ нижнего края рамки от низа экрана (низ круга ≈ 65 pt от края, центр круга ≈ 140 pt).
-    static let bottomInset: CGFloat = 62
-    /// Отступ левого края круга от безопасной зоны.
-    static let circleLeading: CGFloat = 20
+    /// «ТОЧНО» — снизу-слева от круга, со стороны навбола.
+    static let pillCenter = CGPoint(x: circleCenter.x - 98, y: circleCenter.y + 50)
+    static let frameSize = CGSize(width: 216, height: 180)
+    /// Отступы рамки от физических краёв экрана (боковая безопасная зона игнорируется; Dynamic Island — у бокового края
+    /// в середине высоты). Центр круга — 120 pt от низа и 146 pt от правого края; правая кнопка крена — 46 pt от края.
+    static let bottomInset: CGFloat = 48
+    static let trailingInset: CGFloat = 46
 
     static var circleRect: CGRect {
         CGRect(x: circleCenter.x - radius, y: circleCenter.y - radius, width: radius * 2, height: radius * 2)

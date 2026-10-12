@@ -346,23 +346,32 @@ struct HoldButton: View {
 
 // MARK: - Ступень
 
-/// Кнопка действия ступени «ЗАЖИГАНИЕ ▸ / ОТДЕЛИТЬ ▸ / ПАРАШЮТ ▸ / НЕТ ДЕЙСТВИЙ». Одно нажатие — `.stage`.
-/// Пульсирует, когда её советует помощник и на площадке до зажигания.
+/// Кнопка действия ступени: оранжевая капсула 44 pt — значок, слово («ПУСК», «ОТДЕЛИТЬ», «ПАРАШЮТ») и номер ступени
+/// в кружке справа. Одно нажатие — `.stage`. Пульсирует, когда её советует помощник и на площадке до пуска.
 struct StageButton: View {
     let model: FlightHUDModel
-    /// Широкая кнопка карты (место под панель узла): тянется на всю колонку, 44 pt.
+    /// Кнопка карты (место под панель узла): тянется на всю ширину колонки.
     var compact = false
     /// Помощник советует нажать её сейчас.
     var highlighted = false
 
+    static let height: CGFloat = 44
+    private static let rim = Color(red: 1.0, green: 0xD0 / 255, blue: 0x8A / 255)
+
     var body: some View {
         let t = model.stageStatus
         let enabled = t.action != .none
-        let title: String = switch t.action {
-        case .ignite: "ЗАЖИГАНИЕ"
+        let word: String = switch t.action {
+        case .ignite: "ПУСК"
         case .separate: "ОТДЕЛИТЬ"
         case .armChute: "ПАРАШЮТ"
-        case .none: "НЕТ ДЕЙСТВИЙ"
+        case .none: "—"
+        }
+        let icon: String = switch t.action {
+        case .ignite: "flame.fill"
+        case .separate: "scissors"
+        case .armChute: "umbrella.fill"
+        case .none: "minus"
         }
         let detail: String = switch t.action {
         case .ignite: t.hasSolid ? "РДТТ нельзя остановить" : "затем установите тягу"
@@ -374,25 +383,31 @@ struct StageButton: View {
         Button {
             model.send(.stage)
         } label: {
-            HStack(spacing: 4) {
-                Text(title).font(.system(size: compact ? 14 : 13, weight: .black))
+            HStack(spacing: 6) {
                 if enabled {
-                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .black))
+                    Image(systemName: icon).font(.system(size: 18, weight: .bold))
+                    Text(word).font(.system(size: 13, weight: .black)).lineLimit(1)
+                    if compact { Spacer(minLength: 0) }
+                    Text("\(t.number)")
+                        .font(.system(size: 11, weight: .heavy).monospacedDigit())
+                        .foregroundStyle(Self.rim)
+                        .frame(width: 20, height: 20)
+                        .background(HUDPalette.accentText, in: Circle())
+                } else {
+                    Text(word).font(.system(size: 16, weight: .black))
                 }
             }
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
             .foregroundStyle(enabled ? HUDPalette.accentText : HUDPalette.muted)
-            .padding(.horizontal, 14)
-            .frame(minWidth: compact ? nil : 112, maxWidth: compact ? CGFloat.infinity : nil,
-                   minHeight: compact ? HUDStyle.minTouch : 40)
-            .background(enabled ? HUDPalette.accent : Color.white.opacity(0.1),
-                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .contentShape(Rectangle())
+            .padding(.leading, enabled ? 14 : 18)
+            .padding(.trailing, enabled ? 8 : 18)
+            .frame(maxWidth: compact ? CGFloat.infinity : nil, minHeight: Self.height, maxHeight: Self.height)
+            .background(enabled ? HUDPalette.accent : Color.white.opacity(0.1), in: Capsule())
+            .overlay(Capsule().strokeBorder(enabled ? Self.rim : Color.white.opacity(0.2), lineWidth: enabled ? 1.5 : 1))
+            .contentShape(Capsule())
         }
         .buttonStyle(HUDPressStyle())
-        .hudPulse(pulse, corner: 10)
+        .hudPulse(pulse, corner: Self.height / 2)
         .disabled(!enabled)
-        .accessibilityLabel(title + ", " + detail)
+        .accessibilityLabel(enabled ? "\(word), ступень \(t.number), \(detail)" : "Нет действий, " + detail)
     }
 }

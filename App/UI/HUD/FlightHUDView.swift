@@ -142,12 +142,12 @@ struct FlightLayer: View {
             topLeft
             topCenter
             topRight
+            bottomRight
+            bottomCenter
             bottomLeft
             leftColumn
-            bottomCenter
-            bottomRight
         }
-        // Кольцо навбола уходит за нижний край, поэтому нижняя безопасная зона не сдвигает его.
+        // Элементы нижнего ряда считаются от физического низа экрана.
         .ignoresSafeArea(.container, edges: .bottom)
     }
 
@@ -181,15 +181,20 @@ struct FlightLayer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
-    /// Стопка ступеней под строкой времени и карточка миссии. Карточка стоит в ZStack выше крестовины: развёрнутая
-    /// (по тапу) перекрывает её и перехватывает касания. По умолчанию развёрнута, только если помещается над крестовиной.
+    /// Центр капсулы «Пуск» и круга крестовины по высоте — 120 pt от низа; отступы от физических краёв зеркальны:
+    /// левый край капсулы и внешний край круга — по 66 pt.
+    static let controlCenterFromBottom: CGFloat = 120
+    static let stageLeading: CGFloat = 66
+
+    /// Стопка ступеней под строкой времени и карточка миссии под ней. Карточка выше остальных слоёв: развёрнутая (по тапу)
+    /// перекрывает их и перехватывает касания. По умолчанию развёрнута, только если помещается над капсулой «Пуск».
     private var leftColumn: some View {
         GeometryReader { geo in
-            let blockTop = geo.size.height - AttitudeControls.bottomInset - AttitudeControls.frameSize.height
+            let capsuleTop = geo.size.height - Self.controlCenterFromBottom - StageButton.height / 2
             let rows = CGFloat(StageStackView.rowCount(model: model))
             let stackHeight = rows > 0 ? rows * StageGroupRow.height + (rows - 1) * 3 : 0
-            let fits = MissionCard.fitsExpanded(stackHeight: stackHeight, blockTop: blockTop)
-            VStack(alignment: .leading, spacing: 6) {
+            let fits = MissionCard.fitsExpanded(stackHeight: stackHeight, blockTop: capsuleTop)
+            VStack(alignment: .leading, spacing: MissionCard.gap) {
                 StageStackView(model: model)
                 MissionCard(model: model, enabled: hintsEnabled, autoExpand: fits)
             }
@@ -199,33 +204,38 @@ struct FlightLayer: View {
         }
     }
 
-    /// Круглая крестовина ориентации в левом нижнем углу (боковую безопасную зону даёт родитель); на площадке не приглушена.
+    /// Левый нижний угол: капсула «Пуск» от физического края (66 pt), над ней плашка узла манёвра.
     private var bottomLeft: some View {
-        AttitudeControls(model: model)
-            .padding(.leading, AttitudeControls.circleLeading - (AttitudeControls.circleCenter.x - AttitudeControls.radius))
-            .padding(.bottom, AttitudeControls.bottomInset)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        VStack(alignment: .leading, spacing: 6) {
+            ManeuverBadgeHost(model: model)
+            StageButton(model: model, highlighted: guide == .stage)
+        }
+        .padding(.leading, Self.stageLeading)
+        .padding(.bottom, Self.controlCenterFromBottom - StageButton.height / 2)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .ignoresSafeArea(.container, edges: .horizontal)
     }
 
     private var bottomCenter: some View {
-        NavballCluster(model: model, ascentEnabled: hintsEnabled)
-            .offset(y: NavballCluster.overhang)
+        NavballCluster(model: model, ascentEnabled: hintsEnabled, guide: guide)
+            .padding(.bottom, NavballCluster.lift)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
-    /// Правый нижний угол: сверху вниз плашка узла, джойстик РСУ (если включено), ниже MAX/0 и «Ступень» у края.
+    /// Правый нижний угол: круглая крестовина, крен и «ТОЧНО» от физического края; над кнопкой крена — джойстик РСУ.
+    static let rcsTrailing: CGFloat = 50
+
     private var bottomRight: some View {
-        VStack(alignment: .trailing, spacing: 6) {
-            ManeuverBadgeHost(model: model)
+        ZStack(alignment: .bottomTrailing) {
+            AttitudeControls(model: model)
+                .padding(.trailing, AttitudeControls.trailingInset)
+                .padding(.bottom, AttitudeControls.bottomInset)
             RCSControlsHost(model: model)
-            HStack(alignment: .bottom, spacing: 6) {
-                ControlsCluster(model: model, guide: guide)
-                StageButton(model: model, highlighted: guide == .stage)
-            }
+                .padding(.trailing, Self.rcsTrailing)
+                .padding(.bottom, AttitudeControls.bottomInset + AttitudeControls.frameSize.height + 6)
         }
-        .padding(.trailing, 6)
-        .padding(.bottom, 24)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        .ignoresSafeArea(.container, edges: .horizontal)
     }
 }
 

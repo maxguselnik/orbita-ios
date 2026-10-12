@@ -83,33 +83,44 @@ struct NavballCluster: View {
     let model: FlightHUDModel
     /// Помощник подъёма включён: на сфере рисуется маркер цели.
     var ascentEnabled = true
+    /// Действие, которое советует помощник (подсвечивает метки MAX и 0 на дуге тяги).
+    var guide: HUDAction?
 
-    static let size: CGFloat = 184
-    /// Насколько нижняя часть кольца уходит за край экрана.
-    static let overhang: CGFloat = 34
-    static let ballDiameter: CGFloat = 116
-    static let center = CGPoint(x: 92, y: 92)
-    static let arcRadius: CGFloat = 82
+    /// Диаметр кольца (−15 % от прежних 184 pt: шар, дуги и кольцо уменьшены пропорционально).
+    static let size: CGFloat = 156
+    /// Строка «RCS · скорость · SAS» над кольцом (зоны касания 36 pt) и полная ширина кластера.
+    static let rowHeight: CGFloat = 36
+    static let width: CGFloat = 196
+    static let height: CGFloat = rowHeight + size
+    /// Подъём кластера над нижним краем: ничего интерактивного ближе 40 pt к низу (там системный жест «домой»).
+    static let lift: CGFloat = 14
+    static let ballDiameter: CGFloat = 98
+    /// Левый верхний угол кольца и его центр в координатах кластера.
+    static let ringOrigin = CGPoint(x: (width - size) / 2, y: rowHeight)
+    static let center = CGPoint(x: width / 2, y: rowHeight + size / 2)
+    static let arcRadius: CGFloat = 69.5
 
     var body: some View {
         let t = model.telemetry
         let frame = model.speedFrame(for: t)
         ZStack(alignment: .topLeading) {
             ClusterRing()
-            ThrottleGauge(model: model)
+                .frame(width: Self.size, height: Self.size)
+                .position(Self.center)
+            ThrottleGauge(model: model, guide: guide)
             GForceGauge(gForce: t.gForce)
             NavballSphere(telemetry: t, frame: frame,
                           targetPitch: ascentEnabled ? AscentGuide.advice(t)?.targetPitch : nil)
                 .frame(width: Self.ballDiameter, height: Self.ballDiameter)
                 .position(Self.center)
-            SpeedLCD(telemetry: t, frame: frame) { model.toggleSpeedFrame() }
-                .position(x: Self.size / 2, y: 20)
             ClusterRCSButton(model: model)
-                .position(x: 26, y: 22)
+                .position(x: 24, y: Self.rowHeight / 2)
+            SpeedLCD(telemetry: t, frame: frame) { model.toggleSpeedFrame() }
+                .position(x: Self.width / 2, y: Self.rowHeight / 2)
             ClusterSASButton(model: model)
-                .position(x: Self.size - 31, y: 22)
+                .position(x: Self.width - 31, y: Self.rowHeight / 2)
         }
-        .frame(width: Self.size, height: Self.size)
+        .frame(width: Self.width, height: Self.height)
     }
 }
 
@@ -141,7 +152,7 @@ struct SpeedLCD: View {
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 5)
-                .frame(width: 76, height: 18)
+                .frame(width: 70, height: 18)
                 .background(Color(red: 0.04, green: 0.1, blue: 0.063), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
                 .padding(.vertical, 9)
@@ -275,9 +286,22 @@ struct ClusterSASButton: View {
 /// (вверх — больше). РДТТ горит на 100 % и не регулируется.
 struct ThrottleGauge: View {
     let model: FlightHUDModel
+    var guide: HUDAction?
 
-    /// Зона касания в координатах кольца: левая сторона от низа до верхнего угла.
-    private static let touchRect = CGRect(x: -4, y: 28, width: 56, height: 124)
+    /// Центры меток MAX и 0 в координатах кластера: слева от дуги, зона касания 44 pt. Нижняя метка стоит так, чтобы
+    /// её зона не опускалась ниже конца дуги (низ кластера ≥ 40 pt от края экрана).
+    static var maxLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 50) }
+    static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 106) }
+    static let labelTouch = CGSize(width: 44, height: 44)
+    /// Центр подписи «ТЯГА N %».
+    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 12, y: NavballCluster.ringOrigin.y + 78) }
+    /// Радиус ручки.
+    static let knobRadius: CGFloat = 7
+
+    /// Зона касания дуги в координатах кластера: от верхнего до нижнего конца дуги, ниже — ничего.
+    static var touchRect: CGRect {
+        CGRect(x: NavballCluster.ringOrigin.x - 4, y: NavballCluster.ringOrigin.y + 28, width: 52, height: 100)
+    }
 
     var body: some View {
         let locked = model.solidLocked
@@ -318,7 +342,7 @@ struct ThrottleGauge: View {
             .padding(.vertical, 2)
             .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
             .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
-            .position(x: -12, y: 124)
+            .position(Self.captionCenter)
             .allowsHitTesting(false)
             Color.clear
                 .frame(width: touch.width, height: touch.height)
@@ -342,7 +366,41 @@ struct ThrottleGauge: View {
                         model.throttle = max(0, model.throttle - 0.1)
                     }
                 }
+            ThrottleEndLabel(title: "MAX", label: "Полная тяга", pulse: guide == .fullThrottle, enabled: !locked) {
+                model.throttle = 1
+            }
+            .position(Self.maxLabelCenter)
+            ThrottleEndLabel(title: "0", label: "Тяга ноль", pulse: guide == .zeroThrottle, enabled: !locked) {
+                model.throttle = 0
+            }
+            .position(Self.zeroLabelCenter)
         }
+    }
+}
+
+/// Метка-кнопка у конца дуги тяги: компактная капсула, зона касания 44 × 44 pt.
+struct ThrottleEndLabel: View {
+    let title: String
+    let label: String
+    var pulse = false
+    var enabled = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 9, weight: .heavy))
+                .foregroundStyle(HUDPalette.accent)
+                .frame(width: 30, height: 16)
+                .background(Color.black.opacity(0.55), in: Capsule())
+                .overlay(Capsule().strokeBorder(HUDPalette.accent.opacity(0.7), lineWidth: 1))
+                .hudPulse(pulse, corner: 8)
+                .frame(width: ThrottleGauge.labelTouch.width, height: ThrottleGauge.labelTouch.height)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(HUDPressStyle())
+        .disabled(!enabled)
+        .accessibilityLabel(label)
     }
 }
 
@@ -379,7 +437,7 @@ struct GForceGauge: View {
                 .font(.system(size: 8, weight: .semibold).monospacedDigit())
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .position(x: size + 12, y: 124)
+                .position(x: NavballCluster.ringOrigin.x + size + 12, y: NavballCluster.ringOrigin.y + 105)
         }
         .allowsHitTesting(false)
         .accessibilityElement()

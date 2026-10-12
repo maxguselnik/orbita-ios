@@ -32,6 +32,8 @@ struct RootView: View {
         .background(.black)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        // Первый свайп снизу показывает индикатор «домой», сворачивает только второй (тяга тянется у нижнего края).
+        .defersSystemGestures(on: .bottom)
         .onAppear {
             if flow.screen == .flight, flight == nil { startFlight() }
         }
