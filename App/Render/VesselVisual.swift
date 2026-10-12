@@ -67,8 +67,8 @@ final class VesselVisual {
         if let m = plumeMesh { return m }
         var b = MeshBuilder()
         // Единичный факел: y от 0 (срез сопла) до −1, радиус среза 1.
-        b.lathe([SIMD2(0, -1), SIMD2(0.35, -0.85), SIMD2(0.8, -0.5), SIMD2(1.08, -0.18),
-                 SIMD2(1.0, -0.04), SIMD2(0.9, 0)], segments: 24)
+        b.lathe([SIMD2(0, -1), SIMD2(0.10, -0.9), SIMD2(0.22, -0.65), SIMD2(0.4, -0.3),
+                 SIMD2(0.65, -0.08), SIMD2(0.48, 0)], segments: 24)
         plumeMesh = b.makeMesh(name: "plume")
         return plumeMesh
     }
@@ -142,7 +142,7 @@ final class VesselVisual {
             // Непрозрачные слои: широкая оранжевая оболочка короче, узкое светлое ядро длиннее.
             p.outer.scale = F3(Float(width), Float(length * 0.7), Float(width))
             let coreW = Float(width * 0.55)
-            p.core.scale = F3(coreW, Float(length * 0.6 * coreFlick), coreW)
+            p.core.scale = F3(coreW, Float(length * 0.9 * coreFlick), coreW)
             // Ореол шире и длиннее оболочки; в вакууме расширяется сильнее.
             if let g = p.glow {
                 let gw = Float(width * (1.35 + 0.5 * vac))

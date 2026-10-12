@@ -421,12 +421,12 @@ final class FlightHUDModel {
 
     nonisolated static func message(for event: SimEvent) -> String? {
         switch event {
-        case .ignition(let stage, let solid):
-            return solid ? "Зажигание РДТТ · ступень \(stage)" : "Зажигание · ступень \(stage)"
-        case .flameout(let stage, _):
-            return "Топливо ступени \(stage) выработано"
-        case .separation(let stage):
-            return "Отделение ступени \(stage)"
+        case .ignition(_, let solid):
+            return solid ? "Зажигание РДТТ" : "Двигатели зажжены"
+        case .flameout:
+            return "Топливо текущей ступени выработано"
+        case .separation:
+            return "Нижняя ступень отделена"
         case .chuteDeployed:
             return "Парашют выпущен"
         case .chuteOpened:

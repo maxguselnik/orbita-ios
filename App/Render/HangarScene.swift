@@ -122,13 +122,14 @@ final class HangarScene: HangarPreview {
 
     /// Снап к ближайшему креплению при перетаскивании на 3D-превью.
     func nearestAttachment(at point: CGPoint, viewSize: CGSize) -> Int {
-        (0...parts.count).min { a, b in
-            func distance(_ i: Int) -> CGFloat {
-                guard let p = project(F3(0, Float(attachmentHeight(i)), 0), viewSize: viewSize) else { return .infinity }
-                return hypot(p.x - point.x, p.y - point.y)
-            }
-            return distance(a) < distance(b)
-        } ?? parts.count
+        var nearest = parts.count
+        var shortest = CGFloat.infinity
+        for index in 0...parts.count {
+            guard let projected = project(F3(0, Float(attachmentHeight(index)), 0), viewSize: viewSize) else { continue }
+            let distance = hypot(projected.x - point.x, projected.y - point.y)
+            if distance < shortest { shortest = distance; nearest = index }
+        }
+        return nearest
     }
 
     /// Луч из камеры пересекает габариты деталей. Возвращается ближайшая к камере.

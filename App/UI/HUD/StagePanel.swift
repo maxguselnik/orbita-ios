@@ -68,7 +68,7 @@ struct StagePanel: View {
             ScrollView {
                 VStack(spacing: 6) {
                     ForEach(Array(stages.enumerated()), id: \.offset) { index, stage in
-                        StageRow(number: stages.count - index, stage: stage, isCurrent: index == 0)
+                        StageRow(number: index + 1, stage: stage, isCurrent: index == 0)
                     }
                 }
             }
@@ -95,16 +95,13 @@ struct StageRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text("Ступень \(number)").font(.system(size: 12, weight: .heavy))
+                Text(isCurrent ? "Текущая ступень" : "Далее · \(number - 1)").font(.system(size: 12, weight: .heavy))
                 if stage.hasSolid {
                     Text("РДТТ")
                         .font(.system(size: 9, weight: .heavy))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(HUDStyle.accent.opacity(0.8), in: Capsule())
-                }
-                if isCurrent {
-                    Text("текущая").font(.system(size: 10, weight: .semibold)).foregroundStyle(HUDStyle.active)
                 }
                 Spacer()
                 Text(HUDFormat.percent(stage.fuelFraction))
