@@ -102,7 +102,7 @@ final class SkyVisual {
         sun.position = sd * Self.sunRadius
         sun.orientation = simd_quatf(from: F3(0, 0, 1), to: -sd)
 
-        sunLight.light.intensity = 9_000
+        sunLight.light.intensity = 7_000
         sunLight.light.color = UIColor(red: 1, green: 0.97, blue: 0.92, alpha: 1)
         sunLight.look(at: -sd, from: .zero, relativeTo: nil)
         root.addChild(sunLight)

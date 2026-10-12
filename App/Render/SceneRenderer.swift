@@ -189,8 +189,9 @@ final class SceneRenderer: FlightRenderer {
         sky.update(up: localUp, brightness: brightness)
 
         // Камера в нуле; ближняя плоскость — по ближайшему объекту.
-        let toTarget = f3(target - eye)
-        camera.look(at: toTarget, from: .zero, upVector: f3(cam.up), relativeTo: nil)
+        // Смотрим чуть ниже цели: корабль выше центра кадра, факел и земля не под навболом.
+        let lookPoint = target - cam.up * (camToTarget * 0.2)
+        camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
         let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)
         var near = clampd(0.25 * min(toVessel, clearance), 0.05, 1_000)
         if clearance < 500 { near = min(near, 0.5) }
