@@ -67,6 +67,61 @@ struct ManeuverTests {
         print("Прожиг 400 м/с: Ап \(Int(ap)) м, прогноз \(Int(predictedAp)) м, остаток \(m.remainingDeltaV) м/с")
     }
 
+    @Test func zeroNodeIsNotDone() throws {
+        let sim = Self.orbitSim()
+        sim.send(.setManeuver(ManeuverNode(time: sim.time + 100)))
+        let m = try #require(sim.snapshot.telemetry.maneuver)
+        #expect(!m.isDone)
+        sim.send(.setSAS(.maneuver))
+        _ = sim.advance(realDelta: 0.5)
+        // SAS .maneuver для пустого узла — hold, без падения и без цели.
+        #expect(!(try #require(sim.snapshot.telemetry.maneuver)).isDone)
+    }
+
+    @Test func editMidBurnKeepsBurned() throws {
+        let sim = Self.orbitSim()
+        sim.send(.stage)
+        sim.send(.setManeuver(ManeuverNode(time: sim.time + 1, prograde: 300)))
+        _ = sim.advance(realDelta: 2)
+        var guardCount = 0
+        while (try #require(sim.snapshot.telemetry.maneuver)).remainingDeltaV > 250, guardCount < 200 {
+            sim.setInput(ControlInput(throttle: 1))
+            _ = sim.advance(realDelta: 0.1)
+            guardCount += 1
+        }
+        sim.setInput(ControlInput(throttle: 0))
+        _ = sim.advance(realDelta: 0.1)
+        let before = try #require(sim.snapshot.telemetry.maneuver)
+        let burned = 300 - before.remainingDeltaV
+        #expect(burned > 45 && burned < 60, "сожжено \(burned)")
+        sim.send(.setManeuver(ManeuverNode(time: sim.time - 1, prograde: 301)))
+        let after = try #require(sim.snapshot.telemetry.maneuver)
+        #expect(abs(after.remainingDeltaV - (301 - burned)) < 1, "остаток \(after.remainingDeltaV)")
+        #expect(!after.isDone)
+        // Направление остатка — прогрейд.
+        let nb = try #require(sim.snapshot.telemetry.navball.maneuver)
+        let pro = sim.activeStateVector.velocity.normalized
+        let v = sim.activeStateVector
+        let local = nb  // локальные оси; проверяем через мировой остаток
+        _ = (local, v)
+        #expect(sim.maneuverRemaining.normalized.dot(pro) > 0.99)
+        // Удаление узла обнуляет burned.
+        sim.send(.setManeuver(nil))
+        #expect(sim.maneuverBurned.length == 0)
+    }
+
+    @Test func predictWithPreTrajectoryMatches() throws {
+        let sim = Self.orbitSim()
+        let node = ManeuverNode(time: sim.time + 600, prograde: 200, normal: 30)
+        let a = try #require(sim.predictManeuver(node))
+        let pre = sim.predictTrajectory(maxPatches: 3)
+        let b = try #require(sim.predictManeuver(node, using: pre, maxPatches: 3))
+        #expect(a.deltaVVector == b.deltaVVector)
+        #expect(a.burnTime == b.burnTime)
+        #expect(a.trajectory.patches.count == b.trajectory.patches.count)
+        #expect(a.trajectory.patches[0].elements.apoapsisRadius == b.trajectory.patches[0].elements.apoapsisRadius)
+    }
+
     @Test func noNodeAndPastNode() throws {
         let sim = Self.orbitSim()
         #expect(sim.snapshot.telemetry.maneuver == nil)
