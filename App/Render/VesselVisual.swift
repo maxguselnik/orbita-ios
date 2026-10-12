@@ -101,7 +101,7 @@ final class VesselVisual {
             }
             let list: [(MeshBuilder, any Material)] = [(a, mats.canopyA), (b, mats.canopyB), (lines, mats.lightGray)]
             for (m, mat) in list {
-                if let mesh = m.makeMesh(name: "canopy") { canopyPieces.append((mesh, mat)) }
+                if let mesh = m.makeMesh(name: "canopy") { Self.canopyPieces.append((mesh, mat)) }
             }
         }
         let e = Entity()
