@@ -61,6 +61,7 @@ final class FlightFeedback {
     }
 
     private func syncSettings() {
+        renderer?.targetFrameRate = Double(settings.frameRate.rawValue)
         audio.isEnabled = settings.soundEnabled && !paused
         haptics.isEnabled = settings.hapticsEnabled && !paused
         if settings.tiltControl, !tilt.isRunning {

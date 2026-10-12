@@ -32,6 +32,10 @@ final class SceneRenderer: FlightRenderer {
     private var seen: Set<VesselID> = []
     private var explosions: [ExplosionVisual] = []
     private var exploded: Set<VesselID> = []
+    private var governor = QualityGovernor()
+    private var shake = CameraShake()
+    /// Желаемая частота кадров (из настроек) — для авто-качества.
+    var targetFrameRate: Double = 90
 
     init() {
         camera.camera.fieldOfViewInDegrees = 60
@@ -81,12 +85,14 @@ final class SceneRenderer: FlightRenderer {
         rig = CameraRig()
         rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1
         pad.root.isEnabled = false
+        shake = CameraShake()
     }
 
     func update(snapshot: WorldSnapshot, events: [SimEvent], frameDelta: Double) {
         guard let active = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel }) ?? snapshot.vessels.first
         else { return }
         renderTime += frameDelta
+        let quality = governor.update(dt: frameDelta, target: 1 / max(30, targetFrameRate))
         let frame = active.body
         let luna = snapshot.lunaPosition.d3
         let activeVisual = visual(for: active)
@@ -236,10 +242,16 @@ final class SceneRenderer: FlightRenderer {
         }
         sky.update(up: localUp, brightness: brightness)
 
+        _ = quality
+
         // Камера в нуле; ближняя плоскость — по ближайшему объекту.
         // Смотрим чуть ниже цели: корабль выше центра кадра, факел и земля не под навболом.
-        let lookPoint = target - cam.up * (camToTarget * 0.12)
+        // Тряска по скоростному напору, тяге и событиям — угловое смещение точки взгляда.
+        let jolt = shake.update(telemetry: snapshot.telemetry, events: events, time: renderTime, dt: frameDelta)
+        let side = simd_normalize(simd_cross(cam.up, target - eye))
+        let lookPoint = target - cam.up * (camToTarget * (0.12 - jolt.y)) + side * (camToTarget * jolt.x)
         camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
+        camera.camera.fieldOfViewInDegrees = Float(60 + 5 * shake.speedFeel)
         let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)
         var near = clampd(0.25 * min(toVessel, clearance), 0.05, 1_000)
         if clearance < 500 { near = min(near, 0.5) }
