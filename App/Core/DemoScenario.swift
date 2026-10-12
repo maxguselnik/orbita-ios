@@ -18,6 +18,9 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case staging
     /// На орбите 80×74 км.
     case orbit
+    /// На орбите 80×74 км с блоком РСУ: РСУ включено, держится команда «вперёд и вправо» — HUD с поступательным
+    /// джойстиком и струйки сопел в рендере.
+    case rcs
     /// Перелёт к Луне, вход в её сферу влияния.
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
@@ -81,6 +84,9 @@ enum DemoScenario: String, CaseIterable, Sendable {
             return flight
         case .orbit, .map:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .rcs:
+            return ScenarioFlight(design: Self.rcsDesign, goal: .orbit, keepAutopilot: false,
+                                  rcsOn: true, heldTranslation: Vec3(0.6, 1, 0)) { _, ap in ap.isFinished }
         case .lunaApproach, .mapLuna:
             return ScenarioFlight(design: .luna, goal: .lunaEncounter, keepAutopilot: false) { sim, _ in
                 sim.activeBody == .luna
@@ -108,6 +114,11 @@ enum DemoScenario: String, CaseIterable, Sendable {
             return sim
         }
     }
+
+    /// «Орбита» с блоком РСУ и баком монотоплива под капсулой.
+    private static let rcsDesign = VesselDesign(
+        name: "РСУ",
+        parts: [.chute, .podK1, .rcsBlock, .m100, .decoupler, .t400, .shtil, .decoupler, .t800, .t800, .vikhr])
 
     /// Капсула К-1 (с парашютом или без) над площадкой (≈ 1 км к северу), падает со скоростью `speed`.
     private static func descent(chute: Bool, height: Double, speed: Double) -> FlightSim {
@@ -193,9 +204,14 @@ final class ScenarioFlight: FlightSimulation {
     private let sim: FlightSim
     private let autopilot: Autopilot?
     private var pending = 0.0
+    /// Поступательная команда, которую сцена держит поверх ввода игрока (нули — не переопределять).
+    private let heldTranslation: Vec3
 
+    /// `rcsOn` — включить РСУ после прокрутки; `heldTranslation` — удерживаемая команда РСУ (сцена `rcs`).
     init(design: VesselDesign, goal: Autopilot.Goal, keepAutopilot: Bool,
+         rcsOn: Bool = false, heldTranslation: Vec3 = .zero,
          until done: (FlightSim, Autopilot) -> Bool) {
+        self.heldTranslation = heldTranslation
         sim = FlightSim(design: design)
         let ap = Autopilot(goal: goal)
         while !done(sim, ap) && !ap.isFinished && sim.time < 600_000 {
@@ -206,13 +222,17 @@ final class ScenarioFlight: FlightSimulation {
             sim.send(.setWarp(index: 0))
             sim.setInput(.neutral)
         }
+        if rcsOn { sim.send(.setRCS(true)) }
         autopilot = keepAutopilot ? ap : nil
     }
 
     var snapshot: WorldSnapshot { sim.snapshot }
 
     func setInput(_ input: ControlInput) {
-        if autopilot?.isFinished ?? true { sim.setInput(input) }
+        guard autopilot?.isFinished ?? true else { return }
+        var held = input
+        if heldTranslation != .zero { held.translation = heldTranslation }
+        sim.setInput(held)
     }
 
     func send(_ command: FlightCommand) {

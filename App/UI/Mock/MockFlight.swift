@@ -37,6 +37,11 @@ final class MockFlight: FlightSimulation {
     private var warpIndex = 0
     private var chute: ChuteState = .stowed
     private var maneuverNode: ManeuverNode?
+    /// РСУ заглушки: один блок, 40 кг монотоплива; тратится, пока включено и есть поступательная команда.
+    private static let monoCapacity = 40.0
+    private var rcsEnabled = false
+    private var monoMass = MockFlight.monoCapacity
+    private var rcsFiring = false
     /// `warpToManeuver`: ускорение сбрасывается за `ManeuverStatus.warpLead` до начала прожига.
     private var warpingToManeuver = false
     private var chuteTimer = 0.0
@@ -109,6 +114,9 @@ final class MockFlight: FlightSimulation {
         case .deployChute:
             guard chute == .stowed else { return }
             chute = .armed
+        case .setRCS(let enabled):
+            rcsEnabled = enabled
+            if !enabled { rcsFiring = false }
         case .setManeuver(let node):
             maneuverNode = node
             if node == nil { warpingToManeuver = false }
@@ -141,6 +149,9 @@ final class MockFlight: FlightSimulation {
 
     func advance(realDelta: Double) -> [SimEvent] {
         let simDelta = max(0, realDelta) * TimeWarp.levels[warpIndex]
+        let demand = min(input.translation.length, 1)
+        rcsFiring = rcsEnabled && monoMass > 0 && demand > 0
+        if rcsFiring { monoMass = max(0, monoMass - 0.5 * demand * simDelta) }
         if simDelta > 0 {
             // Шаг ≤ 0.02 с, но не больше 2000 шагов за кадр (на «рельсах» шаг крупнее).
             let steps = min(2_000, max(1, Int((simDelta / 0.02).rounded(.up))))
@@ -496,7 +507,9 @@ final class MockFlight: FlightSimulation {
             chuteSafe: chuteSafe,
             warpIndex: warpIndex,
             warpBlocked: warpBlocked,
-            maneuver: maneuverStatus())
+            maneuver: maneuverStatus(),
+            rcs: RCSStatus(available: true, enabled: rcsEnabled, monoMass: monoMass,
+                           monoCapacity: Self.monoCapacity, firing: rcsFiring))
 
         telemetry.nextStageAction = stages.count > 1 ? .separate : (chute == .stowed ? .armChute : .none)
 

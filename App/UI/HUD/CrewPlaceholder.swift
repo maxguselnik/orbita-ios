@@ -1,8 +1,8 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Заглушка экипажа: три карточки со схематичным шлемом. Логики экипажа нет ни в физике, ни в сохранениях —
-/// только картинка в духе жанра; показывается, если в корабле есть кабина.
+/// Заглушка экипажа (Б4): три маленьких портрета 30 × 34 pt со схематичным шлемом. Логики экипажа нет ни в физике,
+/// ни в сохранениях — только картинка в духе жанра; показывается, если в корабле есть кабина.
 struct CrewPlaceholder: View {
     struct Member: Identifiable {
         let id: String
@@ -27,7 +27,7 @@ struct CrewPlaceholder: View {
     }
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 3) {
             ForEach(Self.members) { member in
                 CrewCard(member: member)
             }
@@ -36,55 +36,41 @@ struct CrewPlaceholder: View {
     }
 }
 
-/// Карточка 46 × 60 pt: шлем, имя, роль. Активный член экипажа — в зелёной рамке.
+/// Портрет 30 × 34 pt: шлем с визором и плечи. Активный член экипажа — в зелёной рамке.
 struct CrewCard: View {
     let member: CrewPlaceholder.Member
 
     var body: some View {
-        VStack(spacing: 2) {
-            CrewHelmet(visor: member.visor)
-                .frame(width: 38, height: 36)
-            Text(member.name)
-                .font(.system(size: 7))
-                .foregroundStyle(HUDPalette.text)
-            Text(member.role)
-                .font(.system(size: 6))
-                .foregroundStyle(HUDPalette.muted)
-        }
-        .lineLimit(1)
-        .padding(3)
-        .frame(width: 46, height: 60)
-        .classicPanel(corner: 7, stroke: member.isActive ? HUDPalette.greenRing : HUDPalette.stroke)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(member.role) \(member.name)")
+        CrewHelmet(visor: member.visor)
+            .frame(width: 30, height: 34)
+            .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(member.isActive ? HUDPalette.greenRing : HUDPalette.stroke, lineWidth: 1))
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel("\(member.role) \(member.name)")
     }
 }
 
-/// Шлем из простых фигур: плечи, круг шлема и цветной визор на тёмном фоне.
+/// Шлем из простых фигур на тёмном фоне 30 × 34: плечи, круг шлема и цветной визор.
 struct CrewHelmet: View {
     let visor: Color
 
     var body: some View {
         ZStack(alignment: .topLeading) {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(LinearGradient(colors: [Color(red: 0.14, green: 0.2, blue: 0.29),
-                                              Color(red: 0.063, green: 0.09, blue: 0.141)],
-                                     startPoint: .top, endPoint: .bottom))
-            UnevenRoundedRectangle(topLeadingRadius: 6, bottomLeadingRadius: 0,
-                                   bottomTrailingRadius: 0, topTrailingRadius: 6, style: .continuous)
+            Color(red: 0.102, green: 0.133, blue: 0.196)
+            UnevenRoundedRectangle(topLeadingRadius: 5, bottomLeadingRadius: 0,
+                                   bottomTrailingRadius: 0, topTrailingRadius: 5, style: .continuous)
                 .fill(Color(red: 0.788, green: 0.82, blue: 0.859))
-                .frame(width: 30, height: 12)
-                .offset(x: 4, y: 28)
+                .frame(width: 24, height: 10)
+                .offset(x: 3, y: 24)
             Circle()
                 .fill(Color(red: 0.867, green: 0.89, blue: 0.918))
-                .overlay(Circle().strokeBorder(Color(red: 0.604, green: 0.643, blue: 0.698), lineWidth: 2))
-                .frame(width: 24, height: 24)
-                .offset(x: 7, y: 4)
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .frame(width: 18, height: 18)
+                .offset(x: 6, y: 4)
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
                 .fill(visor)
-                .frame(width: 16, height: 12)
-                .offset(x: 11, y: 9)
+                .frame(width: 12, height: 8)
+                .offset(x: 9, y: 8)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
     }
 }

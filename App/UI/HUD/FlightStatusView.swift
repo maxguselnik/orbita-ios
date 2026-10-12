@@ -1,7 +1,7 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Строка под высотомером: жёлтый совет помощника подъёма (если подсказки включены и совет есть),
+/// Строка под высотомером (Б4) без плашки: жёлтый совет помощника подъёма (если подсказки включены и совет есть),
 /// иначе компактная строка состояния полёта.
 struct FlightStatusView: View {
     let model: FlightHUDModel
@@ -11,24 +11,22 @@ struct FlightStatusView: View {
     var body: some View {
         let t = model.telemetry
         let advice = ascentEnabled ? AscentGuide.advice(t) : nil
-        HStack(spacing: 6) {
+        HStack(spacing: 5) {
             if let advice {
-                Image(systemName: "diamond.fill").font(.system(size: 8))
+                Image(systemName: "diamond.fill").font(.system(size: 7))
                 Text(advice.text)
             } else {
-                Text(title(t)).font(.system(size: 10, weight: .heavy))
+                Text(title(t)).font(.system(size: 9, weight: .heavy))
                 Text(verbatim: "·").foregroundStyle(HUDPalette.muted)
                 Text(detail(t)).foregroundStyle(HUDPalette.muted)
             }
         }
-        .font(.system(size: 11, weight: .medium))
+        .font(.system(size: 10, weight: .medium))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(advice == nil ? HUDPalette.text : HUDPalette.advice)
-        .padding(.horizontal, 10)
-        .frame(height: 22)
-        .frame(maxWidth: 360)
-        .classicPanel(corner: 6)
+        .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
+        .frame(maxWidth: 340)
         .accessibilityElement(children: .combine)
         .allowsHitTesting(false)
     }

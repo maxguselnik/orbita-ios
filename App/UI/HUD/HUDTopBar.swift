@@ -1,7 +1,7 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Плашка сверху слева: «Т+ мм:сс», три ближайших уровня ускорения времени и пауза.
+/// Узкая строка сверху слева (Б4): «Т+ мм:сс», три ближайших уровня ускорения времени и пауза.
 /// Каждый кадр перерисовывается только часы (`MissionClock`), кнопки — при смене своих полей.
 struct MissionTimeBar: View {
     let model: FlightHUDModel
@@ -14,19 +14,19 @@ struct MissionTimeBar: View {
                 model.pause()
             } label: {
                 Image(systemName: "pause.fill")
-                    .font(.system(size: 10, weight: .heavy))
+                    .font(.system(size: 9, weight: .heavy))
                     .foregroundStyle(HUDPalette.text)
-                    .frame(width: 32, height: 26)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                    .frame(width: 40, height: HUDStyle.minTouch)
+                    .frame(width: 24, height: 20)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .frame(width: 30, height: 34)
                     .contentShape(Rectangle())
             }
             .buttonStyle(HUDPressStyle())
             .accessibilityLabel("Пауза")
         }
-        .padding(.horizontal, 4)
-        .frame(height: 30)
-        .classicPanel()
+        .padding(.horizontal, 3)
+        .frame(height: 24)
+        .classicPanel(corner: 6)
     }
 }
 
@@ -36,10 +36,10 @@ struct MissionClock: View {
 
     var body: some View {
         Text(Self.text(model.telemetry))
-            .font(.system(size: 11, weight: .bold).monospacedDigit())
+            .font(.system(size: 10, weight: .bold).monospacedDigit())
             .foregroundStyle(HUDPalette.green)
             .lineLimit(1)
-            .padding(.horizontal, 6)
+            .padding(.horizontal, 5)
     }
 
     static func text(_ t: FlightTelemetry) -> String {
@@ -75,14 +75,14 @@ struct WarpButtons: View {
     private func glyph(position: Int, active: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(0...position, id: \.self) { _ in
-                Image(systemName: "play.fill").font(.system(size: 7, weight: .bold))
+                Image(systemName: "play.fill").font(.system(size: 6, weight: .bold))
             }
         }
         .foregroundStyle(active ? Color(red: 0.73, green: 0.96, blue: 0.76) : HUDPalette.muted)
-        .frame(width: 32, height: 26)
+        .frame(width: 24, height: 20)
         .background(active ? HUDPalette.greenDark : Color.white.opacity(0.08),
-                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-        .frame(width: 40, height: HUDStyle.minTouch)
+                    in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .frame(width: 30, height: 34)
         .contentShape(Rectangle())
     }
 
@@ -133,21 +133,24 @@ struct WarpButtons: View {
     }
 }
 
-/// Квадратная иконка 36 pt в зоне касания 44 pt: правая колонка (карта, камера, ступени).
+/// Квадратная иконка в зоне касания: обычная 36 pt (зона 44), компактная 30 pt (зона 34).
 struct HUDIconButton: View {
     let systemImage: String
     let label: String
     var isActive = false
+    var compact = false
     let action: () -> Void
 
     var body: some View {
+        let side: CGFloat = compact ? 30 : 36
+        let touch: CGFloat = compact ? 34 : HUDStyle.minTouch
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: compact ? 13 : 15, weight: .semibold))
                 .foregroundStyle(isActive ? Color.black : HUDPalette.text)
-                .frame(width: 36, height: 36)
-                .classicPanel(corner: 8, fill: isActive ? HUDStyle.active : HUDPalette.panel)
-                .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                .frame(width: side, height: side)
+                .classicPanel(corner: compact ? 7 : 8, fill: isActive ? HUDStyle.active : HUDPalette.panel)
+                .frame(width: touch, height: touch)
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
@@ -155,23 +158,29 @@ struct HUDIconButton: View {
     }
 }
 
-/// Вертикальные иконки справа сверху: карта (в полёте), камера (в полёте), ступени. Все — существующие действия.
-struct HUDSideButtons: View {
+/// Карта и камера справа сверху в полёте: две кнопки 30 × 30.
+struct FlightCornerButtons: View {
     let model: FlightHUDModel
 
     var body: some View {
         VStack(spacing: 0) {
-            if !model.map.isOpen {
-                HUDIconButton(systemImage: "map", label: "Открыть карту") { model.toggleMap() }
-                HUDIconButton(systemImage: CameraModeInfo.symbol(model.cameraMode),
-                              label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))") {
-                    model.cycleCameraMode()
-                }
+            HUDIconButton(systemImage: "map", label: "Открыть карту", compact: true) { model.toggleMap() }
+            HUDIconButton(systemImage: CameraModeInfo.symbol(model.cameraMode),
+                          label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))", compact: true) {
+                model.cycleCameraMode()
             }
-            HUDIconButton(systemImage: "list.bullet.rectangle", label: "Ступени, топливо, Δv",
-                          isActive: model.isPanelOpen) {
-                withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
-            }
+        }
+    }
+}
+
+/// Кнопка панели ступеней на карте (в полёте панель открывает тап по стопке ступеней).
+struct StagePanelButton: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        HUDIconButton(systemImage: "list.bullet.rectangle", label: "Ступени, топливо, Δv",
+                      isActive: model.isPanelOpen) {
+            withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
         }
     }
 }

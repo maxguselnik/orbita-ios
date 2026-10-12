@@ -100,7 +100,7 @@ extension View {
     }
 }
 
-/// Малая кнопка (MAX, 0): рисуется ниже 44 pt, зона касания — полные 44 × 44.
+/// Малая кнопка (MAX, 0): рисуется 36 × 24 pt, зона касания 40 × 28.
 struct HUDMiniButton: View {
     let title: String
     let label: String
@@ -110,12 +110,12 @@ struct HUDMiniButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: HUDStyle.minTouch, height: 30)
-                .hudBackground(HUDStyle.control, corner: 8)
-                .hudPulse(pulse, corner: 8)
-                .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                .font(.system(size: 10, weight: .heavy))
+                .foregroundStyle(HUDPalette.text)
+                .frame(width: 36, height: 24)
+                .background(HUDPalette.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .hudPulse(pulse, corner: 5)
+                .frame(width: 40, height: 28)
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())

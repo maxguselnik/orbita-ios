@@ -1,16 +1,16 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Правый нижний угол: малые MAX и 0 и джойстик с кнопками крена. До отрыва джойстик приглушён:
-/// на площадке главное — «Зажигание» и тяга.
+/// Правый нижний угол (Б4): маленькие MAX и 0, кнопки крена по бокам джойстика 72 pt. До отрыва джойстик
+/// приглушён: на площадке главное — «Зажигание» и тяга.
 struct ControlsCluster: View {
     let model: FlightHUDModel
     /// Действие, которое советует помощник (подсвечивает MAX или 0).
     var guide: HUDAction?
 
     var body: some View {
-        VStack(spacing: 2) {
-            HStack(spacing: 6) {
+        HStack(alignment: .bottom, spacing: 2) {
+            VStack(spacing: 0) {
                 HUDMiniButton(title: "MAX", label: "Полная тяга", pulse: guide == .fullThrottle) {
                     model.throttle = 1
                 }
@@ -26,7 +26,7 @@ struct ControlsCluster: View {
 
 // MARK: - SAS
 
-/// Сетка режимов SAS 4×2: содержимое всплывающей панели `SASModePill`.
+/// Сетка режимов SAS 4×2: содержимое поповера со стрелки ▾ на кнопке SAS (`ClusterSASButton`).
 struct SASGrid: View {
     let model: FlightHUDModel
     /// Вызывается после выбора режима (закрыть панель).
@@ -232,65 +232,18 @@ struct SASToggleButton: View {
     }
 }
 
-/// Режим SAS в свёрнутом виде: маленькая «пилюля» «SAS ДЕРЖАТЬ ▴»; тап раскрывает панель «РЕЖИМ SAS»
-/// (сетка 4 × 2), выбор или тап мимо закрывают её. На площадке приглушена.
-struct SASModePill: View {
-    let model: FlightHUDModel
-
-    @State private var picking = false
-
-    var body: some View {
-        let current = model.sas
-        let on = current != .off
-        Button {
-            picking = true
-        } label: {
-            HStack(spacing: 6) {
-                Text("SAS").fontWeight(.semibold).foregroundStyle(HUDPalette.muted)
-                Text(on ? SASGrid.shortName(current) : "ВЫКЛ").foregroundStyle(on ? HUDPalette.sas : HUDPalette.text)
-                Image(systemName: picking ? "chevron.down" : "chevron.up")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(HUDPalette.text)
-            }
-            .font(.system(size: 10, weight: .heavy))
-            .lineLimit(1)
-            .padding(.horizontal, 10)
-            .frame(height: 30)
-            .background(HUDPalette.panel, in: Capsule())
-            .overlay(Capsule().strokeBorder(on ? HUDPalette.sas : HUDPalette.stroke, lineWidth: 1))
-            .frame(minHeight: HUDStyle.minTouch)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(HUDPressStyle())
-        .opacity(model.onPad ? 0.5 : 1)
-        .accessibilityLabel("Режим SAS: " + (on ? SASGrid.fullName(current) : "выключен"))
-        .accessibilityHint("Раскрыть выбор режима")
-        .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("РЕЖИМ SAS")
-                    .font(.system(size: 8, weight: .regular))
-                    .tracking(1)
-                    .foregroundStyle(HUDPalette.muted)
-                SASGrid(model: model) { picking = false }
-            }
-            .padding(10)
-            .presentationCompactAdaptation(.popover)
-        }
-    }
-}
-
 // MARK: - Джойстик и крен
 
-/// Виртуальный джойстик тангаж/рыскание и кнопки крена по бокам (удержание).
+/// Виртуальный джойстик тангаж/рыскание (72 pt) и кнопки крена по бокам (удержание).
 struct AttitudeControls: View {
     let model: FlightHUDModel
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(alignment: .bottom, spacing: 0) {
             HoldButton(systemImage: "arrow.counterclockwise", label: "Крен влево") { pressed in
                 model.rollLeftPressed = pressed
             }
-            Joystick { axes in
+            Joystick(size: 72, label: "Джойстик тангажа и рыскания") { axes in
                 // Палец вверх — нос вверх (+тангаж), вправо — рыскание вправо.
                 model.pitchInput = Double(-axes.dy)
                 model.yawInput = Double(axes.dx)
@@ -302,27 +255,62 @@ struct AttitudeControls: View {
     }
 }
 
+/// Поступательное управление РСУ: джойстик 64 pt (вправо и вверх) и кнопки «вперёд/назад» (удержание).
+/// Видно только при включённом РСУ; ввод собирает `FlightHUDModel` и передаёт в `ControlInput.translation`.
+struct RCSControls: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: 2) {
+            VStack(spacing: 2) {
+                HoldButton(systemImage: "chevron.up", label: "РСУ вперёд", diameter: 30, touchHeight: 34) { pressed in
+                    model.rcsForwardPressed = pressed
+                }
+                HoldButton(systemImage: "chevron.down", label: "РСУ назад", diameter: 30, touchHeight: 34) { pressed in
+                    model.rcsBackPressed = pressed
+                }
+            }
+            Joystick(size: 64, label: "Джойстик РСУ: вправо и вверх", tint: HUDPalette.green) { axes in
+                // Палец вправо — сдвиг вправо, вверх — сдвиг вверх (спина корабля).
+                model.rcsRightInput = Double(axes.dx)
+                model.rcsUpInput = Double(-axes.dy)
+            }
+        }
+    }
+}
+
 /// Джойстик: ведение пальцем от точки касания, возврат в центр при отпускании.
 struct Joystick: View {
+    let size: CGFloat
+    let label: String
+    let tint: Color
     /// Отклонение −1…1 по осям (dy вниз — положительное).
     let onMove: (CGVector) -> Void
 
-    let size: CGFloat = 84
-    private var travel: CGFloat { size / 2 - 19 }
     @GestureState private var offset: CGSize = .zero
+
+    init(size: CGFloat, label: String, tint: Color = .white, onMove: @escaping (CGVector) -> Void) {
+        self.size = size
+        self.label = label
+        self.tint = tint
+        self.onMove = onMove
+    }
+
+    private var knob: CGFloat { size * 0.42 }
+    private var travel: CGFloat { (size - knob) / 2 }
 
     var body: some View {
         ZStack {
             Circle().fill(HUDPalette.panel.opacity(0.7))
-            Circle().strokeBorder(HUDPalette.stroke, lineWidth: 1)
+            Circle().strokeBorder(tint == .white ? HUDPalette.stroke : tint.opacity(0.6), lineWidth: 1)
             Path { p in
-                p.move(to: CGPoint(x: size / 2, y: 12)); p.addLine(to: CGPoint(x: size / 2, y: size - 12))
-                p.move(to: CGPoint(x: 12, y: size / 2)); p.addLine(to: CGPoint(x: size - 12, y: size / 2))
+                p.move(to: CGPoint(x: size / 2, y: 10)); p.addLine(to: CGPoint(x: size / 2, y: size - 10))
+                p.move(to: CGPoint(x: 10, y: size / 2)); p.addLine(to: CGPoint(x: size - 10, y: size / 2))
             }
             .stroke(.white.opacity(0.2), lineWidth: 1)
             Circle()
-                .fill(.white.opacity(offset == .zero ? 0.75 : 0.95))
-                .frame(width: 36, height: 36)
+                .fill(tint.opacity(offset == .zero ? 0.75 : 0.95))
+                .frame(width: knob, height: knob)
                 .shadow(color: .black.opacity(0.5), radius: 3)
                 .offset(offset)
         }
@@ -340,25 +328,39 @@ struct Joystick: View {
         .onChange(of: offset) { _, value in
             onMove(CGVector(dx: value.width / travel, dy: value.height / travel))
         }
-        .accessibilityLabel("Джойстик тангажа и рыскания")
+        .accessibilityLabel(label)
     }
 }
 
-/// Кнопка удержания: активна, пока палец на ней (жест сбрасывается и при отмене касания).
+/// Кнопка удержания: круг `diameter` pt, активна, пока палец на ней (жест сбрасывается и при отмене касания).
+/// Зона касания — `touchHeight` pt по высоте, круг прижат к низу.
 struct HoldButton: View {
     let systemImage: String
     let label: String
+    let diameter: CGFloat
+    let touchHeight: CGFloat
     let onPress: (Bool) -> Void
 
     @GestureState private var pressed = false
 
+    init(systemImage: String, label: String, diameter: CGFloat = 28, touchHeight: CGFloat = 44,
+         onPress: @escaping (Bool) -> Void) {
+        self.systemImage = systemImage
+        self.label = label
+        self.diameter = diameter
+        self.touchHeight = touchHeight
+        self.onPress = onPress
+    }
+
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: 20, weight: .bold))
-            .foregroundStyle(pressed ? Color.black : Color.white)
-            .frame(width: 40, height: 52)
+            .font(.system(size: 12, weight: .bold))
+            .foregroundStyle(pressed ? Color.black : HUDPalette.text)
+            .frame(width: diameter, height: diameter)
+            .background(pressed ? HUDStyle.active : HUDPalette.panel, in: Circle())
+            .overlay(Circle().strokeBorder(HUDPalette.stroke, lineWidth: 1))
+            .frame(width: diameter + 6, height: max(touchHeight, diameter), alignment: .bottom)
             .contentShape(Rectangle())
-            .classicPanel(corner: 10, fill: pressed ? HUDStyle.active : HUDPalette.panel)
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .updating($pressed) { _, state, _ in state = true }
@@ -370,11 +372,11 @@ struct HoldButton: View {
 
 // MARK: - Ступень
 
-/// Большая кнопка действия ступени: значок, «ЗАЖИГАНИЕ / ОТДЕЛИТЬ / ПАРАШЮТ / НЕТ ДЕЙСТВИЙ» и подпись.
-/// Одно нажатие — `.stage`. Пульсирует, когда её советует помощник и на площадке до зажигания.
+/// Кнопка действия ступени «ЗАЖИГАНИЕ ▸ / ОТДЕЛИТЬ ▸ / ПАРАШЮТ ▸ / НЕТ ДЕЙСТВИЙ». Одно нажатие — `.stage`.
+/// Пульсирует, когда её советует помощник и на площадке до зажигания.
 struct StageButton: View {
     let model: FlightHUDModel
-    /// Низкая кнопка (карта: место под панель узла).
+    /// Широкая кнопка карты (место под панель узла): тянется на всю колонку, 44 pt.
     var compact = false
     /// Помощник советует нажать её сейчас.
     var highlighted = false
@@ -398,28 +400,24 @@ struct StageButton: View {
         Button {
             model.send(.stage)
         } label: {
-            HStack(spacing: 6) {
-                Image(systemName: t.action == .armChute ? "arrow.down.to.line.compact" : "square.stack.3d.down.right.fill")
-                    .font(.system(size: 15, weight: .bold))
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(title).font(.system(size: compact ? 14 : 15, weight: .black))
-                    if !compact {
-                        Text(detail).font(.system(size: 9, weight: .semibold))
-                    }
+            HStack(spacing: 4) {
+                Text(title).font(.system(size: compact ? 14 : 13, weight: .black))
+                if enabled {
+                    Image(systemName: "chevron.right").font(.system(size: 10, weight: .black))
                 }
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                Spacer(minLength: 0)
             }
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
             .foregroundStyle(enabled ? HUDPalette.accentText : HUDPalette.muted)
-            .padding(.horizontal, 12)
-            .frame(maxWidth: .infinity, minHeight: compact ? HUDStyle.minTouch : 50)
+            .padding(.horizontal, 14)
+            .frame(minWidth: compact ? nil : 112, maxWidth: compact ? CGFloat.infinity : nil,
+                   minHeight: compact ? HUDStyle.minTouch : 40)
             .background(enabled ? HUDPalette.accent : Color.white.opacity(0.1),
-                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        in: RoundedRectangle(cornerRadius: 10, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
-        .hudPulse(pulse, corner: 12)
+        .hudPulse(pulse, corner: 10)
         .disabled(!enabled)
         .accessibilityLabel(title + ", " + detail)
     }

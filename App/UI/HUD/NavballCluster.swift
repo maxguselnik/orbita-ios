@@ -1,19 +1,24 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Сторона дугового прибора вокруг навбола.
+/// Сторона дугового прибора на кольце навбола.
 enum GaugeSide {
     case left, right
 }
 
-/// Геометрия дуг-приборов: значение 0…1 откладывается снизу вверх по полуокружности.
-/// Углы — в экранных координатах (y вниз): 90° — низ, 180° — лево, 0° — право, 270° — верх.
+/// Геометрия дуг-приборов на кольце. Углы — в экранных координатах (y вниз): 0° — право, 90° — низ,
+/// 180° — лево, 270° — верх. Левая дуга идёт от 145° (низ-лево, у края экрана) до 215° (верх-лево),
+/// правая — зеркально: от 35° до −35°. Значение 0…1 откладывается снизу вверх.
 enum GaugeMath {
+    static let startDegrees = 145.0
+    static let spanDegrees = 70.0
+
     static func degrees(side: GaugeSide, fraction: Double) -> Double {
         let f = min(max(fraction, 0), 1)
+        let left = startDegrees + spanDegrees * f
         switch side {
-        case .left: return 90 + 180 * f
-        case .right: return 90 - 180 * f
+        case .left: return left
+        case .right: return 180 - left
         }
     }
 
@@ -23,11 +28,11 @@ enum GaugeMath {
                        y: center.y + radius * CGFloat(sin(radians)))
     }
 
-    /// Значение левой дуги по точке касания: угол вокруг центра дуги. Касание правее центра прижимается к краю.
+    /// Значение левой дуги по точке касания: угол вокруг центра кольца, вне дуги прижимается к краю.
     static func fraction(forTouch point: CGPoint, center: CGPoint) -> Double {
         var degrees = atan2(Double(point.y - center.y), Double(point.x - center.x)) * 180 / .pi
         if degrees < 0 { degrees += 360 }
-        return min(max((degrees - 90) / 180, 0), 1)
+        return min(max((degrees - startDegrees) / spanDegrees, 0), 1)
     }
 }
 
@@ -42,7 +47,7 @@ struct GaugeArcShape: Shape {
         var path = Path()
         guard to > from else { return path }
         let center = CGPoint(x: rect.midX, y: rect.midY)
-        let steps = max(2, Int(((to - from) * 48).rounded(.up)))
+        let steps = max(2, Int(((to - from) * 32).rounded(.up)))
         for step in 0...steps {
             let f: Double = from + (to - from) * Double(step) / Double(steps)
             let p = GaugeMath.point(center: center, radius: radius, side: side, fraction: f)
@@ -71,69 +76,56 @@ struct GaugeTicksShape: Shape {
     }
 }
 
-/// Корпус навбола: полукруглая панель шириной 270 pt, низ уходит за край экрана. Внутри: навбол,
-/// табло скорости, курс, дуга тяги слева (тянется пальцем), дуга перегрузки справа, переключатель SAS.
-struct NavballConsole: View {
+/// Кольцо навбола (макет Б4): круг 184 pt, нижние 34 pt уходят за край экрана. Внутри — навбол, сверху — табло
+/// скорости, в верхних углах — RCS (слева) и SAS со стрелкой выбора режима (справа); на кольце слева дуга тяги
+/// (тянется пальцем), справа дуга перегрузки.
+struct NavballCluster: View {
     let model: FlightHUDModel
     /// Помощник подъёма включён: на сфере рисуется маркер цели.
     var ascentEnabled = true
 
-    static let width: CGFloat = 270
-    static let height: CGFloat = 170
-    /// Насколько нижняя часть корпуса уходит за край экрана.
-    static let overhang: CGFloat = 12
-    static let ballDiameter: CGFloat = 112
-    static let ballCenter = CGPoint(x: 135, y: 86)
-    static let arcRadius: CGFloat = 46
-    static let leftArcCenter = CGPoint(x: 62, y: 86)
-    static let rightArcCenter = CGPoint(x: 208, y: 86)
+    static let size: CGFloat = 184
+    /// Насколько нижняя часть кольца уходит за край экрана.
+    static let overhang: CGFloat = 34
+    static let ballDiameter: CGFloat = 116
+    static let center = CGPoint(x: 92, y: 92)
+    static let arcRadius: CGFloat = 82
 
     var body: some View {
         let t = model.telemetry
         let frame = model.speedFrame(for: t)
         ZStack(alignment: .topLeading) {
-            ConsoleBackdrop()
+            ClusterRing()
             ThrottleGauge(model: model)
             GForceGauge(gForce: t.gForce)
             NavballSphere(telemetry: t, frame: frame,
                           targetPitch: ascentEnabled ? AscentGuide.advice(t)?.targetPitch : nil)
                 .frame(width: Self.ballDiameter, height: Self.ballDiameter)
-                .position(Self.ballCenter)
-            Text(HUDFormat.heading(t.heading))
-                .font(.system(size: 10, weight: .bold).monospacedDigit())
-                .foregroundStyle(HUDPalette.text)
-                .position(x: Self.ballCenter.x, y: 150)
-                .allowsHitTesting(false)
+                .position(Self.center)
             SpeedLCD(telemetry: t, frame: frame) { model.toggleSpeedFrame() }
-                .position(x: Self.width / 2, y: 17)
-            ConsoleSASSwitch(model: model)
-                .position(x: 52, y: 17)
+                .position(x: Self.size / 2, y: 20)
+            ClusterRCSButton(model: model)
+                .position(x: 26, y: 22)
+            ClusterSASButton(model: model)
+                .position(x: Self.size - 31, y: 22)
         }
-        .frame(width: Self.width, height: Self.height)
+        .frame(width: Self.size, height: Self.size)
     }
 }
 
-/// Подложка корпуса: градиент, рамка и блик по верхнему краю.
-struct ConsoleBackdrop: View {
-    private var shape: UnevenRoundedRectangle {
-        UnevenRoundedRectangle(topLeadingRadius: 135, bottomLeadingRadius: 0,
-                               bottomTrailingRadius: 0, topTrailingRadius: 135, style: .continuous)
-    }
-
+/// Подложка кольца: градиент, рамка и тень вверх.
+struct ClusterRing: View {
     var body: some View {
-        shape
+        Circle()
             .fill(LinearGradient(colors: [HUDPalette.consoleTop, HUDPalette.consoleBottom],
                                  startPoint: .top, endPoint: .bottom))
-            .overlay(shape.strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
-            .overlay(
-                shape.strokeBorder(LinearGradient(colors: [Color.white.opacity(0.2), Color.clear],
-                                                  startPoint: .top, endPoint: .center), lineWidth: 2)
-            )
-            .shadow(color: .black.opacity(0.45), radius: 9, y: -4)
+            .overlay(Circle().strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
+            .overlay(Circle().inset(by: 5).strokeBorder(Color.black.opacity(0.35), lineWidth: 1))
+            .shadow(color: .black.opacity(0.5), radius: 8, y: -2)
     }
 }
 
-/// Табло скорости в стиле зелёного ЖК: «Орбита 7 543 м/с» / «Поверхность 543 м/с». Тап — переключение.
+/// Табло скорости в стиле зелёного ЖК: «пов 678 м/с» / «орб 7 543 м/с». Тап — переключение системы отсчёта.
 struct SpeedLCD: View {
     let telemetry: FlightTelemetry
     let frame: SpeedFrame
@@ -141,24 +133,18 @@ struct SpeedLCD: View {
 
     var body: some View {
         let speed = frame == .orbit ? telemetry.speed : telemetry.surfaceSpeed
-        let name = frame == .orbit ? "Орбита" : "Поверхность"
+        let name = frame == .orbit ? "орб" : "пов"
         Button(action: onTap) {
             Text(name + " " + HUDFormat.speed(speed))
-                .font(.system(size: 11, weight: .bold).monospacedDigit())
+                .font(.system(size: 10, weight: .bold).monospacedDigit())
                 .foregroundStyle(HUDPalette.lcd)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
-                .padding(.horizontal, 6)
-                .frame(width: 132, height: 22)
-                .background(Color(red: 0.04, green: 0.1, blue: 0.063), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(HUDPalette.green.opacity(0.25), lineWidth: 3)
-                        .blur(radius: 3)
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                )
-                .padding(.vertical, 11)
+                .padding(.horizontal, 5)
+                .frame(width: 76, height: 18)
+                .background(Color(red: 0.04, green: 0.1, blue: 0.063), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
+                .padding(.vertical, 9)
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
@@ -168,71 +154,169 @@ struct SpeedLCD: View {
     }
 }
 
-/// Переключатель SAS в левом верхнем углу корпуса: зелёный, когда включён. RCS в игре пока нет — не рисуется.
-struct ConsoleSASSwitch: View {
+/// RCS в левом верхнем углу кольца: зелёная, когда включено; серая и с тостом «Нет блоков РСУ», если блоков нет.
+/// Под надписью — мини-шкала монотоплива (красная ниже 15 %).
+struct ClusterRCSButton: View {
     let model: FlightHUDModel
 
     var body: some View {
-        let on = model.sas != .off
+        let rcs = model.rcs
+        let on = rcs.enabled
         Button {
-            model.toggleSAS()
+            model.toggleRCS()
         } label: {
-            Text("SAS")
+            Text("RCS")
                 .font(.system(size: 9, weight: .heavy))
                 .foregroundStyle(on ? Color.white : HUDPalette.muted)
-                .frame(width: 34, height: 20)
-                .background(on ? HUDPalette.greenDark : Color.white.opacity(0.1),
+                .offset(y: rcs.available ? -2 : 0)
+                .frame(width: 44, height: 22)
+                .background(on ? HUDPalette.greenDark : HUDPalette.stroke,
                             in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    .strokeBorder(rcs.firing ? HUDPalette.lcd : Color.clear, lineWidth: 1))
+                .overlay(alignment: .bottom) {
+                    if rcs.available {
+                        MonoStrip(fraction: rcs.monoFraction)
+                            .padding(.bottom, 3)
+                    }
+                }
+                .opacity(rcs.available || on ? 1 : 0.55)
+                .frame(width: 48, height: 36)
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
-        .accessibilityLabel(on ? "Выключить SAS" : "Включить SAS")
+        .accessibilityLabel(on ? "Выключить РСУ" : "Включить РСУ")
+        .accessibilityValue(rcs.available ? "монотоплива \(HUDFormat.percent(rcs.monoFraction))" : "нет блоков")
     }
 }
 
-/// Дуга тяги слева от навбола: оранжевое заполнение и кружок-ручка. Тяга задаётся перетаскиванием по дуге
+/// Шкала монотоплива 28 × 3 pt.
+struct MonoStrip: View {
+    let fraction: Double
+
+    var body: some View {
+        let level = CGFloat(min(max(fraction.isFinite ? fraction : 0, 0), 1))
+        ZStack(alignment: .leading) {
+            Capsule().fill(Color.white.opacity(0.18))
+            Capsule()
+                .fill(fraction < 0.15 ? Color.red : HUDPalette.green)
+                .frame(width: 28 * level)
+        }
+        .frame(width: 28, height: 3)
+    }
+}
+
+/// SAS в правом верхнем углу кольца: тап по «SAS» — вкл/выкл (зелёная, когда включён; при режиме не «держать»
+/// вместо надписи — его краткое имя), стрелка ▾ открывает сетку режимов.
+struct ClusterSASButton: View {
+    let model: FlightHUDModel
+
+    @State private var picking = false
+
+    var body: some View {
+        let current = model.sas
+        let on = current != .off
+        let title = on && current != .hold ? SASGrid.shortName(current) : "SAS"
+        HStack(spacing: 0) {
+            Button {
+                model.toggleSAS()
+            } label: {
+                Text(title)
+                    .font(.system(size: 9, weight: .heavy))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .foregroundStyle(on ? Color.white : HUDPalette.muted)
+                    .frame(width: 38, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(HUDPressStyle())
+            .accessibilityLabel(on ? "Выключить SAS, сейчас: " + SASGrid.fullName(current) : "Включить SAS")
+
+            Button {
+                picking = true
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 8, weight: .heavy))
+                    .foregroundStyle(on ? Color.white : HUDPalette.muted)
+                    .frame(width: 24, height: 36)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(HUDPressStyle())
+            .accessibilityLabel("Режим SAS: " + (on ? SASGrid.fullName(current) : "выключен"))
+            .accessibilityHint("Выбрать режим")
+            .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("РЕЖИМ SAS")
+                        .font(.system(size: 8, weight: .regular))
+                        .tracking(1)
+                        .foregroundStyle(HUDPalette.muted)
+                    SASGrid(model: model) { picking = false }
+                }
+                .padding(10)
+                .presentationCompactAdaptation(.popover)
+            }
+        }
+        .background {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(on ? HUDPalette.greenDark : HUDPalette.stroke)
+                .frame(height: 22)
+        }
+        .overlay {
+            Rectangle()
+                .fill(Color.black.opacity(0.35))
+                .frame(width: 1, height: 22)
+                .offset(x: 7)
+                .allowsHitTesting(false)
+        }
+    }
+}
+
+/// Дуга тяги слева на кольце: оранжевое заполнение и кружок-ручка. Тяга задаётся перетаскиванием по дуге
 /// (вверх — больше). РДТТ горит на 100 % и не регулируется.
 struct ThrottleGauge: View {
     let model: FlightHUDModel
 
-    private static let touchSize = CGSize(width: 62, height: 112)
+    /// Зона касания в координатах кольца: левая сторона от низа до верхнего угла.
+    private static let touchRect = CGRect(x: -4, y: 28, width: 56, height: 124)
 
     var body: some View {
         let locked = model.solidLocked
         let value: Double = locked ? 1 : min(max(model.throttle, 0), 1)
-        let center = NavballConsole.leftArcCenter
-        let radius = NavballConsole.arcRadius
-        let frameSide = 2 * (radius + 10)
+        let center = NavballCluster.center
+        let radius = NavballCluster.arcRadius
+        let size = NavballCluster.size
         let knob = GaugeMath.point(center: center, radius: radius, side: .left, fraction: value)
-        // Левый верхний угол зоны касания в координатах корпуса и центр дуги внутри неё.
-        let origin = CGPoint(x: center.x - 56, y: center.y - 56)
-        let touchCenter = CGPoint(x: center.x - origin.x, y: center.y - origin.y)
+        let touch = Self.touchRect
+        let touchCenter = CGPoint(x: center.x - touch.minX, y: center.y - touch.minY)
         ZStack {
-            GaugeTicksShape(side: .left, count: 15, inner: radius + 4, outer: radius + 8)
+            GaugeTicksShape(side: .left, count: 7, inner: radius + 4, outer: radius + 8)
                 .stroke(Color.white.opacity(0.35), lineWidth: 1)
-                .frame(width: frameSide, height: frameSide)
+                .frame(width: size, height: size)
                 .position(center)
             GaugeArcShape(side: .left, to: 1, radius: radius)
                 .stroke(Color.white.opacity(0.1), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                .frame(width: frameSide, height: frameSide)
+                .frame(width: size, height: size)
                 .position(center)
             GaugeArcShape(side: .left, to: value, radius: radius)
                 .stroke(HUDPalette.accent, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                .frame(width: frameSide, height: frameSide)
+                .frame(width: size, height: size)
                 .position(center)
             Circle()
                 .fill(Color.white)
                 .overlay(Circle().strokeBorder(HUDPalette.accent, lineWidth: 2))
                 .frame(width: 14, height: 14)
                 .position(knob)
-            Text((locked ? "РДТТ " : "ТЯГА ") + HUDFormat.percent(value))
-                .font(.system(size: 8, weight: .semibold).monospacedDigit())
-                .foregroundStyle(HUDPalette.muted)
-                .lineLimit(1)
-                .position(x: 42, y: 142)
+            VStack(spacing: 0) {
+                Text(locked ? "РДТТ" : "ТЯГА")
+                Text(HUDFormat.percent(value))
+            }
+            .font(.system(size: 8, weight: .semibold).monospacedDigit())
+            .foregroundStyle(HUDPalette.accent)
+            .lineLimit(1)
+            .position(x: -12, y: 124)
+            .allowsHitTesting(false)
             Color.clear
-                .frame(width: Self.touchSize.width, height: Self.touchSize.height)
+                .frame(width: touch.width, height: touch.height)
                 .contentShape(Rectangle())
                 .gesture(
                     DragGesture(minimumDistance: 0)
@@ -241,7 +325,7 @@ struct ThrottleGauge: View {
                             model.throttle = GaugeMath.fraction(forTouch: drag.location, center: touchCenter)
                         }
                 )
-                .position(x: origin.x + Self.touchSize.width / 2, y: origin.y + Self.touchSize.height / 2)
+                .position(x: touch.midX, y: touch.midY)
                 .accessibilityElement()
                 .accessibilityLabel("Тяга")
                 .accessibilityValue(locked ? "РДТТ работает на полной тяге, регулировка невозможна" : HUDFormat.percent(value))
@@ -257,7 +341,7 @@ struct ThrottleGauge: View {
     }
 }
 
-/// Дуга перегрузки справа от навбола: заполнение до 6 g, цвет растёт от зелёного к красному.
+/// Дуга перегрузки справа на кольце: заполнение до 6 g, цвет растёт от зелёного к красному.
 struct GForceGauge: View {
     let gForce: Double
 
@@ -268,29 +352,29 @@ struct GForceGauge: View {
     }
 
     var body: some View {
-        let center = NavballConsole.rightArcCenter
-        let radius = NavballConsole.arcRadius
-        let frameSide = 2 * (radius + 10)
+        let center = NavballCluster.center
+        let radius = NavballCluster.arcRadius
+        let size = NavballCluster.size
         let value = Self.fraction(gForce)
         let color: Color = gForce >= 5 ? .red : (gForce >= 3 ? HUDPalette.advice : HUDPalette.green)
         ZStack {
-            GaugeTicksShape(side: .right, count: 15, inner: radius + 4, outer: radius + 8)
+            GaugeTicksShape(side: .right, count: 7, inner: radius + 4, outer: radius + 8)
                 .stroke(Color.white.opacity(0.35), lineWidth: 1)
-                .frame(width: frameSide, height: frameSide)
+                .frame(width: size, height: size)
                 .position(center)
             GaugeArcShape(side: .right, to: 1, radius: radius)
                 .stroke(Color.white.opacity(0.1), style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                .frame(width: frameSide, height: frameSide)
+                .frame(width: size, height: size)
                 .position(center)
             GaugeArcShape(side: .right, to: value, radius: radius)
                 .stroke(color, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                .frame(width: frameSide, height: frameSide)
+                .frame(width: size, height: size)
                 .position(center)
             Text("G " + HUDFormat.fixed(gForce.isFinite ? gForce : 0, digits: 1))
                 .font(.system(size: 8, weight: .semibold).monospacedDigit())
-                .foregroundStyle(HUDPalette.muted)
+                .foregroundStyle(color)
                 .lineLimit(1)
-                .position(x: 228, y: 142)
+                .position(x: size + 12, y: 124)
         }
         .allowsHitTesting(false)
         .accessibilityElement()

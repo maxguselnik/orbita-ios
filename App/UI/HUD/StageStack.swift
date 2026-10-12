@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Вид детали на значке ступени.
 enum StageGlyphKind: Hashable {
-    case tank, engine, solid, decoupler, chute, pod, legs
+    case tank, engine, solid, decoupler, chute, pod, legs, rcs, mono
 }
 
 /// Группа ступени для левой стопки HUD: номер (1 — текущая, нижняя), значки деталей и сводка `StageInfo`.
@@ -64,6 +64,8 @@ struct StageGroup: Equatable, Identifiable {
         case .chute: return .chute
         case .pod, .probe: return .pod
         case .legs: return .legs
+        case .rcs: return .rcs
+        case .monoTank: return .mono
         }
     }
 
@@ -92,95 +94,79 @@ struct StageGroup: Equatable, Identifiable {
     /// Не больше `maxItems` значков: сначала отбрасываются опоры и капсула.
     private static func fit(_ items: [Item]) -> [Item] {
         var out = items
-        for dropped in [StageGlyphKind.legs, .pod] where out.count > maxItems {
+        for dropped in [StageGlyphKind.legs, .rcs, .mono, .pod] where out.count > maxItems {
             out.removeAll { $0.kind == dropped }
         }
         return Array(out.prefix(maxItems))
     }
 }
 
-/// Левая стопка ступеней: «СТУПЕНИ · Δv всего» и группы сверху вниз; текущая внизу, в зелёной рамке.
+/// Левая стопка ступеней (Б4): до четырёх строк по 22 pt, текущая ступень внизу, в зелёной рамке. Тап открывает
+/// панель ступеней (топливо, Δv, TWR).
 struct StageStackView: View {
     let model: FlightHUDModel
 
-    static let width: CGFloat = 156
+    static let width: CGFloat = 138
+    /// Сколько ступеней показывается в стопке (ближайшие к текущей); остальные — в панели.
+    static let maxRows = 4
 
     var body: some View {
-        let stages = model.telemetry.stages
-        let groups = StageGroup.groups(parts: model.parts, stages: stages)
-        let total = stages.reduce(0) { $0 + $1.deltaV }
+        let groups = StageGroup.groups(parts: model.parts, stages: model.telemetry.stages)
         if !groups.isEmpty {
-            VStack(spacing: 4) {
-                HStack {
-                    Text("СТУПЕНИ").tracking(1)
-                    Spacer(minLength: 0)
-                    Text("Δv " + HUDFormat.grouped(total)).monospacedDigit()
+            Button {
+                withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
+            } label: {
+                VStack(spacing: 3) {
+                    ForEach(groups.suffix(Self.maxRows)) { group in
+                        StageGroupRow(group: group)
+                    }
                 }
-                .font(.system(size: 9))
-                .foregroundStyle(HUDPalette.muted)
-                .lineLimit(1)
-
-                ForEach(groups) { group in
-                    StageGroupRow(group: group)
-                }
+                .frame(width: Self.width)
             }
-            .frame(width: Self.width)
-            .accessibilityElement(children: .contain)
+            .buttonStyle(HUDPressStyle())
+            .accessibilityHint("Открыть панель ступеней")
         }
     }
 }
 
-/// Одна группа: бейдж с номером, значки деталей (у баков и двигателей — полоска топлива), «N %» и Δv.
+/// Одна строка 22 pt: номер, значки деталей и подпись — «N %» топлива или «парашют» / «капсула»;
+/// у текущей ступени справа ещё мини-шкала топлива (красная ниже 15 %).
 struct StageGroupRow: View {
     let group: StageGroup
 
+    static let height: CGFloat = 22
+
     var body: some View {
         let current = group.isCurrent
+        let hasFuel = (group.info?.fuelCapacity ?? 0) > 0
+        let fraction: Double = min(max(group.info?.fuelFraction ?? 0, 0), 1)
         HStack(spacing: 4) {
             Text("\(group.number)")
                 .font(.system(size: 10, weight: .heavy))
-                .foregroundStyle(.white)
-                .frame(width: 16, height: 26)
-                .background(current ? HUDPalette.greenDark : HUDPalette.stroke,
-                            in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-            HStack(spacing: 3) {
+                .foregroundStyle(current ? Color.white : HUDPalette.text)
+            HStack(spacing: 1) {
                 ForEach(Array(group.items.enumerated()), id: \.offset) { _, item in
-                    StageGlyphCell(item: item, fuel: fuel(for: item.kind), isCurrent: current)
+                    StageGlyphCell(item: item, isCurrent: current)
                 }
             }
+            Text(hasFuel ? HUDFormat.percent(fraction) : emptyCaption)
+                .font(.system(size: 9).monospacedDigit())
+                .foregroundStyle(hasFuel ? (fraction < 0.15 ? Color.red : HUDPalette.green) : HUDPalette.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
             Spacer(minLength: 0)
-            summary(current: current)
+            if current, hasFuel {
+                FuelStrip(fraction: fraction)
+            }
         }
-        .padding(3)
-        .classicPanel(corner: 7, stroke: current ? HUDPalette.greenRing : HUDPalette.stroke)
+        .padding(.horizontal, 5)
+        .frame(height: Self.height)
+        .background(current ? HUDPalette.greenDark.opacity(0.5) : HUDPalette.panel.opacity(0.8),
+                    in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+            .strokeBorder(current ? HUDPalette.greenRing : Color.clear, lineWidth: 1))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityText)
-    }
-
-    /// Доля топлива ступени для значка с топливом; nil — полоски нет.
-    private func fuel(for kind: StageGlyphKind) -> Double? {
-        guard let info = group.info, info.fuelCapacity > 0 else { return nil }
-        switch kind {
-        case .tank, .engine, .solid: return min(max(info.fuelFraction, 0), 1)
-        case .decoupler, .chute, .pod, .legs: return nil
-        }
-    }
-
-    private func summary(current: Bool) -> some View {
-        let hasFuel = (group.info?.fuelCapacity ?? 0) > 0
-        let deltaV: Double = group.info?.deltaV ?? 0
-        let fraction: Double = group.info?.fuelFraction ?? 0
-        let firstLine: String = hasFuel ? HUDFormat.percent(fraction) : emptyCaption
-        let secondLine: String = (hasFuel || deltaV > 0) ? "Δv " + HUDFormat.grouped(deltaV) : ""
-        return VStack(alignment: .leading, spacing: 0) {
-            Text(firstLine)
-            Text(secondLine)
-        }
-        .font(.system(size: 8).monospacedDigit())
-        .lineLimit(1)
-        .minimumScaleFactor(0.6)
-        .foregroundStyle(current ? Color(red: 0.81, green: 0.914, blue: 0.827) : HUDPalette.muted)
-        .frame(width: 32, alignment: .leading)
     }
 
     /// Подпись у ступени без топлива: парашют или капсула.
@@ -200,50 +186,41 @@ struct StageGroupRow: View {
     }
 }
 
-/// Ячейка значка детали 22 × 26: контур детали и узкая вертикальная полоска топлива (красная < 15 %).
+/// Значок детали 14 × 16 pt; при нескольких одинаковых — маленький счётчик.
 struct StageGlyphCell: View {
     let item: StageGroup.Item
-    let fuel: Double?
     let isCurrent: Bool
 
     var body: some View {
         let tint = isCurrent ? Color(red: 0.81, green: 0.914, blue: 0.827) : HUDPalette.muted
         StageGlyph(kind: item.kind)
-            .stroke(tint, style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
-            .frame(width: 13, height: 13)
-            .frame(width: 22, height: 26)
-            .background(isCurrent ? HUDPalette.greenDark.opacity(0.45) : Color.white.opacity(0.06),
-                        in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-            .overlay(alignment: .bottomTrailing) {
-                if let fuel {
-                    FuelStrip(fraction: fuel).padding(2)
-                }
-            }
-            .overlay(alignment: .topLeading) {
+            .stroke(tint, style: StrokeStyle(lineWidth: 1.2, lineCap: .round, lineJoin: .round))
+            .frame(width: 11, height: 11)
+            .frame(width: 14, height: 16)
+            .overlay(alignment: .topTrailing) {
                 if item.count > 1 {
                     Text("\(item.count)")
-                        .font(.system(size: 7, weight: .heavy))
+                        .font(.system(size: 6, weight: .heavy))
                         .foregroundStyle(tint)
-                        .padding(.leading, 2)
-                        .padding(.top, 1)
+                        .offset(x: 2, y: -1)
                 }
             }
     }
 }
 
-/// Полоска 3 × 20 pt: заполнение снизу вверх.
+/// Горизонтальная полоска 30 × 4 pt: заполнение слева направо.
 struct FuelStrip: View {
     let fraction: Double
 
     var body: some View {
         let level = CGFloat(min(max(fraction, 0), 1))
-        ZStack(alignment: .bottom) {
-            RoundedRectangle(cornerRadius: 1, style: .continuous).fill(Color.white.opacity(0.15))
-            RoundedRectangle(cornerRadius: 1, style: .continuous)
+        ZStack(alignment: .leading) {
+            Capsule().fill(Color.white.opacity(0.15))
+            Capsule()
                 .fill(fraction < 0.15 ? Color.red : HUDPalette.green)
-                .frame(height: 20 * level)
+                .frame(width: 30 * level)
         }
-        .frame(width: 3, height: 20)
+        .frame(width: 30, height: 4)
     }
 }
 
@@ -293,6 +270,18 @@ struct StageGlyph: Shape {
             p.move(to: pt(6, 2)); p.addLine(to: pt(6, 7))
             p.move(to: pt(6, 7)); p.addLine(to: pt(2, 11))
             p.move(to: pt(6, 7)); p.addLine(to: pt(10, 11))
+        case .rcs:
+            // Блок РСУ: квадрат и четыре сопла по сторонам.
+            p.addRect(CGRect(x: ox + 4 * s, y: oy + 4 * s, width: 4 * s, height: 4 * s))
+            p.move(to: pt(6, 1)); p.addLine(to: pt(6, 4))
+            p.move(to: pt(6, 8)); p.addLine(to: pt(6, 11))
+            p.move(to: pt(1, 6)); p.addLine(to: pt(4, 6))
+            p.move(to: pt(8, 6)); p.addLine(to: pt(11, 6))
+        case .mono:
+            // Бак монотоплива: маленькая капсула со шпангоутом.
+            p.addRoundedRect(in: CGRect(x: ox + 4 * s, y: oy + 2 * s, width: 4 * s, height: 8 * s),
+                             cornerSize: CGSize(width: 2 * s, height: 2 * s))
+            p.move(to: pt(4, 6)); p.addLine(to: pt(8, 6))
         }
         return p
     }

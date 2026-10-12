@@ -4,9 +4,11 @@ import SwiftUI
 /// HUD полёта поверх 3D-сцены. Держит игровой цикл UI: `FrameDriver` (CADisplayLink с частотой
 /// из настроек) каждый кадр вызывает `tick` — ввод → `advance` → новый снимок; само дерево вьюх
 /// по кадру не пересобирается. Центр экрана свободен: там жесты камеры.
-/// Раскладка «классика»: сверху время и высотомер, слева стопка ступеней и кнопка действия, снизу по центру
-/// корпус навбола, справа джойстик. Карта (`model.map.isOpen`): навбол и джойстик уходят, справа — панель
-/// узла манёвра, по центру — подписи отметок и ручки Δv (`MapOverlay`).
+/// Раскладка Б4 «лаконичный»: сверху слева время и ускорение, по центру высотомер и строка совета, справа экипаж
+/// и кнопки Карта/Камера; слева стопка ступеней и кнопка действия; снизу по центру кольцо навбола (тяга, перегрузка,
+/// SAS, RCS), справа джойстик и MAX/0; при включённом РСУ — поступательный джойстик между ступенью и навболом.
+/// Карта (`model.map.isOpen`): навбол и джойстик уходят, справа — панель узла манёвра, по центру — подписи отметок
+/// и ручки Δv (`MapOverlay`).
 struct FlightHUDView: View {
     let model: FlightHUDModel
     var frameRate: FrameRate = .hz90
@@ -67,7 +69,7 @@ struct FlightHUDView: View {
                         .transition(.opacity)
                 }
             }
-            .padding(.top, mapOpen ? 54 : 116)
+            .padding(.top, mapOpen ? 54 : 60)
         }
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .animation(.easeOut(duration: 0.2), value: model.hint)
@@ -122,8 +124,8 @@ struct FlightHUDView: View {
         if model.isPanelOpen {
             StagePanel(model: model)
                 .padding(.top, 6)
-                .padding(.trailing, HUDStyle.minTouch + 8)
-                .padding(.bottom, model.map.isOpen ? 60 : 150)
+                .padding(.trailing, model.map.isOpen ? HUDStyle.minTouch + 8 : 42)
+                .padding(.bottom, model.map.isOpen ? 60 : 100)
                 .transition(.move(edge: .trailing).combined(with: .opacity))
         }
     }
@@ -135,16 +137,21 @@ struct FlightLayer: View {
     let guide: HUDAction?
     let hintsEnabled: Bool
 
+    /// Центр группы РСУ по горизонтали на кадре 852 pt: свободное место между кнопкой ступени и кольцом навбола.
+    static let rcsCenterX: CGFloat = 250
+    private static let designWidth: CGFloat = 852
+
     var body: some View {
         ZStack {
             topLeft
             topCenter
             topRight
             leftColumn
+            rcsControls
             bottomCenter
             bottomRight
         }
-        // Корпус навбола уходит за нижний край, поэтому нижняя безопасная зона не сдвигает его.
+        // Кольцо навбола уходит за нижний край, поэтому нижняя безопасная зона не сдвигает его.
         .ignoresSafeArea(.container, edges: .bottom)
     }
 
@@ -156,7 +163,7 @@ struct FlightLayer: View {
     }
 
     private var topCenter: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: 3) {
             AltimeterPanel(model: model)
             FlightStatusView(model: model, ascentEnabled: hintsEnabled)
         }
@@ -165,40 +172,44 @@ struct FlightLayer: View {
     }
 
     private var topRight: some View {
-        HStack(alignment: .top, spacing: 4) {
+        HStack(alignment: .top, spacing: 2) {
             if CrewPlaceholder.hasCabin(model.parts) {
                 CrewPlaceholder()
-                    .padding(.top, 4)
+                    .padding(.top, 2)
+                    .padding(.trailing, 2)
             }
-            HUDSideButtons(model: model)
+            FlightCornerButtons(model: model)
         }
-        .padding(.trailing, 4)
-        .padding(.top, 2)
+        .padding(.trailing, 2)
+        .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 
-    /// Стопка ступеней под плашкой времени, внизу — кнопка действия, рядом с ней — режим SAS.
+    /// Стопка ступеней под строкой времени, внизу — кнопка действия.
     private var leftColumn: some View {
         ZStack {
             StageStackView(model: model)
-                .padding(.top, 46)
+                .padding(.top, 36)
                 .padding(.leading, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             StageButton(model: model, highlighted: guide == .stage)
-                .frame(width: StageStackView.width)
                 .padding(.leading, 6)
-                .padding(.bottom, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            SASModePill(model: model)
-                .padding(.leading, 6 + StageStackView.width + 2)
-                .padding(.bottom, 80)
+                .padding(.bottom, 10)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
     }
 
+    /// Поступательный джойстик РСУ: между кнопкой ступени и кольцом навбола.
+    private var rcsControls: some View {
+        RCSControlsHost(model: model)
+            .offset(x: Self.rcsCenterX - Self.designWidth / 2)
+            .padding(.bottom, 10)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+    }
+
     private var bottomCenter: some View {
-        NavballConsole(model: model, ascentEnabled: hintsEnabled)
-            .offset(y: NavballConsole.overhang)
+        NavballCluster(model: model, ascentEnabled: hintsEnabled)
+            .offset(y: NavballCluster.overhang)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
     }
 
@@ -206,12 +217,24 @@ struct FlightLayer: View {
         ZStack {
             ManeuverBadgeHost(model: model)
                 .padding(.trailing, 8)
-                .padding(.bottom, 114)
+                .padding(.bottom, 94)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             ControlsCluster(model: model, guide: guide)
                 .padding(.trailing, 4)
                 .padding(.bottom, 8)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+        }
+    }
+}
+
+/// Поступательное управление РСУ появляется, пока РСУ включено и на корабле есть блоки.
+struct RCSControlsHost: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        let rcs = model.rcs
+        if rcs.enabled, rcs.available {
+            RCSControls(model: model)
         }
     }
 }
@@ -238,7 +261,7 @@ struct MapLayer: View {
                 .padding(.top, 6)
                 .padding(.leading, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            HUDSideButtons(model: model)
+            StagePanelButton(model: model)
                 .padding(.trailing, 4)
                 .padding(.top, 2)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)

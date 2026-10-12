@@ -45,6 +45,8 @@ final class FlightHUDModel {
     private(set) var warp: WarpStatus
     /// РДТТ горит — тяга не регулируется.
     private(set) var solidLocked: Bool
+    /// РСУ: блоки, включено, монотопливо. Меняется редко (при работе сопел — вместе с остатком топлива).
+    private(set) var rcs: RCSStatus
     /// Корабль на площадке (до отрыва): второстепенные контролы приглушаются. Меняется редко.
     private(set) var onPad: Bool
     /// Главное следующее действие (подсветка кнопки); меняется редко.
@@ -92,6 +94,16 @@ final class FlightHUDModel {
     @ObservationIgnored var rollRightPressed = false
     /// Крен −1…1: обе кнопки учитываются отдельно, отпускание одной не сбрасывает другую.
     var rollInput: Double { (rollRightPressed ? 1 : 0) - (rollLeftPressed ? 1 : 0) }
+    /// Поступательный джойстик РСУ: вправо (x) и вверх (z), −1…1.
+    @ObservationIgnored var rcsRightInput = 0.0
+    @ObservationIgnored var rcsUpInput = 0.0
+    /// Кнопки «вперёд» и «назад» РСУ (удержание).
+    @ObservationIgnored var rcsForwardPressed = false
+    @ObservationIgnored var rcsBackPressed = false
+    /// Поступательная команда РСУ по осям корабля: x — вправо, y — вперёд по носу, z — вверх. В физику уходит только при включённом РСУ.
+    var translationInput: Vec3 {
+        Vec3(rcsRightInput, (rcsForwardPressed ? 1 : 0) - (rcsBackPressed ? 1 : 0), rcsUpInput)
+    }
 
     /// Рендер, звук, вибрация и наклон; подключает RootView.
     @ObservationIgnored var feedback: FlightFeedback? {
@@ -125,6 +137,7 @@ final class FlightHUDModel {
         self.stageStatus = Self.stageStatus(t)
         self.warp = Self.warpStatus(t)
         self.solidLocked = Self.solidLocked(t)
+        self.rcs = t.rcs
         self.onPad = t.situation == .prelaunch
         self.guide = Self.guideAction(t)
         self.parts = Self.activeParts(snapshot)
@@ -153,7 +166,8 @@ final class FlightHUDModel {
             throttle: throttle,
             pitch: min(max(pitchInput + tilt.pitch, -1), 1),
             yaw: yawInput,
-            roll: min(max(rollInput + tilt.roll, -1), 1)
+            roll: min(max(rollInput + tilt.roll, -1), 1),
+            translation: rcs.enabled ? translationInput : .zero
         ))
         applyManeuverDrag(now: now, delta: delta)
         let events = sim.advance(realDelta: delta)
@@ -173,6 +187,26 @@ final class FlightHUDModel {
 
     func toggleSAS() {
         send(.setSAS(sas == .off ? .hold : .off))
+    }
+
+    /// Кнопка RCS: вкл/выкл. Без блоков РСУ включить нельзя — тост; выключить можно всегда.
+    func toggleRCS() {
+        if rcs.enabled {
+            resetTranslationInput()
+            send(.setRCS(false))
+        } else if rcs.available {
+            send(.setRCS(true))
+        } else {
+            notify("Нет блоков РСУ")
+        }
+    }
+
+    /// Джойстик и кнопки РСУ исчезают из иерархии вместе с жестами: сбрасываем ввод вручную.
+    private func resetTranslationInput() {
+        rcsRightInput = 0
+        rcsUpInput = 0
+        rcsForwardPressed = false
+        rcsBackPressed = false
     }
 
     func pause() {
@@ -197,6 +231,7 @@ final class FlightHUDModel {
         yawInput = 0
         rollLeftPressed = false
         rollRightPressed = false
+        resetTranslationInput()
         toast = nil
         isPanelOpen = false
         maneuverDrag = nil
@@ -302,6 +337,7 @@ final class FlightHUDModel {
         yawInput = 0
         rollLeftPressed = false
         rollRightPressed = false
+        resetTranslationInput()
         isPanelOpen = false
         map.isOpen.toggle()
     }
@@ -407,6 +443,8 @@ final class FlightHUDModel {
         if self.warp != warp { self.warp = warp }
         let solid = Self.solidLocked(t)
         if solidLocked != solid { solidLocked = solid }
+        if rcs != t.rcs { rcs = t.rcs }
+        if !(t.rcs.enabled && t.rcs.available) { resetTranslationInput() }
         let pad = t.situation == .prelaunch
         if onPad != pad { onPad = pad }
         let action = Self.guideAction(t)
