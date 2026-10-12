@@ -32,17 +32,23 @@ final class CloudShell {
         var b = MeshBuilder()
         var idx = [UInt32](repeating: 0, count: (lon + 1) * (lat + 1))
         for j in 0...lat {
-            let a = Float.pi / 2 - Float.pi * Float(j) / Float(lat)
+            let v: Float = Float(j) / Float(lat)
+            let a: Float = Float.pi / 2 - Float.pi * v
+            let ca: Float = cos(a), sa: Float = sin(a)
             for i in 0...lon {
-                let l = 2 * Float.pi * Float(i) / Float(lon)
-                let p = F3(cos(a) * cos(l), cos(a) * sin(l), sin(a))
-                idx[j * (lon + 1) + i] = b.vertex(p, p, SIMD2(Float(i) / Float(lon), 1 - Float(j) / Float(lat)))
+                let u: Float = Float(i) / Float(lon)
+                let l: Float = 2 * Float.pi * u
+                let p = F3(ca * cos(l), ca * sin(l), sa)
+                let uv = SIMD2<Float>(u, 1 - v)
+                idx[j * (lon + 1) + i] = b.vertex(p, p, uv)
             }
         }
         for j in 0..<lat {
             for i in 0..<lon {
-                let a = idx[j * (lon + 1) + i], c = idx[j * (lon + 1) + i + 1]
-                let d = idx[(j + 1) * (lon + 1) + i + 1], e = idx[(j + 1) * (lon + 1) + i]
+                let row0: Int = j * (lon + 1) + i
+                let row1: Int = row0 + lon + 1
+                let a = idx[row0], c = idx[row0 + 1]
+                let d = idx[row1 + 1], e = idx[row1]
                 let n = b.positions[Int(a)]
                 b.quad(a, c, d, e, facing: n)
             }
