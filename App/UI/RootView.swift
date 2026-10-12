@@ -12,7 +12,7 @@ struct RootView: View {
             FlightSceneView(renderer: renderer)
                 .ignoresSafeArea()
 
-            FlightHUDView(model: flight)
+            FlightHUDView(model: flight, frameRate: settings.frameRate)
         }
         .background(.black)
         .statusBarHidden()

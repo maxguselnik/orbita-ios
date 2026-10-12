@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import QuartzCore
 import OrbitPhysics
 
 /// Короткое сообщение поверх HUD (события, заглушки).
@@ -8,49 +9,97 @@ struct HUDToast: Equatable {
     let text: String
 }
 
+/// Статус кнопки «Ступень»: перерисовка только при смене ступени или парашюта.
+struct StageStatus: Equatable {
+    var remaining: Int
+    var chute: ChuteState
+}
+
+/// Ускорение времени для меню: меняется редко.
+struct WarpStatus: Equatable {
+    var index: Int
+    var factor: Double
+    var blocked: WarpResetReason?
+}
+
+/// Система отсчёта скорости на навболе.
+enum SpeedFrame: Equatable {
+    case orbit, surface
+}
+
 /// Состояние HUD и игровой цикл UI: ввод → `advance` → снимок для отрисовки.
+/// Кадр приходит от `FrameDriver` (CADisplayLink). Чтобы статичные элементы не перерисовывались
+/// каждый кадр, наблюдаемые поля разбиты: `telemetry` меняется каждый кадр (верхняя полоса, навбол),
+/// `sas`, `stageStatus`, `warp`, `solidLocked` — только при изменении значения.
 @MainActor
 @Observable
 final class FlightHUDModel {
-    private(set) var snapshot: WorldSnapshot
+    @ObservationIgnored private(set) var snapshot: WorldSnapshot
+    /// Телеметрия кадра — читают только вьюхи, которым она нужна каждый кадр.
+    private(set) var telemetry: FlightTelemetry
+    private(set) var sas: SASMode
+    private(set) var stageStatus: StageStatus
+    private(set) var warp: WarpStatus
+    /// РДТТ горит — тяга не регулируется.
+    private(set) var solidLocked: Bool
     private(set) var toast: HUDToast?
     /// Тяга 0…1 — положение ползунка, сохраняется между кадрами.
     var throttle: Double = 0
     var isPaused = false
     var isPanelOpen = false
+    /// Режим камеры (зеркало `feedback.cameraMode`).
+    private(set) var cameraMode: CameraMode = .follow
+    /// Скорость на навболе: nil — авто (у поверхности — относительно поверхности).
+    private(set) var speedFrameOverride: SpeedFrame? = nil
 
-    /// Оси джойстика и крен −1…1; пишутся жестами, читаются в `tick`, перерисовки не вызывают.
+    /// Оси джойстика и кнопки крена; пишутся жестами, читаются в `tick`, перерисовки не вызывают.
     @ObservationIgnored var pitchInput = 0.0
     @ObservationIgnored var yawInput = 0.0
-    @ObservationIgnored var rollInput = 0.0
+    @ObservationIgnored var rollLeftPressed = false
+    @ObservationIgnored var rollRightPressed = false
+    /// Крен −1…1: обе кнопки учитываются отдельно, отпускание одной не сбрасывает другую.
+    var rollInput: Double { (rollRightPressed ? 1 : 0) - (rollLeftPressed ? 1 : 0) }
 
-    /// Звук, вибрация и наклон; подключает RootView.
-    @ObservationIgnored var feedback: FlightFeedback?
+    /// Рендер, звук, вибрация и наклон; подключает RootView.
+    @ObservationIgnored var feedback: FlightFeedback? {
+        didSet {
+            if let feedback { cameraMode = feedback.cameraMode }
+        }
+    }
 
     @ObservationIgnored private var sim: any FlightSimulation
     private let makeSimulation: () -> any FlightSimulation
-    @ObservationIgnored private var lastTick: Date?
-    @ObservationIgnored private var toastExpiry = Date.distantPast
+    @ObservationIgnored private var lastTick: TimeInterval?
+    @ObservationIgnored private var toastExpiry: TimeInterval = 0
     @ObservationIgnored private var toastCounter = 0
+    /// Жесты камеры, накопленные с прошлого кадра.
+    @ObservationIgnored private var pendingCamera = CameraInput()
+    @ObservationIgnored private var cameraPending = false
 
     init(makeSimulation: @escaping () -> any FlightSimulation = { MockFlight() }) {
         self.makeSimulation = makeSimulation
         let sim = makeSimulation()
         self.sim = sim
-        self.snapshot = sim.snapshot
+        let snapshot = sim.snapshot
+        let t = snapshot.telemetry
+        self.snapshot = snapshot
+        self.telemetry = t
+        self.sas = t.sas
+        self.stageStatus = Self.stageStatus(t)
+        self.warp = Self.warpStatus(t)
+        self.solidLocked = Self.solidLocked(t)
     }
 
-    var telemetry: FlightTelemetry { snapshot.telemetry }
-
-    /// Один кадр игрового цикла.
-    func tick(_ date: Date) {
-        if toast != nil, date >= toastExpiry {
+    /// Один кадр игрового цикла; `now` — время кадра в секундах (CACurrentMediaTime).
+    func tick(now: TimeInterval) {
+        if toast != nil, now >= toastExpiry {
             self.toast = nil
         }
+        flushCamera()
         guard !isPaused else { lastTick = nil; return }
         // Длинные паузы (фон, отладчик) не превращаем в скачок симуляции.
-        let delta = lastTick.map { min(max(date.timeIntervalSince($0), 0), 0.1) } ?? 0
-        lastTick = date
+        let delta = lastTick.map { min(max(now - $0, 0), 0.1) } ?? 0
+        lastTick = now
         let tilt = feedback?.tiltInput() ?? (pitch: 0, roll: 0)
         sim.setInput(ControlInput(
             throttle: throttle,
@@ -59,20 +108,20 @@ final class FlightHUDModel {
             roll: min(max(rollInput + tilt.roll, -1), 1)
         ))
         let events = sim.advance(realDelta: delta)
-        snapshot = sim.snapshot
+        publish(sim.snapshot)
         feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
         if let message = events.compactMap(Self.message(for:)).last {
-            show(message, now: date)
+            show(message, now: now)
         }
     }
 
     func send(_ command: FlightCommand) {
         sim.send(command)
-        snapshot = sim.snapshot
+        publish(sim.snapshot)
     }
 
     func toggleSAS() {
-        send(.setSAS(telemetry.sas == .off ? .hold : .off))
+        send(.setSAS(sas == .off ? .hold : .off))
     }
 
     func pause() {
@@ -87,14 +136,15 @@ final class FlightHUDModel {
         feedback?.setPaused(false)
     }
 
-    /// Перезапуск полёта (сейчас — новый MockFlight).
+    /// Перезапуск полёта.
     func restart() {
         sim = makeSimulation()
-        snapshot = sim.snapshot
+        publish(sim.snapshot)
         throttle = 0
         pitchInput = 0
         yawInput = 0
-        rollInput = 0
+        rollLeftPressed = false
+        rollRightPressed = false
         toast = nil
         isPanelOpen = false
         feedback?.recalibrate()
@@ -103,13 +153,91 @@ final class FlightHUDModel {
 
     /// Сообщение-заглушка для ещё не готовых функций.
     func notify(_ text: String) {
-        show(text, now: Date())
+        show(text, now: CACurrentMediaTime())
     }
 
-    private func show(_ text: String, now: Date) {
+    // MARK: - Камера
+
+    /// Вращение камеры, рад (азимут, возвышение); копится до кадра.
+    func cameraOrbit(_ delta: SIMD2<Float>) {
+        pendingCamera.orbitDelta += delta
+        cameraPending = true
+    }
+
+    /// Множитель расстояния камеры (< 1 — ближе).
+    func cameraZoom(_ factor: Float) {
+        guard factor.isFinite, factor > 0 else { return }
+        pendingCamera.zoomFactor *= factor
+        cameraPending = true
+    }
+
+    func cameraReset() {
+        pendingCamera = CameraInput(reset: true)
+        cameraPending = true
+        flushCamera()
+    }
+
+    /// Свободная → следование → по курсу → свободная.
+    func cycleCameraMode() {
+        let all = CameraMode.allCases
+        let next = all[((all.firstIndex(of: cameraMode) ?? 0) + 1) % all.count]
+        cameraMode = next
+        feedback?.cameraMode = next
+    }
+
+    private func flushCamera() {
+        guard cameraPending else { return }
+        feedback?.camera(pendingCamera)
+        pendingCamera = CameraInput()
+        cameraPending = false
+    }
+
+    // MARK: - Навбол
+
+    /// Текущая система отсчёта скорости: выбор игрока или авто.
+    func speedFrame(for t: FlightTelemetry) -> SpeedFrame {
+        if let speedFrameOverride { return speedFrameOverride }
+        switch t.situation {
+        case .prelaunch, .landed, .splashed, .crashed, .flying: return .surface
+        case .suborbital, .orbiting, .escaping: return .orbit
+        }
+    }
+
+    func toggleSpeedFrame() {
+        speedFrameOverride = speedFrame(for: telemetry) == .orbit ? .surface : .orbit
+    }
+
+    // MARK: - Публикация кадра
+
+    private func publish(_ snapshot: WorldSnapshot) {
+        self.snapshot = snapshot
+        let t = snapshot.telemetry
+        telemetry = t
+        if sas != t.sas { sas = t.sas }
+        let stage = Self.stageStatus(t)
+        if stageStatus != stage { stageStatus = stage }
+        let warp = Self.warpStatus(t)
+        if self.warp != warp { self.warp = warp }
+        let solid = Self.solidLocked(t)
+        if solidLocked != solid { solidLocked = solid }
+    }
+
+    private static func stageStatus(_ t: FlightTelemetry) -> StageStatus {
+        StageStatus(remaining: t.stages.count, chute: t.chute)
+    }
+
+    private static func warpStatus(_ t: FlightTelemetry) -> WarpStatus {
+        WarpStatus(index: t.warpIndex, factor: t.warpFactor, blocked: t.warpBlocked)
+    }
+
+    private static func solidLocked(_ t: FlightTelemetry) -> Bool {
+        t.stages.first?.hasSolid == true && t.solidBurning
+    }
+
+    private func show(_ text: String, now: TimeInterval) {
         toastCounter += 1
         toast = HUDToast(id: toastCounter, text: text)
-        toastExpiry = now.addingTimeInterval(2.5)
+        toastExpiry = now + 2.5
     }
 
     nonisolated static func message(for event: SimEvent) -> String? {

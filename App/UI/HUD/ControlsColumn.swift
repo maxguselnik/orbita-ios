@@ -27,7 +27,7 @@ struct SASGrid: View {
     private static let cell: CGFloat = 46
 
     var body: some View {
-        let current = model.telemetry.sas
+        let current = model.sas
         Grid(horizontalSpacing: 4, verticalSpacing: 4) {
             GridRow {
                 modeButton(.hold, current)
@@ -177,7 +177,7 @@ struct AttitudeControls: View {
     var body: some View {
         HStack(spacing: 6) {
             HoldButton(systemImage: "arrow.counterclockwise", label: "Крен влево") { pressed in
-                model.rollInput = pressed ? -1 : 0
+                model.rollLeftPressed = pressed
             }
             Joystick { axes in
                 // Палец вверх — нос вверх (+тангаж), вправо — рыскание вправо.
@@ -185,7 +185,7 @@ struct AttitudeControls: View {
                 model.yawInput = Double(axes.dx)
             }
             HoldButton(systemImage: "arrow.clockwise", label: "Крен вправо") { pressed in
-                model.rollInput = pressed ? 1 : 0
+                model.rollRightPressed = pressed
             }
         }
     }
@@ -264,8 +264,8 @@ struct StageButton: View {
     let model: FlightHUDModel
 
     var body: some View {
-        let t = model.telemetry
-        let isLast = t.stages.count <= 1
+        let t = model.stageStatus
+        let isLast = t.remaining <= 1
         let title = isLast ? (t.chute == .stowed ? "ПАРАШЮТ" : "ПАРАШЮТ ВЫПУЩЕН") : "СТУПЕНЬ"
         Button {
             model.send(.stage)
@@ -276,7 +276,7 @@ struct StageButton: View {
                 VStack(alignment: .leading, spacing: 0) {
                     Text(title).font(.system(size: 17, weight: .heavy))
                     if !isLast {
-                        Text("осталось \(t.stages.count - 1)")
+                        Text("осталось \(t.remaining - 1)")
                             .font(.system(size: 10, weight: .bold).monospacedDigit())
                             .opacity(0.75)
                     }
