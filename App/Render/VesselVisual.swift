@@ -22,6 +22,10 @@ final class VesselVisual {
     private var plumesSoft = false
     private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity, glow: ModelEntity?)] = [:]
     private var canopy: Entity?
+    /// Струйки РСУ: по 20 конусов на блок (4 выступа × 5 слотов, индекс `k * 5 + slot`).
+    static var rcsPuffsEnabled = true
+    private var rcsPuffs: [(partIndex: Int, jets: [ModelEntity])] = []
+    private var rcsLit = false
     private var maxDiameter: Double = 1
 
     /// Радиус ограничивающей сферы вокруг середины стека, м (с куполом — больше).
@@ -36,6 +40,8 @@ final class VesselVisual {
         parts = newParts
         for c in Array(root.children) { c.removeFromParent() }
         plumes.removeAll()
+        rcsPuffs.removeAll()
+        rcsLit = false
         canopy = nil
         stackHeight = newParts.reduce(0) { $0 + $1.spec.height }
         maxDiameter = newParts.reduce(0.5) { max($0, $1.spec.diameter) }
@@ -58,6 +64,9 @@ final class VesselVisual {
             }
             if spec.kind == .engine {
                 makePlume(index: i, spec: spec)
+            }
+            if spec.kind == .rcs, Self.rcsPuffsEnabled {
+                makeRCSPuffs(index: i)
             }
             if spec.kind == .chute {
                 makeCanopy(top: bottoms[i] + spec.height)
@@ -135,6 +144,78 @@ final class VesselVisual {
         plumes[index] = (e, outer, core, glow)
     }
 
+    private static var rcsPuffMesh: MeshResource?
+    private static var rcsPuffMaterial: UnlitMaterial?
+
+    private func makeRCSPuffs(index: Int) {
+        if Self.rcsPuffMesh == nil {
+            var b = MeshBuilder()
+            // Единичная струйка: от сопла (y = 0) расширяется к y = 1, радиус до 1.
+            b.lathe([SIMD2(0.35, 0), SIMD2(0.7, 0.3), SIMD2(1.0, 0.65), SIMD2(0, 1)], segments: 10)
+            Self.rcsPuffMesh = b.makeMesh(name: "rcsPuff")
+        }
+        if Self.rcsPuffMaterial == nil {
+            var m = UnlitMaterial(color: UIColor(white: 0.96, alpha: 1))
+            m.blending = .transparent(opacity: .init(floatLiteral: 0.55))
+            Self.rcsPuffMaterial = m
+        }
+        guard let mesh = Self.rcsPuffMesh, let mat = Self.rcsPuffMaterial else { return }
+        let holder = Entity()
+        holder.position = F3(0, Float(bottoms[index]), 0)
+        var jets: [ModelEntity] = []
+        for k in 0..<4 {
+            for slot in 0..<5 {
+                let jet = ModelEntity(mesh: mesh, materials: [mat])
+                jet.position = PartModels.rcsExhaustOrigin(block: k, slot: slot)
+                jet.orientation = PartModels.rcsAlign(PartModels.rcsExhaustDir(block: k, slot: slot))
+                jet.isEnabled = false
+                holder.addChild(jet)
+                jets.append(jet)
+            }
+        }
+        root.addChild(holder)
+        rcsPuffs.append((index, jets))
+    }
+
+    /// Струйки РСУ по команде корабля: поступательная (a) и поворотная (rot: x — тангаж, y — крен, z — рыскание).
+    private func updateRCS(_ v: VesselState, time: Double) {
+        let tr = v.rcsTranslation, rot = v.rcsRotation
+        let peak = max(abs(tr.x), abs(tr.y), abs(tr.z), abs(rot.x), abs(rot.y), abs(rot.z))
+        guard peak > 0.02 else {
+            if rcsLit {
+                for set in rcsPuffs { for j in set.jets where j.isEnabled { j.isEnabled = false } }
+                rcsLit = false
+            }
+            return
+        }
+        rcsLit = true
+        for set in rcsPuffs {
+            for k in 0..<4 {
+                let rx = Double(PartModels.rcsRadial[k].x), rz = Double(PartModels.rcsRadial[k].z)
+                // Знак s > 0 — выхлоп вниз: тяга вперёд (+Y), тангаж и рыскание дают разные стороны блоков.
+                let s = tr.y - rz * rot.x + rx * rot.z
+                let values: [Double] = [
+                    max(-s, 0),
+                    max(s, 0),
+                    max(-rx * tr.x, 0) + max(-rz * tr.z, 0),
+                    max(-rot.y, 0),
+                    max(rot.y, 0),
+                ]
+                for slot in 0..<5 {
+                    let jet = set.jets[k * 5 + slot]
+                    let val = clampd(values[slot], 0, 1)
+                    let on = val > 0.03
+                    if jet.isEnabled != on { jet.isEnabled = on }
+                    guard on else { continue }
+                    let flick = 1 + 0.22 * sin(time * 91 + Double(k * 5 + slot) * 1.7 + Double(set.partIndex))
+                    let length = (0.25 + 0.95 * val) * flick
+                    let width = 0.05 * (0.6 + 0.4 * val)
+                    jet.scale = F3(Float(width), Float(length), Float(width))
+                }
+            }
+        }
+    }
+
     private func makeCanopy(top: Double) {
         if Self.canopyPieces.isEmpty {
             let mats = RenderMaterials.shared
@@ -197,6 +278,10 @@ final class VesselVisual {
                 let gw = Float(width * (1.35 + 0.5 * vac))
                 g.scale = F3(gw, Float(length * 0.95), gw)
             }
+        }
+
+        if Self.rcsPuffsEnabled, !rcsPuffs.isEmpty {
+            updateRCS(v, time: time)
         }
 
         if let canopy {

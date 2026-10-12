@@ -1,5 +1,6 @@
 import OrbitPhysics
 import RealityKit
+import simd
 import UIKit
 
 /// Общие материалы корабля и площадки (создаются один раз).
@@ -22,6 +23,8 @@ final class RenderMaterials {
     let window = SimpleMaterial(color: UIColor(red: 0.08, green: 0.12, blue: 0.18, alpha: 1), roughness: 0.15, isMetallic: true)
     let concrete = SimpleMaterial(color: UIColor(white: 0.52, alpha: 1), roughness: 0.95, isMetallic: false)
     let concreteDark = SimpleMaterial(color: UIColor(white: 0.30, alpha: 1), roughness: 0.95, isMetallic: false)
+    let monoBody = SimpleMaterial(color: UIColor(red: 0.74, green: 0.82, blue: 0.78, alpha: 1), roughness: 0.5, isMetallic: false)
+    let yellow = SimpleMaterial(color: UIColor(red: 0.95, green: 0.76, blue: 0.14, alpha: 1), roughness: 0.55, isMetallic: false)
     let towerSteel = SimpleMaterial(color: UIColor(red: 0.60, green: 0.17, blue: 0.10, alpha: 1), roughness: 0.7, isMetallic: false)
 
     let plumeOuter: UnlitMaterial
@@ -144,7 +147,96 @@ enum PartModels {
             let chamber = lathe(cyl(r * 0.3, bellTop * 0.92, bellTop * 1.05))
             let nozzle = bell(re: r * 0.92, rt: r * 0.28, y0: 0, y1: bellTop * 0.94)
             return [(mount, mats.darkGray), (chamber, mats.metal), (nozzle, mats.darkMetal)]
+        case .rcs:
+            let ring = lathe(cyl(rcsRingRadius, 0, h))
+            let band = lathe(cyl(rcsRingRadius * 1.01, 0.4 * h, 0.6 * h, caps: false))
+            var pods = MeshBuilder()
+            var nozzles = MeshBuilder()
+            for k in 0..<4 {
+                let rad = rcsRadial[k], tng = rcsTangent(k)
+                pods.box(center: rcsPos(k, 0.685, 0, 0.15), x: rad * 0.11, y: F3(0, 0.12, 0), z: tng * 0.16)
+                for slot in 0..<5 {
+                    for base in rcsNozzleBases(block: k, slot: slot) {
+                        let dir = rcsExhaustDir(block: k, slot: slot)
+                        nozzles.append(placed(rcsNozzle, q: rcsAlign(dir), at: base))
+                    }
+                }
+            }
+            return [(ring, mats.darkGray), (band, mats.yellow), (pods, mats.white), (nozzles, mats.darkMetal)]
+        case .monoTank:
+            let body = lathe([SIMD2(0, 0), SIMD2(r * 0.88, 0), SIMD2(r, 0.13 * h), SIMD2(r, 0.87 * h),
+                              SIMD2(r * 0.88, h), SIMD2(0, h)])
+            let stripe = lathe(cyl(r * 1.012, 0.36 * h, 0.64 * h, caps: false))
+            var fittings = MeshBuilder()
+            // Бугорки-клапаны на торцах и вертикальная метка на спине.
+            fittings.lathe(cyl(r * 0.22, h, h + 0.03), segments: 16)
+            fittings.lathe(cyl(r * 0.22, -0.03, 0), segments: 16)
+            fittings.box(center: F3(0, h / 2, r * 1.014), x: F3(0.05 * d, 0, 0), y: F3(0, 0.3 * h, 0), z: F3(0, 0, 0.008))
+            return [(body, mats.monoBody), (stripe, mats.yellow), (fittings, mats.darkGray)]
         }
+    }
+
+    // MARK: - Блок РСУ: геометрия сопел (общая для модели и струек)
+
+    /// Радиальные направления четырёх выступов блока: +X, +Z, −X, −Z.
+    static let rcsRadial: [F3] = [F3(1, 0, 0), F3(0, 0, 1), F3(-1, 0, 0), F3(0, 0, -1)]
+    static let rcsRingRadius: Float = 0.625
+    static let rcsNozzleLength: Float = 0.06
+    /// Касательная выступа k: Y × радиаль.
+    static func rcsTangent(_ k: Int) -> F3 { simd_cross(F3(0, 1, 0), rcsRadial[k]) }
+
+    /// Точка выступа k: `a` — вдоль радиали, `t` — вдоль касательной, `y` — высота над низом детали.
+    static func rcsPos(_ k: Int, _ a: Float, _ t: Float, _ y: Float) -> F3 {
+        rcsRadial[k] * a + rcsTangent(k) * t + F3(0, y, 0)
+    }
+
+    /// Слоты сопел: 0 — выхлоп вверх (+Y), 1 — вниз, 2 — наружу, 3 — по +касательной, 4 — по −касательной.
+    static func rcsExhaustDir(block k: Int, slot: Int) -> F3 {
+        switch slot {
+        case 0: return F3(0, 1, 0)
+        case 1: return F3(0, -1, 0)
+        case 2: return rcsRadial[k]
+        case 3: return rcsTangent(k)
+        default: return -rcsTangent(k)
+        }
+    }
+
+    /// Основания сопел слота на грани выступа.
+    static func rcsNozzleBases(block k: Int, slot: Int) -> [F3] {
+        switch slot {
+        case 0: return [rcsPos(k, 0.685, -0.07, 0.27), rcsPos(k, 0.685, 0.07, 0.27)]
+        case 1: return [rcsPos(k, 0.685, -0.07, 0.03), rcsPos(k, 0.685, 0.07, 0.03)]
+        case 2: return [rcsPos(k, 0.795, 0, 0.09), rcsPos(k, 0.795, 0, 0.21)]
+        case 3: return [rcsPos(k, 0.685, 0.16, 0.09), rcsPos(k, 0.685, 0.16, 0.21)]
+        default: return [rcsPos(k, 0.685, -0.16, 0.09), rcsPos(k, 0.685, -0.16, 0.21)]
+        }
+    }
+
+    /// Точка выхода струи слота (центр кластера сопел, на срезе).
+    static func rcsExhaustOrigin(block k: Int, slot: Int) -> F3 {
+        let bases = rcsNozzleBases(block: k, slot: slot)
+        let c = (bases[0] + bases[1]) * 0.5
+        return c + rcsExhaustDir(block: k, slot: slot) * rcsNozzleLength
+    }
+
+    /// Поворот, переводящий +Y в `d` (единичный).
+    static func rcsAlign(_ d: F3) -> simd_quatf {
+        if d.y < -0.99 { return simd_quatf(angle: .pi, axis: F3(0, 0, 1)) }
+        return simd_quatf(from: F3(0, 1, 0), to: d)
+    }
+
+    /// Сопло вдоль +Y: горловина в y = 0, срез в y = длина.
+    private static let rcsNozzle: MeshBuilder = {
+        var b = MeshBuilder()
+        b.lathe([SIMD2(0.015, 0), SIMD2(0.038, rcsNozzleLength)], segments: 10, twoSided: true)
+        return b
+    }()
+
+    private static func placed(_ src: MeshBuilder, q: simd_quatf, at p: F3) -> MeshBuilder {
+        var out = src
+        out.positions = src.positions.map { q.act($0) + p }
+        out.normals = src.normals.map { q.act($0) }
+        return out
     }
 
     /// Посадочные опоры: 4 ноги до уровня `drop` ниже низа детали.
