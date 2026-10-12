@@ -38,6 +38,7 @@ final class SceneRenderer: FlightRenderer {
     private var exploded: Set<VesselID> = []
     private let atmosphere = AtmosphereVisual()
     private let clouds = CloudVisual()
+    private let cloudShell = CloudShell()
     private let effects = VesselEffects()
     private var governor = QualityGovernor()
     private var shake = CameraShake()
@@ -58,26 +59,32 @@ final class SceneRenderer: FlightRenderer {
         flightRoot.addChild(pad.root)
         flightRoot.addChild(atmosphere.root)
         flightRoot.addChild(clouds.root)
+        flightRoot.addChild(cloudShell.root)
         flightRoot.addChild(effects.root)
         pad.root.isEnabled = false
 
         Task { [weak self] in
-            let terraTex = await Palette.texture([Palette.terraRow, Palette.terraPolarRow])
-            let lunaTex = await Palette.texture([Palette.lunaRow, Palette.lunaCraterRow])
+            let terraTex = await Palette.terraTexture()
+            let lunaTex = await Palette.lunaTexture()
             guard let self else { return }
-            let terraMat = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1))
-            let lunaMat = Self.terrainMaterial(lunaTex, fallback: UIColor(white: 0.5, alpha: 1))
+            let terraMat = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1),
+                                                roughness: 0.93)
+            let lunaMat = Self.terrainMaterial(lunaTex, fallback: UIColor(white: 0.5, alpha: 1), roughness: 1)
             self.terra.material = terraMat
             self.luna.material = lunaMat
             self.map.setMaterials(terra: terraMat, luna: lunaMat)
+            // Облачный слой готовится дольше палитр: рельеф уже виден.
+            let cloudTex = await CloudShell.makeTexture()
+            self.cloudShell.setTexture(cloudTex)
+            self.map.setCloudTexture(cloudTex)
         }
     }
 
-    private static func terrainMaterial(_ tex: TextureResource?, fallback: UIColor) -> any Material {
+    private static func terrainMaterial(_ tex: TextureResource?, fallback: UIColor, roughness: Float) -> any Material {
         guard let tex else { return SimpleMaterial(color: fallback, roughness: 0.95, isMetallic: false) }
         var m = PhysicallyBasedMaterial()
         m.baseColor = .init(tint: .white, texture: .init(tex))
-        m.roughness = .init(floatLiteral: 0.93)
+        m.roughness = .init(floatLiteral: roughness)
         m.metallic = .init(floatLiteral: 0)
         // Без бликов: иначе по краю диска с орбиты Френель отражает студийное окружение (бежевая «дымка»).
         m.specular = .init(floatLiteral: 0)
@@ -153,6 +160,7 @@ final class SceneRenderer: FlightRenderer {
         pad.root.isEnabled = false
         atmosphere.reset()
         clouds.reset()
+        cloudShell.reset()
         effects.reset()
         shake = CameraShake()
         map.reset()
@@ -317,6 +325,7 @@ final class SceneRenderer: FlightRenderer {
             }
         }
         sky.update(up: localUp, brightness: brightness)
+        sky.setFill(luna: frame == .luna)
 
         // Атмосфера Терры: дымка, ореол, облака.
         let terraRel = RenderFrame.bodyCenter(.terra, in: frame, luna: luna) - eye
@@ -326,6 +335,7 @@ final class SceneRenderer: FlightRenderer {
             skyBrightness: brightness, sun: SkyVisual.sunDirection, frameBody: frame, quality: quality)
         atmosphere.update(atmo)
         clouds.update(atmo)
+        cloudShell.update(atmo)
 
         // Эффекты активного корабля: дым, потоки воздуха, конденсация, плазма.
         let t = snapshot.telemetry

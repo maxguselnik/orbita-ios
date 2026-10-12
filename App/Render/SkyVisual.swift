@@ -122,6 +122,11 @@ final class SkyVisual {
         }
     }
 
+    /// Заполняющий свет: у Терры 700, на Луне почти нет — тени рельефа контрастны.
+    func setFill(luna: Bool) {
+        fillLight.light.intensity = luna ? 60 : 700
+    }
+
     /// `up` — местная вертикаль у камеры, `brightness` 0…1 — яркость дневного неба.
     func update(up: D3, brightness: Double) {
         dome.orientation = simd_quatf(from: F3(0, 1, 0), to: f3(up))
