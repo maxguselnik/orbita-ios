@@ -6,7 +6,7 @@
 3 — готов и слит в main (PR #4), сборка iOS в CI зелёная. Визуал этапа 3 пользователь решил не согласовывать по скриншотам (2026-10-12). Следующий — 4 (ощущение скорости и эффекты).
 
 ## Передача другому агенту (как продолжить)
-- Начать с `CLAUDE.md`, `docs/SPEC.md`, `docs/CONTRACTS.md`, этого файла. Незаконченная работа — ветка `stage3/integration` / PR #4.
+- Начать с `CLAUDE.md`, `docs/SPEC.md`, `docs/CONTRACTS.md`, этого файла. Этап 2 согласован и слит (PR #3), этап 3 — PR #4.
 - Физика (Linux): `docker run --rm -v "$PWD":/pkg -w /pkg swift:6.0-noble swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors` (или `swift test` с локальным Swift 6). 64 теста.
 - iOS-код на Linux не собрать: пуш в ветку `stage*/**` или PR запускает `.github/workflows/ci.yml` (macOS, Xcode 16.4, warnings-as-errors). Ошибки — в логе задания «iOS (macOS)».
 - Скриншоты/видео: задание «Скриншоты (симулятор)» (только на push) снимает сцены из `screens.txt` (`-screen <сцена>`), кладёт в артефакт и в ветку `ci-screens` (`<ветка>/<sha7>/`).
