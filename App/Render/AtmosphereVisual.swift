@@ -4,14 +4,25 @@ import simd
 import UIKit
 
 /// Атмосфера Терры: дымка у горизонта (вложенные цилиндрические пояса вокруг камеры)
-/// и ореол у лимба (стопка дисков за диском планеты). Только прозрачные материалы с постоянной
-/// непрозрачностью (без альфа-текстур): градиент получается наложением слоёв.
+/// и голубой ореол лимба. Ореол — набор колец за диском планеты с градиентной альфа-текстурой
+/// («колпак» 0→1→0 по ширине), соседние кольца перекрываются и дают плавный спад от края вверх.
+/// Работает на любой высоте от ~2.5 км (с земли — полоса над горизонтом, из космоса — тонкий ободок),
+/// гаснет ночью. Старые диски ореола выключены (`haloDiscsEnabled`).
 @MainActor
 final class AtmosphereVisual {
     /// Выключатель для поиска причин падений.
     static var enabled = true
+    /// Старый ореол из плоских дисков; заменён кольцами лимба.
+    static var haloDiscsEnabled = false
 
     let root = Entity()
+
+    // Лимб: кольца в плоскости, перпендикулярной направлению на центр планеты.
+    private static let limbCount = 8
+    private static let limbHeight = 42_000.0
+    private let limbRoot = Entity()
+    private var rings: [ModelEntity] = []
+    private var lastLimbKey = -1
 
     // Дымка: пояса (полуугол над горизонтом, множитель радиуса).
     private static let hazeAngles: [Float] = [1.5, 3.5, 6, 9.5, 14]
@@ -31,6 +42,16 @@ final class AtmosphereVisual {
     init() {
         root.addChild(hazeRoot)
         root.addChild(haloRoot)
+        root.addChild(limbRoot)
+        if let mesh = SoftMeshes.limbRing {
+            for _ in 0..<Self.limbCount {
+                let e = ModelEntity(mesh: mesh, materials: [Self.material(rgb: F3(0.4, 0.65, 1), opacity: 0.1)])
+                limbRoot.addChild(e)
+                rings.append(e)
+            }
+        }
+        limbRoot.isEnabled = false
+        SoftTextures.shared.start()
 
         // Единичный открытый цилиндр (радиус 1, полувысота 1), видимый изнутри (двусторонний).
         var tube = MeshBuilder()
@@ -60,8 +81,10 @@ final class AtmosphereVisual {
     func reset() {
         hazeRoot.isEnabled = false
         haloRoot.isEnabled = false
+        limbRoot.isEnabled = false
         lastHazeKey = -1
         lastHaloKey = -1
+        lastLimbKey = -1
     }
 
     func update(_ f: AtmosphereFrame) {
@@ -70,7 +93,71 @@ final class AtmosphereVisual {
             return
         }
         updateHaze(f)
-        updateHalo(f)
+        if Self.haloDiscsEnabled {
+            updateHalo(f)
+        } else {
+            haloRoot.isEnabled = false
+        }
+        updateLimb(f)
+    }
+
+    // MARK: - Лимб
+
+    private func updateLimb(_ f: AtmosphereFrame) {
+        let tex = SoftTextures.shared
+        let n = Self.limbCount
+        let scale = f.terraScale
+        let c = f.terraCenter * scale
+        let d = simd_length(c)
+        let rs = Bodies.terra.radius * scale
+        let altFade = Self.smooth((f.altitude - 2_500) / 10_000)
+        guard tex.isReady, let hat = tex.hat, rings.count == n, altFade > 0.01, d > rs * 1.0005 else {
+            limbRoot.isEnabled = false
+            return
+        }
+        // Касательная до планеты, угловой радиус диска, толщина слоя атмосферы в углах.
+        let t = (d * d - rs * rs).squareRoot()
+        let thetaR = asin(min(rs / d, 0.9999))
+        let delta = clampd(Self.limbHeight * scale / t, 0.01, 0.2)
+        let x0 = tan(thetaR)
+        // Предел ширины: шаг между кольцами не больше полуширины колпака (иначе щели).
+        let x1 = min(tan(min(thetaR + delta, 1.5)), x0 * (1 + 0.13 * Double(n - 1)))
+        let spacing = (x1 / x0 - 1) / Double(n - 1)
+        guard spacing > 1e-4 else {
+            limbRoot.isEnabled = false
+            return
+        }
+        limbRoot.isEnabled = true
+
+        // Освещённость: камера над дневной стороной ярче; ночью гаснет.
+        let a = c / d
+        let phase = simd_dot(f.sun, -a)
+        let lit = clampd(0.08 + 0.92 * (phase + 0.3) / 1.1, 0.03, 1)
+        let norm = clampd(spacing / 0.177, 0.05, 1)
+        let key = Int((altFade * 20).rounded()) * 10_000 + Int((lit * 20).rounded()) * 100 + Int((norm * 10).rounded())
+        if key != lastLimbKey {
+            lastLimbKey = key
+            let k = CGFloat(0.55 + 0.45 * lit)
+            let tint = UIColor(red: 0.42 * k, green: 0.68 * k, blue: 1.0 * k, alpha: 1)
+            let base = Float(0.6 * lit * altFade * norm)
+            for (i, e) in rings.enumerated() {
+                let fall = pow(1 - Float(i) / Float(n), 1.7)
+                e.model?.materials = [SoftTextures.material(hat, tint: tint, opacity: base * fall)]
+            }
+        }
+
+        // Плоскость колец — чуть дальше касательной точки, чтобы планета закрывала внутреннюю часть.
+        let dp = t * 1.06
+        let dirF = f3(a)
+        let q = simd_quatf(from: F3(0, 0, 1), to: -dirF)
+        for (i, e) in rings.enumerated() {
+            // Пик колпака (0.85 внешнего радиуса) — на радиусе x0·(1 + spacing·i).
+            let peak = x0 * (1 + spacing * Double(i))
+            let ro = Float(dp * peak / 0.85)
+            e.position = dirF * Float(dp)
+            e.orientation = q
+            e.scale = F3(ro, ro, 1)
+        }
     }
 
     private static func material(rgb: F3, opacity: Float) -> UnlitMaterial {

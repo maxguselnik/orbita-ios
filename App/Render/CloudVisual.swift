@@ -4,7 +4,8 @@ import simd
 import UIKit
 
 /// Облака Терры на высотах 2–12 км: детерминированная сетка в системе, связанной с Террой,
-/// кластеры сплюснутых сфер из пула сущностей. Внутри комка экран мутнеет (сфера-«туман» у камеры).
+/// кластеры мягких биллбордов (процедурная радиальная альфа-текстура) из пула сущностей;
+/// высокие слоистые — широкие плоские пятна. Внутри комка экран мутнеет (сфера-«туман» у камеры).
 @MainActor
 final class CloudVisual {
     /// Выключатель для поиска причин падений.
@@ -17,13 +18,14 @@ final class CloudVisual {
     private static let viewRadius = 28_000.0
     private static let rebuildDistance = 1_500.0
 
-    /// Одна сплюснутая сфера: центр и вертикаль в связанной с Террой системе, радиус по горизонтали и высоте.
+    /// Один мягкий клуб: центр и вертикаль в связанной с Террой системе, полуширина и полувысота.
+    /// `tone` — 0…2 оттенок (верх клуба светлее, низ серее), 3 — тонкая слоистая дымка.
     private struct Puff {
         var pos: D3
         var up: D3
         var rx: Double
         var ry: Double
-        var thin: Bool
+        var tone: Int
     }
 
     /// Облачная ячейка-кандидат (центр в связанной системе, высота, состояние генератора).
@@ -42,8 +44,8 @@ final class CloudVisual {
     private var lastQuality = -1
     private var effectiveRadius = CloudVisual.viewRadius
 
-    private var denseMaterial: PhysicallyBasedMaterial
-    private var thinMaterial: PhysicallyBasedMaterial
+    private var materials: [UnlitMaterial] = []
+    private var texturesReady = false
     private var lastLightKey = -1
 
     private let fog = ModelEntity()
@@ -51,14 +53,13 @@ final class CloudVisual {
     private var lastFogKey = -1
 
     init() {
-        denseMaterial = Self.cloudMaterial(opacity: 0.8, shade: 1)
-        thinMaterial = Self.cloudMaterial(opacity: 0.5, shade: 1)
+        SoftTextures.shared.start()
         puffs.reserveCapacity(Self.poolSize)
         candidates.reserveCapacity(2_048)
 
-        let sphere = MeshResource.generateSphere(radius: 1)
+        let quad = SoftMeshes.billboard ?? MeshResource.generateBox(size: 1)
         for _ in 0..<Self.poolSize {
-            let e = ModelEntity(mesh: sphere, materials: [denseMaterial])
+            let e = ModelEntity(mesh: quad, materials: [Self.fogMaterial(opacity: 0.5, shade: 1)])
             e.isEnabled = false
             root.addChild(e)
             pool.append(e)
@@ -91,17 +92,18 @@ final class CloudVisual {
         lastFogKey = -1
         fogLevel = 0
         fog.isEnabled = false
+        texturesReady = false
     }
 
     // MARK: - Материалы
 
-    private static func cloudMaterial(opacity: Float, shade: Float) -> PhysicallyBasedMaterial {
-        var m = PhysicallyBasedMaterial()
-        m.baseColor = .init(tint: UIColor(white: CGFloat(0.94 * shade), alpha: 1))
-        m.roughness = .init(floatLiteral: 1)
-        m.metallic = .init(floatLiteral: 0)
-        m.blending = .transparent(opacity: .init(floatLiteral: opacity))
-        return m
+    /// Четыре материала: три оттенка плотного клуба и тонкая дымка. Ночью темнее (`shade`).
+    private static func cloudMaterials(tex: TextureResource, shade: Float) -> [UnlitMaterial] {
+        let tones: [(Float, Float)] = [(1.0, 0.85), (0.88, 0.85), (0.76, 0.8), (0.95, 0.5)]
+        return tones.map { tone, opacity in
+            let c = CGFloat(0.97 * shade * tone)
+            return SoftTextures.material(tex, tint: UIColor(red: c, green: c, blue: min(1, c * 1.03), alpha: 1), opacity: opacity)
+        }
     }
 
     private static func fogMaterial(opacity: Float, shade: Float) -> UnlitMaterial {
@@ -180,14 +182,14 @@ final class CloudVisual {
             let count: Int
             let spread: Double
             if c.altitude < 5_000 {
-                count = 3 + Int(rng.next() * 2)
-                spread = 800
+                count = 4 + Int(rng.next() * 3)
+                spread = 700
             } else if c.altitude > 8_000 {
-                count = 2
-                spread = 1_300
+                count = 3
+                spread = 1_600
             } else {
-                count = 2
-                spread = 900
+                count = 3
+                spread = 1_000
             }
             if puffs.count + count > capacity {
                 full = true
@@ -196,39 +198,57 @@ final class CloudVisual {
             for _ in 0..<count {
                 let o1 = (rng.next() - 0.5) * 2 * spread
                 let o2 = (rng.next() - 0.5) * 2 * spread
-                let lift = rng.next() * 400
-                let pos = base + t1 * o1 + t2 * o2 + dir * lift
+                let rise = rng.next()
                 let rx: Double
                 let ry: Double
-                var thin = false
+                var tone = 0
+                var lift = rise * 350
                 if c.altitude < 5_000 {
-                    rx = 450 + rng.next() * 500
-                    ry = rx * (0.55 + rng.next() * 0.25)
+                    // Кучевые: шапка из клубов, верхние светлее.
+                    rx = 380 + rng.next() * 420
+                    ry = rx * (0.62 + rng.next() * 0.2)
+                    tone = rise > 0.66 ? 0 : (rise > 0.33 ? 1 : 2)
+                    lift = rise * 450
                 } else if c.altitude > 8_000 {
-                    rx = 1_500 + rng.next() * 900
-                    ry = rx * (0.07 + rng.next() * 0.05)
-                    thin = true
+                    // Высокие слоистые: широкие плоские мягкие пятна.
+                    rx = 1_800 + rng.next() * 1_300
+                    ry = rx * (0.08 + rng.next() * 0.06)
+                    tone = 3
+                    lift = rise * 150
                 } else {
-                    rx = 800 + rng.next() * 600
-                    ry = rx * (0.3 + rng.next() * 0.15)
+                    rx = 800 + rng.next() * 700
+                    ry = rx * (0.28 + rng.next() * 0.14)
+                    tone = rise > 0.5 ? 1 : 2
                 }
-                puffs.append(Puff(pos: pos, up: dir, rx: rx, ry: ry, thin: thin))
+                let pos = base + t1 * o1 + t2 * o2 + dir * lift
+                puffs.append(Puff(pos: pos, up: dir, rx: rx, ry: ry, tone: tone))
             }
             lastDist = c.dist
         }
         effectiveRadius = full ? max(lastDist, 8_000) : Self.viewRadius
 
+        applyMaterials()
+    }
+
+    private func applyMaterials() {
+        guard materials.count == 4 else { return }
         for (i, e) in pool.enumerated() where i < puffs.count {
-            e.model?.materials = [puffs[i].thin ? thinMaterial : denseMaterial]
+            e.model?.materials = [materials[puffs[i].tone]]
         }
     }
 
     // MARK: - Кадр
 
     func update(_ f: AtmosphereFrame) {
-        guard Self.enabled, f.frameBody == .terra, abs(f.terraScale - 1) < 1e-6, f.altitude < 40_000 else {
+        guard Self.enabled, f.frameBody == .terra, abs(f.terraScale - 1) < 1e-6, f.altitude < 40_000,
+              let tex = SoftTextures.shared.puff, SoftTextures.shared.isReady else {
             if root.isEnabled { reset() }
             return
+        }
+        if !texturesReady {
+            texturesReady = true
+            lastLightKey = -1
+            lastBuildPos = nil
         }
         root.isEnabled = true
         let rot = f.terraRotation
@@ -241,11 +261,8 @@ final class CloudVisual {
         if lightKey != lastLightKey {
             lastLightKey = lightKey
             let shade = Float(0.14 + 0.86 * b)
-            denseMaterial = Self.cloudMaterial(opacity: 0.8, shade: shade)
-            thinMaterial = Self.cloudMaterial(opacity: 0.5, shade: shade)
-            for (i, e) in pool.enumerated() where i < puffs.count {
-                e.model?.materials = [puffs[i].thin ? thinMaterial : denseMaterial]
-            }
+            materials = Self.cloudMaterials(tex: tex, shade: shade)
+            applyMaterials()
             lastFogKey = -1
         }
 
@@ -267,8 +284,9 @@ final class CloudVisual {
             let e = pool[i]
             e.isEnabled = fade > 0.01
             e.position = rel
-            e.orientation = simd_quatf(from: F3(0, 1, 0), to: f3(rot.act(p.up)))
-            e.scale = F3(Float(p.rx * fade), Float(p.ry * fade), Float(p.rx * fade))
+            // Биллборд к камере, вертикаль — вдоль местной «вверх»: слоистые остаются горизонтальными пятнами.
+            e.orientation = SoftMeshes.facing(position: rel, up: f3(rot.act(p.up)))
+            e.scale = F3(Float(p.rx * 2 * fade), Float(p.ry * 2 * fade), 1)
 
             // Камера внутри эллипсоида (в связанной системе).
             let d = camBF - p.pos

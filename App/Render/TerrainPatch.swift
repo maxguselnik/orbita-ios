@@ -103,6 +103,7 @@ enum PatchBuilder {
         mesh.uvs.reserveCapacity(mesh.positions.capacity)
         mesh.indices.reserveCapacity(n * n * 6 + 4 * n * 12)
         let noiseScale = radius / (body == .terra ? 900 : 300)
+        let cellSize = CubeSphere.size(key, radius: radius) / Double(n)
 
         for j in 0...n {
             for i in 0...n {
@@ -118,7 +119,7 @@ enum PatchBuilder {
                     if simd_dot(normal, d) < 0 { normal = -normal }
                 }
                 let uv = Palette.terrainUV(body: body, direction: d, height: h,
-                                           noise: hashNoise(d, scale: noiseScale))
+                                           noise: hashNoise(d, scale: noiseScale), cell: cellSize)
                 mesh.vertex(f3(pts[k] - center), f3(normal), uv)
             }
         }
