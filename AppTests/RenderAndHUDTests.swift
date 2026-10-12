@@ -1,5 +1,6 @@
 import OrbitPhysics
 import RealityKit
+import SwiftUI
 import Testing
 import UIKit
 @testable import Orbita
@@ -181,14 +182,110 @@ struct RenderAndHUDTests {
 
     @Test func throttleArcMapsTouchAngleToFraction() {
         let center = CGPoint(x: 50, y: 50)
-        #expect(abs(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 100), center: center)) < 1e-9)
-        #expect(abs(GaugeMath.fraction(forTouch: CGPoint(x: 0, y: 50), center: center) - 0.5) < 1e-9)
-        #expect(abs(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 0), center: center) - 1) < 1e-9)
-        #expect(GaugeMath.fraction(forTouch: CGPoint(x: 120, y: 10), center: center) == 1)
+        func touch(_ degrees: Double) -> CGPoint {
+            let r = degrees * .pi / 180
+            return CGPoint(x: 50 + 40 * cos(r), y: 50 + 40 * sin(r))
+        }
+        #expect(abs(GaugeMath.fraction(forTouch: touch(145), center: center)) < 1e-6)
+        #expect(abs(GaugeMath.fraction(forTouch: touch(180), center: center) - 0.5) < 1e-6)
+        #expect(abs(GaugeMath.fraction(forTouch: touch(215), center: center) - 1) < 1e-6)
+        #expect(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 100), center: center) == 0)
+        #expect(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 0), center: center) == 1)
     }
 
     @Test func crewShownOnlyWithCabin() {
         #expect(CrewPlaceholder.hasCabin(VesselDesign.orbit.parts))
         #expect(!CrewPlaceholder.hasCabin([.chute, .decoupler, .t100]))
+    }
+
+    @Test func translationReachesPhysicsOnlyWhenRCSEnabled() {
+        let flight = RecordingFlight()
+        let model = FlightHUDModel(makeSimulation: { flight })
+        model.rcsRightInput = 0.5
+        model.rcsForwardPressed = true
+        model.tick(now: 1)
+        #expect(flight.lastInput.translation == .zero)
+
+        model.toggleRCS()
+        #expect(model.rcs.enabled)
+        model.rcsRightInput = 0.5
+        model.rcsForwardPressed = true
+        model.tick(now: 2)
+        #expect(flight.lastInput.translation == Vec3(0.5, 1, 0))
+
+        model.toggleRCS()
+        #expect(!model.rcs.enabled)
+        model.tick(now: 3)
+        #expect(flight.lastInput.translation == .zero)
+    }
+
+    @Test func rcsWithoutBlocksShowsToastAndStaysOff() {
+        let flight = RecordingFlight()
+        flight.rcsAvailable = false
+        let model = FlightHUDModel(makeSimulation: { flight })
+        model.toggleRCS()
+        #expect(!model.rcs.enabled)
+        #expect(model.toast?.text == "Нет блоков РСУ")
+    }
+
+    @Test func rcsPartsAppearInHangarCatalog() {
+        let misc = CatalogTab.misc.parts.map(\.id)
+        #expect(misc.contains(.rcsBlock) && misc.contains(.m100))
+        #expect(HangarFormat.details(PartCatalog.spec(.rcsBlock)) == ["Монотопливо 60 кг · сопла 2 кН", "140 кг"])
+        #expect(HangarFormat.details(PartCatalog.spec(.m100)).first == "Монотопливо 160 кг")
+    }
+
+    @Test func compactLayoutFitsScreenWithoutOverlaps() {
+        let model = FlightHUDModel()
+        func fitted<V: View>(_ view: V) -> CGSize {
+            UIHostingController(rootView: view).sizeThatFits(in: CGSize(width: 852, height: 393))
+        }
+        let ring = fitted(NavballCluster(model: model))
+        #expect(ring == CGSize(width: 184, height: 184))
+        #expect(ring.height - NavballCluster.overhang <= 150)
+        let stage = fitted(StageButton(model: model))
+        #expect(stage.height == 40)
+        let controls = fitted(ControlsCluster(model: model, guide: nil))
+        let rcs = fitted(RCSControls(model: model))
+        let stack = fitted(StageStackView(model: model))
+        #expect(stack.height <= CGFloat(StageStackView.maxRows) * 22 + 9)
+
+        // По горизонтали на кадре 852 pt (боковые безопасные зоны ≈ 59 pt): кнопка ступени, группа РСУ, кольцо, джойстик.
+        let safe: CGFloat = 59
+        let stageRight = safe + 6 + stage.width
+        let rcsLeft = FlightLayer.rcsCenterX - rcs.width / 2
+        let rcsRight = FlightLayer.rcsCenterX + rcs.width / 2
+        let ringLeft = (852 - ring.width) / 2
+        let ringRight = ringLeft + ring.width
+        let controlsLeft = 852 - safe - 4 - controls.width
+        #expect(stageRight < rcsLeft)
+        #expect(rcsRight < ringLeft - 4)
+        #expect(ringRight + 30 < controlsLeft)
+        #expect(controls.height <= 80 && rcs.height <= 80)
+    }
+}
+
+/// Полёт-заглушка, запоминающий последний ввод; доступность РСУ можно отключить.
+private final class RecordingFlight: FlightSimulation {
+    private let base = MockFlight()
+    private(set) var lastInput = ControlInput.neutral
+    var rcsAvailable = true
+
+    var snapshot: WorldSnapshot {
+        var shot = base.snapshot
+        if !rcsAvailable { shot.telemetry.rcs = RCSStatus() }
+        return shot
+    }
+
+    func setInput(_ input: ControlInput) {
+        lastInput = input
+        base.setInput(input)
+    }
+
+    func send(_ command: FlightCommand) { base.send(command) }
+    func advance(realDelta: Double) -> [SimEvent] { base.advance(realDelta: realDelta) }
+    func predictTrajectory(maxPatches: Int) -> Trajectory { base.predictTrajectory(maxPatches: maxPatches) }
+    func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction? {
+        base.predictManeuver(node, maxPatches: maxPatches)
     }
 }
