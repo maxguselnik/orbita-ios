@@ -11,6 +11,7 @@ struct CameraRig {
 
     var azimuth = -2.1
     var elevation = 0.12
+    var defaultElevation = 0.12
     /// Азимут по умолчанию (зависит от режима: «по курсу» — 0, ровно сзади).
     var defaultAzimuth = -2.1 {
         didSet { azimuth = defaultAzimuth }
@@ -28,7 +29,7 @@ struct CameraRig {
     mutating func apply(orbit: SIMD2<Float>, zoom: Float, reset: Bool) {
         if reset {
             azimuth = defaultAzimuth
-            elevation = 0.12
+            elevation = defaultElevation
             distance = defaultDistance
             return
         }
@@ -46,6 +47,11 @@ struct CameraRig {
             distance = defaultDistance
             sDist = distance
         }
+    }
+
+    mutating func setDefaultElevation(_ e: Double) {
+        defaultElevation = e
+        elevation = e
     }
 
     /// Положение камеры относительно цели и вектор «верх» кадра.

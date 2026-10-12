@@ -1,7 +1,6 @@
 import OrbitPhysics
 import RealityKit
 import simd
-import UIKit
 
 /// 3D-модель корабля: стек деталей сверху вниз, факелы двигателей, купол парашюта.
 /// Корень — нижняя точка стека (`VesselState.position`), ось +Y — нос.
@@ -15,7 +14,6 @@ final class VesselVisual {
     private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity)] = [:]
     private var canopy: Entity?
     private var maxDiameter: Double = 1
-    private var diagApplied = false
 
     /// Радиус ограничивающей сферы вокруг середины стека, м (с куполом — больше).
     private(set) var boundingRadius: Double = 1
@@ -114,25 +112,13 @@ final class VesselVisual {
         canopy = e
     }
 
-    // ДИАГНОСТИКА (временно): flight — принудительный прозрачный факел; ascent — непрозрачный.
-    static let diagScene: String = {
-        let a = ProcessInfo.processInfo.arguments
-        if let i = a.firstIndex(of: "-screen"), i + 1 < a.count { return a[i + 1] }
-        return ""
-    }()
-
     /// Обновление за кадр: положение (относительно точки отсчёта), ориентация, факелы, купол.
     func update(_ v: VesselState, relativePosition: D3, pressure: Double, time: Double) {
         root.transform = Transform(scale: .one, rotation: quatf(v.attitude.quatd), translation: f3(relativePosition))
 
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
-            var on = v.firingEngines.contains(i)
-            if Self.diagScene == "flight", v.isActive { on = true }
-            if Self.diagScene == "ascent", !diagApplied {
-                p.outer.model?.materials = [UnlitMaterial(color: .orange)]
-                p.core.model?.materials = [UnlitMaterial(color: .yellow)]
-            }
+            let on = v.firingEngines.contains(i)
             if p.entity.isEnabled != on { p.entity.isEnabled = on }
             guard on else { continue }
             let spec = parts[i].spec
@@ -141,8 +127,10 @@ final class VesselVisual {
             let flick = 1 + 0.06 * sin(time * 53 + Double(i)) + 0.04 * sin(time * 97 + 2 * Double(i))
             let length = spec.diameter * (spec.isSolid ? 7.5 : 2.5 + 6 * thr) * (1 + 0.7 * vac) * flick
             let width = re * (1 + 2.2 * vac) * (0.75 + 0.25 * thr)
-            p.outer.scale = F3(Float(width), Float(length), Float(width))
-            p.core.scale = F3(Float(re * 0.7 * (1 + 0.5 * vac)), Float(length * 0.42), Float(re * 0.7 * (1 + 0.5 * vac)))
+            // Непрозрачные слои: широкая оранжевая оболочка короче, узкое светлое ядро длиннее.
+            p.outer.scale = F3(Float(width), Float(length * 0.7), Float(width))
+            let coreW = Float(width * 0.55)
+            p.core.scale = F3(coreW, Float(length), coreW)
         }
 
         if let canopy {
@@ -153,7 +141,6 @@ final class VesselVisual {
                 canopy.scale = F3(repeating: s)
             }
         }
-        diagApplied = true
         boundingRadius = (canopy?.isEnabled ?? false) ? stackHeight + 20 : stackHeight / 2 + maxDiameter
     }
 }

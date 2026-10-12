@@ -29,15 +29,10 @@ final class RenderMaterials {
     let plumeSolid: UnlitMaterial
 
     private init() {
-        var outer = UnlitMaterial(color: UIColor(red: 1.0, green: 0.52, blue: 0.18, alpha: 1))
-        outer.blending = .transparent(opacity: .init(floatLiteral: 0.45))
-        plumeOuter = outer
-        var core = UnlitMaterial(color: UIColor(red: 1.0, green: 0.93, blue: 0.72, alpha: 1))
-        core.blending = .transparent(opacity: .init(floatLiteral: 0.85))
-        plumeCore = core
-        var solid = UnlitMaterial(color: UIColor(red: 1.0, green: 0.78, blue: 0.40, alpha: 1))
-        solid.blending = .transparent(opacity: .init(floatLiteral: 0.6))
-        plumeSolid = solid
+        // Факел непрозрачный: прозрачный факел на подъёме ронял рендер в симуляторе (см. отчёт).
+        plumeOuter = UnlitMaterial(color: UIColor(red: 1.0, green: 0.52, blue: 0.16, alpha: 1))
+        plumeCore = UnlitMaterial(color: UIColor(red: 1.0, green: 0.93, blue: 0.74, alpha: 1))
+        plumeSolid = UnlitMaterial(color: UIColor(red: 1.0, green: 0.70, blue: 0.30, alpha: 1))
     }
 }
 

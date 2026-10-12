@@ -57,6 +57,8 @@ final class SceneRenderer: FlightRenderer {
         m.baseColor = .init(tint: .white, texture: .init(tex))
         m.roughness = .init(floatLiteral: 0.93)
         m.metallic = .init(floatLiteral: 0)
+        // Без бликов: иначе по краю диска с орбиты Френель отражает студийное окружение (бежевая «дымка»).
+        m.specular = .init(floatLiteral: 0)
         return m
     }
 
@@ -82,6 +84,11 @@ final class SceneRenderer: FlightRenderer {
         let switched = lastActive != active.id
         lastActive = active.id
         rig.setDefaultDistance(max(height * 1.7, 14), snap: switched)
+        if switched {
+            // Высоко над телом — смотреть сверху, чтобы была видна кривизна; у земли — почти горизонтально.
+            let alt = simd_length(pos) - Bodies.body(active.body).radius
+            rig.setDefaultElevation(alt > 30_000 ? 0.45 : 0.12)
+        }
 
         let forward: D3, up: D3
         switch cameraMode {
