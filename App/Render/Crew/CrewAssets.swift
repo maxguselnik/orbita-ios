@@ -33,6 +33,9 @@ final class CrewAssets {
 
     func texture(_ key: String) -> TextureResource? { textures[key] }
     var textureCount: Int { textures.count }
+    /// Диагностика загрузки текстур (галерея CI).
+    private(set) var failures = 0
+    private(set) var lastError = ""
 
     /// Общие текстуры + текстуры персонажа (радужка, нашивка, бирка, голова).
     func prepare(id: String, name: String) async {
@@ -60,11 +63,19 @@ final class CrewAssets {
     }
 
     private func ensure(_ key: String, _ draw: () -> CGImage?) async {
-        guard textures[key] == nil, let cg = draw() else { return }
+        guard textures[key] == nil else { return }
+        guard let cg = draw() else {
+            failures += 1
+            lastError = "\(key): нет картинки"
+            return
+        }
         var options = TextureResource.CreateOptions(semantic: .color)
         options.mipmapsMode = .allocateAndGenerateAll
-        if let t = try? await TextureResource(image: cg, options: options) {
-            textures[key] = t
+        do {
+            textures[key] = try await TextureResource(image: cg, options: options)
+        } catch {
+            failures += 1
+            lastError = "\(key): \(error)"
         }
     }
 
@@ -88,6 +99,9 @@ final class CrewAssets {
             if let tex { u.color = .init(tint: CrewColor(s.color).ui, texture: .init(tex)) }
             if s.alphaTex, let tex {
                 u.blending = .transparent(opacity: .init(scale: s.opacity, texture: .init(tex)))
+            } else if s.alphaTex {
+                // Текстура ещё не загружена — не показывать (иначе глухой диск вместо стекла).
+                u.blending = .transparent(opacity: .init(floatLiteral: 0))
             } else if s.opacity < 1 {
                 u.blending = .transparent(opacity: .init(floatLiteral: s.opacity))
             }
@@ -108,19 +122,26 @@ final class CrewAssets {
             if s.opacity < 1 { p.blending = .transparent(opacity: .init(floatLiteral: s.opacity)) }
             m = p
         }
-        materials[s] = m
+        // Материал без нужной текстуры не кэшируется: после загрузки текстур места пересобираются.
+        if s.tex == nil || tex != nil { materials[s] = m }
         return m
     }
 
     // MARK: - Рисование
 
+    /// Явный RGBA8 sRGB с премультиплицированной альфой (как у текстур облаков): формат UIGraphicsImageRenderer
+    /// `TextureResource` не принимал. Начало координат — сверху слева, как в UIKit; текст рисуется через UIKit.
     private static func draw(_ w: Int, _ h: Int, _ body: (CGContext) -> Void) -> CGImage? {
-        let f = UIGraphicsImageRendererFormat()
-        f.scale = 1
-        f.opaque = false
-        f.preferredRange = .standard
-        let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: f).image { body($0.cgContext) }
-        return img.cgImage
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let g = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        g.translateBy(x: 0, y: CGFloat(h))
+        g.scaleBy(x: 1, y: -1)
+        UIGraphicsPushContext(g)
+        body(g)
+        UIGraphicsPopContext()
+        return g.makeImage()
     }
 
     private static func rgba(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor { CrewColor.ui(CrewColor(hex).srgb, alpha: a).cgColor }

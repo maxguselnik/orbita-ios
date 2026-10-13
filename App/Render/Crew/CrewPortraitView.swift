@@ -133,7 +133,8 @@ final class CrewStage {
             if i < slots.count { slots[i] = c } else { slots.append(c) }
             if fresh { c.update(time: t) }
         }
-        info = "места \(slots.count) · текстуры \(CrewAssets.shared.textureCount) · сущности \(root.children.count)"
+        let a = CrewAssets.shared
+        info = "места \(slots.count) · текстуры \(a.textureCount) · ошибки \(a.failures) \(a.lastError.prefix(60))"
 
     }
 
