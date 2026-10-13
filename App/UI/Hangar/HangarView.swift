@@ -217,6 +217,7 @@ struct HangarView: View {
         var cleared = model.design
         cleared.nodes = []
         cleared.customStaging = false
+        cleared.crewSeats = [:]
         model.replaceDesign(cleared)
     }
 

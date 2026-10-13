@@ -38,10 +38,15 @@ final class CrewAssets {
     private(set) var lastError = ""
     /// Сколько текстур начато и какая создаётся сейчас (поиск зависания).
     private(set) var started = 0
+    /// Не созданные за таймаут — больше не пробуем.
+    private var failed: Set<String> = []
     private(set) var current = ""
 
     /// Общие текстуры + текстуры персонажа (радужка, нашивка, бирка, голова).
-    func prepare(id: String, name: String) async {
+    /// Возвращает true, если добавились новые текстуры (места стоит пересобрать).
+    @discardableResult
+    func prepare(id: String, name: String) async -> Bool {
+        let before = textures.count
         // Сначала то, что видно на лице (кожа, радужка), потом скафандр и кабина.
         let look = CrewLook.of(id)
         await ensure(Self.headKey(look.kind)) { Self.headImage(look.shape) }
@@ -55,6 +60,7 @@ final class CrewAssets {
             common = Task { await self.loadCommon() }
         }
         await common?.value
+        return textures.count != before
     }
 
     private func loadCommon() async {
@@ -70,7 +76,7 @@ final class CrewAssets {
     }
 
     private func ensure(_ key: String, _ draw: () -> CGImage?) async {
-        guard textures[key] == nil else { return }
+        guard textures[key] == nil, !failed.contains(key) else { return }
         guard let cg = draw() else {
             failures += 1
             lastError = "\(key): нет картинки"
@@ -85,6 +91,7 @@ final class CrewAssets {
             textures[key] = t
         } else {
             failures += 1
+            failed.insert(key)
             lastError = "\(key): не создалась за 2 с"
         }
         current = ""

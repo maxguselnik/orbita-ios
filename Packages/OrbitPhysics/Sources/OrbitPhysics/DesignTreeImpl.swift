@@ -522,6 +522,8 @@ extension VesselEditing {
         }
         design.pruneSymmetry()
         design.restage(newIDs: [])
+        // Рассадка удалённых кабин: id может достаться новой детали.
+        design.crewSeats = design.crewSeats.filter { design.node($0.key) != nil }
         return Array(removed).sorted()
     }
 

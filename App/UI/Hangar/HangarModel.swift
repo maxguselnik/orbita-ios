@@ -381,7 +381,7 @@ final class HangarModel {
     func setSeat(partID: Int, index: Int, memberID: String?) {
         var d = design
         d.setSeat(partID: partID, index: index, memberID: memberID)
-        guard d != design else { return }
+        guard d.seating() != design.seating() else { return }
         commit(d)
         feedback(.tap)
     }

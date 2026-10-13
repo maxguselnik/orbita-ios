@@ -99,8 +99,12 @@ final class CrewStage {
         // Сразу — без текстур (материалы терпят их отсутствие), после загрузки — пересборка с текстурами.
         sync()
         Task { [weak self] in
-            for m in members { await CrewAssets.shared.prepare(id: m.id, name: m.name) }
-            guard let self, self.generation == gen else { return }
+            var added = false
+            for m in members {
+                if await CrewAssets.shared.prepare(id: m.id, name: m.name) { added = true }
+            }
+            // Пересборка — только если пришли новые текстуры; иначе смена настроения идёт плавно, без пересоздания.
+            guard added, let self, self.generation == gen else { return }
             self.rebuild()
         }
     }
