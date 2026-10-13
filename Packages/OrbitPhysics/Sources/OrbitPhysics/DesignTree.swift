@@ -94,6 +94,9 @@ public struct VesselDesign: Sendable, Hashable {
     public var nodes: [DesignPart]
     /// Ступени расставлены вручную (редактор ступеней). false — пересчитываются авто-правилом после каждой правки.
     public var customStaging: Bool
+    /// Явная рассадка экипажа (5.4): `DesignPart.id` кабины → места (nil — пусто). Кабины без записи
+    /// заполняются автоматически (`seating`). Пусто — всё автоматически.
+    public var crewSeats: [Int: [String?]] = [:]
 
     public init(name: String, nodes: [DesignPart], customStaging: Bool = false) {
         self.name = name
@@ -127,7 +130,7 @@ public struct VesselDesign: Sendable, Hashable {
 }
 
 extension VesselDesign: Codable {
-    private enum Keys: String, CodingKey { case name, version, nodes, customStaging, parts }
+    private enum Keys: String, CodingKey { case name, version, nodes, customStaging, parts, crew }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: Keys.self)
@@ -137,6 +140,7 @@ extension VesselDesign: Codable {
                       customStaging: try c.decodeIfPresent(Bool.self, forKey: .customStaging) ?? false)
             // Родитель раньше детей, детали без пути к корню отбрасываются.
             normalizeOrder()
+            crewSeats = try c.decodeIfPresent([Int: [String?]].self, forKey: .crew) ?? [:]
         } else {
             self.init(name: name, parts: try c.decode([PartID].self, forKey: .parts))
         }
@@ -148,6 +152,7 @@ extension VesselDesign: Codable {
         try c.encode(2, forKey: .version)
         try c.encode(nodes, forKey: .nodes)
         try c.encode(customStaging, forKey: .customStaging)
+        if !crewSeats.isEmpty { try c.encode(crewSeats, forKey: .crew) }
     }
 }
 
