@@ -32,6 +32,98 @@ struct SynthControl: Sendable {
     var impactSpeed = 0.0
     /// Растёт при каждом включении звука (новый полёт): рендер сбрасывает уровни, лупы и хвосты прошлого полёта.
     var resetToken: UInt32 = 0
+    /// Голоса экипажа: рендер запускает пачку, когда `crewSerial` изменился.
+    var crewSerial: UInt32 = 0
+    var crewCount = 0
+    var crew0 = CrewVoiceCue()
+    var crew1 = CrewVoiceCue()
+    var crew2 = CrewVoiceCue()
+}
+
+/// Вид голосового звука экипажа.
+enum CrewVoiceKind: UInt8, Sendable {
+    case none, strain, awe, joy, panic, crash
+}
+
+/// Один голосовой сигнал: вид, основной тон, сдвиг формант и задержка старта.
+struct CrewVoiceCue: Sendable {
+    var kind = CrewVoiceKind.none
+    var pitch = 200.0
+    var formantScale = 1.0
+    var delay = 0.0
+}
+
+/// Голос экипажа: пила через две форманты гласной, огибающая и вибрато.
+private struct CrewVoice {
+    var active = false
+    var kind = CrewVoiceKind.none
+    var delay = 0.0
+    var t = 0.0
+    var duration = 0.5
+    var base = 200.0
+    var scale = 1.0
+    var level = 0.5
+    var vibRate = 6.0, vibDepth = 0.03
+    var vibPhase = 0.0
+    var phase = 0.0
+    var increment = 0.0
+    var src = 0.0
+    var env = 0.0, envTarget = 0.0
+    var breath = 0.0
+    var f1 = SVF()
+    var f2 = SVF()
+}
+
+/// Форма голоса по доле времени p (0…1): множитель тона, форманты, огибающая, доля «дыхания».
+private struct CrewShape {
+    var pitch = 1.0, f1 = 500.0, f2 = 1500.0, env = 1.0, breath = 0.0
+
+    @inline(__always)
+    private static func smooth(_ x: Double) -> Double {
+        let u = min(max(x, 0), 1)
+        return u * u * (3 - 2 * u)
+    }
+
+    static func make(_ kind: CrewVoiceKind, _ p: Double) -> CrewShape {
+        var s = CrewShape()
+        switch kind {
+        case .none:
+            s.env = 0
+        case .strain: // натужное «ммм»: низко, дрожь, сначала нарастает
+            s.pitch = 0.85 - 0.12 * p
+            s.f1 = 280; s.f2 = 1000
+            s.env = min(p / 0.25, 1) * (1 - 0.3 * p)
+            s.breath = 0.05
+        case .awe: // «ууух»: тон вверх-вниз, в конце выдох
+            let b = smooth((p - 0.65) / 0.25)
+            s.pitch = 0.9 + 0.4 * sin(Double.pi * min(p / 0.9, 1))
+            s.f1 = 320 + 280 * b; s.f2 = 700 + 800 * b
+            s.env = 1 - 0.45 * b
+            s.breath = 0.85 * b
+        case .joy: // «у-ра!»: два слога, тон вверх
+            if p < 0.4 {
+                s.pitch = 1.0 + 0.15 * (p / 0.4)
+                s.f1 = 320; s.f2 = 760
+                s.env = p > 0.34 ? 0.8 - 0.65 * smooth((p - 0.34) / 0.06) : 0.8
+            } else {
+                let q = (p - 0.4) / 0.6
+                s.pitch = 1.3 + 0.35 * q
+                s.f1 = 750; s.f2 = 1250
+                s.env = 0.15 + 0.85 * smooth((p - 0.4) / 0.06) - 0.35 * q
+            }
+        case .panic: // вскрик «аа!»: высоко
+            s.pitch = 1.55 + 0.5 * min(p / 0.3, 1) - 0.15 * max(p - 0.7, 0) / 0.3
+            s.f1 = 850; s.f2 = 1300
+            s.env = 1 - 0.3 * p
+            s.breath = 0.1
+        case .crash: // «ой»: тон вниз, «о» переходит в «й»
+            let g = smooth((p - 0.5) / 0.3)
+            s.pitch = 1.5 - 0.8 * p
+            s.f1 = 500 + (330 - 500) * g; s.f2 = 900 + (2100 - 900) * g
+            s.env = 1 - 0.5 * p
+        }
+        return s
+    }
 }
 
 struct OneShotCounters: Sendable, Equatable {
@@ -59,6 +151,13 @@ private struct SVF {
         a1 = 1 / (1 + g * (g + k))
         a2 = g * a1
         a3 = g * a2
+    }
+
+    /// Полоса с единичным пиком на центральной частоте.
+    @inline(__always)
+    mutating func band(_ x: Double) -> Double {
+        let r = process(x)
+        return r.bp * k
     }
 
     /// Возвращает (низкие, полоса, высокие).
@@ -120,6 +219,7 @@ final class SynthDSP: @unchecked Sendable {
     private var seenShots = OneShotCounters()
     private var lastSerial: UInt64 = 0
     private var seenReset: UInt32 = 0
+    private var seenCrew: UInt32 = 0
     private var staleSamples = 0
     private var sampleRate = 48_000.0
 
@@ -146,6 +246,7 @@ final class SynthDSP: @unchecked Sendable {
     private var windFilter = SVF()
     private var heatFilter = SVF()
     private var voices = [Voice](repeating: Voice(), count: SynthDSP.voiceCount)
+    private var crewVoices = [CrewVoice](repeating: CrewVoice(), count: 3)
 
     init() {
         recompute(sampleRate: 48_000)
@@ -194,6 +295,10 @@ final class SynthDSP: @unchecked Sendable {
         } else {
             staleSamples += frames
         }
+        if c.crewSerial != seenCrew {
+            seenCrew = c.crewSerial
+            triggerCrew()
+        }
         if c.shots != seenShots {
             triggerShots(c.shots)
             seenShots = c.shots
@@ -207,6 +312,7 @@ final class SynthDSP: @unchecked Sendable {
         smoothPad = 1 - exp(-1 / (1.5 * rate))
         engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
         for i in voices.indices { voices[i].active = false }
+        for i in crewVoices.indices { crewVoices[i].active = false }
     }
 
     /// Новый полёт: обнуляем непрерывные звуки, хвосты и фильтры. `sMaster` не трогаем — он сам плавно нарастёт.
@@ -216,6 +322,8 @@ final class SynthDSP: @unchecked Sendable {
         crackleEnv = 0
         engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
         for i in voices.indices { voices[i].active = false }
+        for i in crewVoices.indices { crewVoices[i].active = false }
+        seenCrew = c.crewSerial
         seenShots = c.shots
         lastSerial = c.serial
         staleSamples = 0
@@ -231,6 +339,7 @@ final class SynthDSP: @unchecked Sendable {
         windFilter.set(frequency: 350 + w * 1500 + gust * 300, q: 0.5, sampleRate: sampleRate)
         heatFilter.set(frequency: 1800 + sHeat * 2500, q: 0.6, sampleRate: sampleRate)
 
+        crewTick()
         for i in voices.indices where voices[i].active {
             if voices[i].delay > 0 { continue }
             let p = min(voices[i].t / voices[i].duration, 1)
@@ -240,6 +349,22 @@ final class SynthDSP: @unchecked Sendable {
             } else {
                 voices[i].increment = f / sampleRate
             }
+        }
+    }
+
+    private func crewTick() {
+        for i in crewVoices.indices where crewVoices[i].active {
+            if crewVoices[i].delay > 0 { continue }
+            let v = crewVoices[i]
+            let shape = CrewShape.make(v.kind, min(v.t / v.duration, 1))
+            let vib = 1 + v.vibDepth * sin(2 * Double.pi * v.vibPhase)
+            crewVoices[i].vibPhase = (v.vibPhase + v.vibRate * Double(SynthDSP.controlInterval) / sampleRate)
+                .truncatingRemainder(dividingBy: 1)
+            crewVoices[i].increment = min(max(v.base * shape.pitch * vib, 40), 2000) / sampleRate
+            crewVoices[i].f1.set(frequency: shape.f1 * v.scale, q: 6, sampleRate: sampleRate)
+            crewVoices[i].f2.set(frequency: shape.f2 * v.scale, q: 8, sampleRate: sampleRate)
+            crewVoices[i].envTarget = shape.env
+            crewVoices[i].breath = shape.breath
         }
     }
 
@@ -327,6 +452,7 @@ final class SynthDSP: @unchecked Sendable {
         }
 
         out += renderVoices()
+        out += renderCrew()
 
         // Мягкое ограничение: без жёсткого клиппинга на суммах.
         return tanh(out * 0.8 * sMaster)
@@ -370,6 +496,76 @@ final class SynthDSP: @unchecked Sendable {
             if voices[i].t >= voices[i].duration { voices[i].active = false }
         }
         return sum
+    }
+
+    // MARK: - Голоса экипажа
+
+    private func renderCrew() -> Double {
+        var sum = 0.0
+        let dt = 1 / sampleRate
+        for i in crewVoices.indices where crewVoices[i].active {
+            if crewVoices[i].delay > 0 {
+                crewVoices[i].delay -= dt
+                continue
+            }
+            let v = crewVoices[i]
+            crewVoices[i].phase += v.increment
+            if crewVoices[i].phase >= 1 { crewVoices[i].phase -= 1 }
+            // Пила, смягчённая однополюсным ФНЧ (меньше алиасинга), плюс шум «дыхания».
+            let saw = 2 * crewVoices[i].phase - 1
+            crewVoices[i].src += (saw - v.src) * 0.35
+            let b = v.breath
+            let x = crewVoices[i].src * (1 - b) + white() * b * 0.6
+            let voiced = crewVoices[i].f1.band(x) + 0.7 * crewVoices[i].f2.band(x)
+
+            crewVoices[i].env += (v.envTarget - v.env) * 0.02
+            // Атака 12 мс и спад 40 мс — без щелчков.
+            let attack = min(v.t / 0.012, 1)
+            let release = min(max(v.duration - v.t, 0) / 0.04, 1)
+            sum += voiced * v.level * crewVoices[i].env * attack * release
+            crewVoices[i].t += dt
+            if crewVoices[i].t >= v.duration { crewVoices[i].active = false }
+        }
+        return sum
+    }
+
+    private func triggerCrew() {
+        // Без массивов: рендер-поток не аллоцирует.
+        let count = min(max(c.crewCount, 0), 3)
+        if count > 0, c.crew0.kind != .none { startCrewVoice(c.crew0) }
+        if count > 1, c.crew1.kind != .none { startCrewVoice(c.crew1) }
+        if count > 2, c.crew2.kind != .none { startCrewVoice(c.crew2) }
+    }
+
+    private func startCrewVoice(_ cue: CrewVoiceCue) {
+        // Не больше трёх голосов: занимаем свободный слот, иначе вытесняем самый «старый».
+        var slot = 0
+        var oldest = -1.0
+        for i in crewVoices.indices {
+            if !crewVoices[i].active { slot = i; break }
+            let age = crewVoices[i].t / crewVoices[i].duration
+            if age > oldest { oldest = age; slot = i }
+        }
+        var v = CrewVoice()
+        v.active = true
+        v.kind = cue.kind
+        v.delay = max(cue.delay, 0)
+        v.base = cue.pitch * (1 + 0.03 * white())
+        v.scale = cue.formantScale
+        switch cue.kind {
+        case .none: v.active = false
+        case .strain: v.duration = 0.65; v.level = 0.30; v.vibRate = 7; v.vibDepth = 0.05
+        case .awe: v.duration = 0.7; v.level = 0.30; v.vibRate = 5; v.vibDepth = 0.02
+        case .joy: v.duration = 0.55; v.level = 0.32; v.vibRate = 6; v.vibDepth = 0.015
+        case .panic: v.duration = 0.4; v.level = 0.34; v.vibRate = 11; v.vibDepth = 0.06
+        case .crash: v.duration = 0.5; v.level = 0.32; v.vibRate = 5.5; v.vibDepth = 0.03
+        }
+        let shape = CrewShape.make(cue.kind, 0)
+        v.envTarget = shape.env
+        v.increment = v.base * shape.pitch / sampleRate
+        v.f1.set(frequency: shape.f1 * v.scale, q: 6, sampleRate: sampleRate)
+        v.f2.set(frequency: shape.f2 * v.scale, q: 8, sampleRate: sampleRate)
+        crewVoices[slot] = v
     }
 
     private func start(_ shot: Shot, scale: Double) {

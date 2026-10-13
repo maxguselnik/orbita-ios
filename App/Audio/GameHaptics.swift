@@ -61,6 +61,22 @@ final class GameHaptics: FlightHaptics {
         updateRumble(snapshot.telemetry)
     }
 
+    /// Экипаж: лёгкий двойной тап на радость, резкий короткий на панику и аварию. Остальное — без вибрации.
+    func crew(_ cues: [CrewCue]) {
+        guard isEnabled, supported else { return }
+        let pattern: CHHapticPattern?
+        if cues.contains(where: { $0.mood == .panic || $0.mood == .crash }) {
+            pattern = patterns.crewSharp
+        } else if cues.contains(where: { $0.mood == .joy }) {
+            pattern = patterns.crewJoy
+        } else {
+            return
+        }
+        lastUpdate = .now
+        guard ensureEngine() else { return }
+        play(pattern)
+    }
+
     // MARK: - Движок
 
     private func ensureEngine() -> Bool {
@@ -238,6 +254,13 @@ struct HapticPatterns {
     let chuteOpened = HapticPatterns.make([
         .transient(0, intensity: 0.6, sharpness: 0.3),
         .continuous(0.02, duration: 0.25, intensity: 0.4, sharpness: 0.1, fade: true),
+    ])
+    let crewJoy = HapticPatterns.make([
+        .transient(0, intensity: 0.35, sharpness: 0.3),
+        .transient(0.09, intensity: 0.3, sharpness: 0.3),
+    ])
+    let crewSharp = HapticPatterns.make([
+        .transient(0, intensity: 0.9, sharpness: 0.9),
     ])
     /// Гул двигателей: долгое непрерывное событие, зацикливается плеером.
     let rumble = HapticPatterns.make([
