@@ -112,12 +112,16 @@ struct NavballCluster: View {
             NavballSphere(telemetry: t, frame: frame,
                           targetPitch: ascentEnabled ? AscentGuide.advice(t)?.targetPitch : nil)
                 .frame(width: Self.ballDiameter, height: Self.ballDiameter)
+                .tutorialAnchor(.navball)
                 .position(Self.center)
             ClusterRCSButton(model: model)
+                .tutorialAnchor(.rcs)
                 .position(x: 24, y: Self.rowHeight / 2)
             SpeedLCD(telemetry: t, frame: frame) { model.toggleSpeedFrame() }
+                .tutorialAnchor(.speed)
                 .position(x: Self.width / 2, y: Self.rowHeight / 2)
             ClusterSASButton(model: model)
+                .tutorialAnchor(.sas)
                 .position(x: Self.width - 31, y: Self.rowHeight / 2)
         }
         .frame(width: Self.width, height: Self.height)

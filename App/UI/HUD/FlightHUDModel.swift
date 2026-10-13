@@ -149,7 +149,12 @@ final class FlightHUDModel {
     }
 
     /// Интерактивный урок (nil — обычный полёт). Пока он держит физику на паузе, `tick` принимает ввод, но не двигает мир.
-    let tutorial: TutorialController?
+    /// Меняется, когда тур «Все кнопки» запускают из меню паузы поверх текущего полёта.
+    private(set) var tutorial: TutorialController?
+    /// Меню ускорения времени открывалось (счётчик для шага «попробуйте»); перерисовки не вызывает.
+    @ObservationIgnored private var warpMenuCount = 0
+    /// Скорость последнего касания поверхности, м/с (итог и ошибка урока «К Луне»).
+    @ObservationIgnored private var touchdownSpeed: Double?
 
     @ObservationIgnored private var sim: any FlightSimulation
     private let makeSimulation: () -> any FlightSimulation
@@ -215,12 +220,15 @@ final class FlightHUDModel {
         ))
         applyManeuverDrag(now: now, delta: delta)
         if let tutorial, tutorial.holdsPhysics {
-            // Пауза урока: мир стоит, но сцена рисуется (камера), а действия игрока доходят до шага.
+            // Пауза урока: мир стоит, но сцена рисуется (камера), карта считает прогноз узла,
+            // а действия игрока доходят до шага.
             feedback?.frame(snapshot: snapshot, events: [], frameDelta: delta)
+            map.update(sim: sim, now: now)
             tutorialFrame(tutorial, delta: 0)
             return
         }
         let events = sim.advance(realDelta: delta)
+        noteTouchdown(events)
         publish(sim.snapshot)
         feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
         map.update(sim: sim, now: now)
@@ -237,35 +245,98 @@ final class FlightHUDModel {
     private func tutorialFrame(_ tutorial: TutorialController, delta: Double) {
         guard tutorial.isActive else { return }
         let held = tutorial.holdsPhysics
-        let input = LessonInput(telemetry: telemetry, throttle: throttle,
-                                yawRightHeld: attitudeHeld[.yawRight] != nil)
-        if tutorial.update(input, delta: delta) { saveTutorialCheckpoint() }
+        if tutorial.update(lessonInput(), delta: delta) { saveTutorialCheckpoint() }
         // К скруглению игра сама возвращается к ×1.
-        if tutorial.step == .circularize, telemetry.warpIndex > 0 {
+        if tutorial.forcesRealTime, telemetry.warpIndex > 0 {
             send(.setWarp(index: 0))
         }
         if tutorial.holdsPhysics != held { feedback?.setPaused(tutorial.holdsPhysics || isPaused) }
+    }
+
+    /// Что урок видит в игре сейчас: телеметрия, ввод, карта, отсутствующие элементы.
+    func lessonInput() -> LessonInput {
+        var input = LessonInput(telemetry: telemetry, throttle: throttle,
+                                yawRightHeld: attitudeHeld[.yawRight] != nil)
+        let dpad: [AttitudeButton] = [.pitchUp, .pitchDown, .yawLeft, .yawRight]
+        input.dpadHeld = dpad.contains { attitudeHeld[$0] != nil }
+        input.mapOpen = map.isOpen
+        input.warpMenuCount = warpMenuCount
+        input.time = snapshot.time
+        input.touchdownSpeed = touchdownSpeed
+        let mapSnapshot = map.snapshot
+        // После выполненного узла его прогноз уже не нужен: встреча — по текущей траектории.
+        let pending = telemetry.maneuver.map { !$0.isDone } ?? false
+        let trajectory = (pending ? mapSnapshot.maneuver?.trajectory : nil) ?? mapSnapshot.trajectory
+        if let encounter = trajectory?.encounter, encounter.body == .luna {
+            input.lunaPeriapsis = encounter.periapsisAltitude
+            input.encounterTime = encounter.time
+        }
+        input.unavailable = lessonUnavailable()
+        return input
+    }
+
+    /// Элементы, которых сейчас нет на экране: шаги тура про них пропускаются.
+    private func lessonUnavailable() -> Set<LessonElement> {
+        var out: Set<LessonElement> = []
+        if !CrewPlaceholder.hasCabin(parts) { out.insert(.crew) }
+        if !rcs.available { out.insert(.rcs) }
+        if !missionActive { out.insert(.mission) }
+        if telemetry.stages.isEmpty { out.insert(.stageStack) }
+        if maneuverNode == nil { out.formUnion([.mapHandle, .mapPanel, .mapToNode, .mapNode]) }
+        return out
     }
 
     /// Контрольная точка в начале шага (у симуляций без отката — nil, повтор шага недоступен).
     private func saveTutorialCheckpoint() {
         guard let tutorial else { return }
         let point = (sim as? FlightCheckpointing).map { LessonCheckpoint(sim: $0.checkpoint(), throttle: throttle) }
-        tutorial.saveCheckpoint(point, telemetry: telemetry)
+        tutorial.saveCheckpoint(point, input: lessonInput())
     }
 
-    /// «Понятно» / «Поехали» в пузыре урока.
+    /// «Понятно» / «Дальше» / «Поехали» / «Готово» в пузыре урока.
     func tutorialAcknowledge() {
         guard let tutorial else { return }
-        if tutorial.acknowledge(telemetry) { saveTutorialCheckpoint() }
+        if tutorial.acknowledge(lessonInput()) { saveTutorialCheckpoint() }
         feedback?.setPaused(tutorial.holdsPhysics || isPaused)
+    }
+
+    /// «Дальше» на шаге «попробуйте»: пропустить.
+    func tutorialSkip() {
+        guard let tutorial else { return }
+        if tutorial.skip(lessonInput()) { saveTutorialCheckpoint() }
+        feedback?.setPaused(tutorial.holdsPhysics || isPaused)
+    }
+
+    /// Тур «Все кнопки» поверх текущего полёта (из меню паузы): без смены корабля и без перезапуска.
+    func startTour() {
+        tutorial?.exit()
+        let tour = TutorialController(id: .controls, telemetry: telemetry)
+        tutorial = tour
+        saveTutorialCheckpoint()
+        isPaused = false
+        lastTick = nil
+        feedback?.setPaused(tour.holdsPhysics)
+    }
+
+    /// Меню ускорения времени открыто (шаг «Время и ускорение» засчитывается).
+    func noteWarpMenu() {
+        warpMenuCount += 1
+    }
+
+    private func noteTouchdown(_ events: [SimEvent]) {
+        for event in events {
+            switch event {
+            case .touchdown(let speed), .splashdown(let speed), .crash(let speed): touchdownSpeed = speed
+            default: break
+            }
+        }
     }
 
     /// «Повторить шаг»: откат к началу шага, ввод сброшен, игра на паузе. Без контрольной точки — просто продолжить.
     func tutorialRepeat() {
         guard let tutorial else { return }
         guard let saved = tutorial.saved, let checkpointing = sim as? FlightCheckpointing else {
-            tutorial.dismissFailure(telemetry)
+            tutorial.dismissFailure(lessonInput())
             return
         }
         checkpointing.restore(saved.sim)
@@ -278,7 +349,7 @@ final class FlightHUDModel {
         map.invalidate()
         feedback?.renderer?.reset()
         feedback?.frame(snapshot: snapshot, events: [], frameDelta: 0)
-        tutorial.didRestore(telemetry)
+        tutorial.didRestore(lessonInput())
         feedback?.setPaused(true)
     }
 
@@ -346,7 +417,8 @@ final class FlightHUDModel {
         maneuverDrag = nil
         map.invalidate()
         advisor = FlightAdvisor()
-        tutorial?.restartLesson(telemetry)
+        touchdownSpeed = nil
+        tutorial?.restartLesson(lessonInput())
         saveTutorialCheckpoint()
         totalStages = 0
         result = nil

@@ -16,6 +16,13 @@ extension View {
     func tutorialAnchor(_ element: LessonElement) -> some View {
         anchorPreference(key: TutorialAnchorKey.self, value: .bounds) { [element: $0] }
     }
+
+    /// То же, но элемент может отсутствовать (nil — рамка не отдаётся).
+    func tutorialAnchor(optional element: LessonElement?) -> some View {
+        anchorPreference(key: TutorialAnchorKey.self, value: .bounds) { anchor in
+            element.map { [$0: anchor] } ?? [:]
+        }
+    }
 }
 
 // MARK: - Раскладка
@@ -56,7 +63,7 @@ enum TutorialLayout {
 
 // MARK: - Оверлей
 
-/// Оверлей урока поверх HUD: затемнение с вырезом, пузырь, живая плашка. Рамки элементов приходят из HUD.
+/// Оверлей урока поверх HUD и карты: затемнение с вырезом, пузырь, живая плашка. Рамки элементов приходят из HUD.
 struct TutorialOverlay: View {
     let controller: TutorialController
     let model: FlightHUDModel
@@ -72,9 +79,12 @@ struct TutorialOverlay: View {
         }
     }
 
+    /// Вырез вокруг цели шага; пустая рамка (элемент не нарисован) — без выреза.
     private func hole(_ geo: GeometryProxy) -> CGRect? {
         guard let target = controller.display.target, let anchor = anchors[target] else { return nil }
-        return geo[anchor].insetBy(dx: -6, dy: -6)
+        let rect = geo[anchor]
+        guard rect.width > 1, rect.height > 1 else { return nil }
+        return rect.insetBy(dx: -6, dy: -6)
     }
 }
 
@@ -87,45 +97,65 @@ private struct TutorialLayers: View {
 
     var body: some View {
         let display = controller.display
-        let dims = display.phase == .holding || display.phase == .ready
-        let waitsForAction = display.phase == .holding && display.bubble?.button == nil
+        let scene = display.scene
         ZStack(alignment: .topLeading) {
-            if dims {
-                TutorialDim(hole: hole, passThrough: waitsForAction)
+            if scene.dims {
+                TutorialDim(hole: hole, passThrough: scene.passThrough)
+            } else if scene.ringOnly, let hole {
+                TutorialRing(hole: hole)
             }
-            if let bubble = display.bubble {
+            if let bubble = scene.bubble {
                 TutorialBubble(bubble: bubble, hole: hole, screen: size,
-                               isFinish: display.step == .finish,
-                               onButton: { bubbleButton(display) },
+                               onButton: { bubbleButton(bubble) },
                                onExit: { model.exitTutorial() })
             }
-            if waitsForAction {
-                Text("⏸ пауза — ждём действие")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(HUDPalette.advice)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 2)
-                    .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(8)
-                    .allowsHitTesting(false)
+            if scene.pausedTag {
+                TutorialPausedTag()
             }
-            if display.phase == .running || display.phase == .waiting || display.phase == .failed {
-                TutorialPlateView(plate: controller.plate, failure: display.failure, canRepeat: display.canRepeat,
-                                  onRepeat: { model.tutorialRepeat() }, onExit: { model.exitTutorial() })
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .padding(.top, TutorialPlateView.top)
+            if scene.plateBar {
+                TutorialPlateHost(controller: controller, model: model, mapOpen: model.map.isOpen)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func bubbleButton(_ display: TutorialDisplay) {
-        if display.step == .finish {
-            onHangar()
-        } else {
-            model.tutorialAcknowledge()
+    private func bubbleButton(_ bubble: LessonBubble) {
+        switch bubble.role {
+        case .hangar: onHangar()
+        case .skip: model.tutorialSkip()
+        case .next: model.tutorialAcknowledge()
         }
+    }
+}
+
+/// «⏸ пауза — ждём действие» в правом нижнем углу.
+private struct TutorialPausedTag: View {
+    var body: some View {
+        Text("⏸ пауза — ждём действие")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(HUDPalette.advice)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 2)
+            .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            .padding(8)
+            .allowsHitTesting(false)
+    }
+}
+
+/// Живая плашка: в полёте — сверху под высотомером, на карте — снизу над переключателем фокуса (сверху сводка карты).
+private struct TutorialPlateHost: View {
+    let controller: TutorialController
+    let model: FlightHUDModel
+    let mapOpen: Bool
+
+    var body: some View {
+        let display = controller.display
+        TutorialPlateView(plate: controller.plate, failure: display.failure, canRepeat: display.canRepeat,
+                          onRepeat: { model.tutorialRepeat() }, onExit: { model.exitTutorial() })
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: mapOpen ? .bottom : .top)
+            .padding(.top, mapOpen ? 0 : TutorialPlateView.top)
+            .padding(.bottom, mapOpen ? TutorialPlateView.mapBottom : 0)
     }
 }
 
@@ -177,13 +207,32 @@ private struct TutorialDim: View {
     }
 }
 
+/// Подсветка рамкой без затемнения: касания проходят везде (живые шаги, ручки карты).
+private struct TutorialRing: View {
+    let hole: CGRect
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var bright = false
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: CutoutShape.corner(hole), style: .continuous)
+            .strokeBorder(bright ? Color.white : HUDPalette.advice, lineWidth: 2.5)
+            .frame(width: hole.width, height: hole.height)
+            .offset(x: hole.minX, y: hole.minY)
+            .allowsHitTesting(false)
+            .onAppear {
+                guard !reduceMotion else { return }
+                withAnimation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true)) { bright = true }
+            }
+    }
+}
+
 // MARK: - Пузырь
 
 private struct TutorialBubble: View {
     let bubble: LessonBubble
     let hole: CGRect?
     let screen: CGSize
-    let isFinish: Bool
     let onButton: () -> Void
     let onExit: () -> Void
 
@@ -212,6 +261,8 @@ private struct TutorialBubble: View {
         .offset(x: origin.x, y: origin.y)
     }
 
+    private var isFinish: Bool { bubble.exitTitle != nil }
+
     private var buttons: some View {
         HStack(spacing: 10) {
             if let title = bubble.button {
@@ -226,7 +277,7 @@ private struct TutorialBubble: View {
                 .buttonStyle(.plain)
             }
             Button(action: onExit) {
-                Text(isFinish ? "Остаться на орбите" : "Выйти из урока")
+                Text(bubble.exitTitle ?? "Выйти из урока")
                     .font(.system(size: isFinish ? 12 : 10, weight: isFinish ? .bold : .medium))
                     .underline(!isFinish)
                     .foregroundStyle(isFinish ? Self.ink : Self.ink.opacity(0.6))
@@ -249,6 +300,8 @@ private struct TutorialPlateView: View {
 
     /// Под высотомером и строкой состояния; верхнюю панель и кнопки в углах не перекрывает.
     static let top: CGFloat = 82
+    /// На карте: над переключателем фокуса.
+    static let mapBottom: CGFloat = HUDStyle.minTouch + 20
 
     var body: some View {
         let failed = failure != nil

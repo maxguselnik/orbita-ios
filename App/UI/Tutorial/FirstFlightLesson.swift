@@ -1,17 +1,6 @@
 import Foundation
 import OrbitPhysics
 
-/// Элемент HUD, который урок подсвечивает (ключ рамки в `TutorialAnchorKey`).
-enum LessonElement: Hashable, Sendable {
-    case mission, throttle, stageButton, dpadRight, warp
-}
-
-/// Вид шага: `pause` — игра на паузе, ждём кнопку в пузыре; `wait` — пауза, ждём действие игрока
-/// (после него пауза снимается); `live` — полёт идёт, сверху живая плашка.
-enum LessonKind: Sendable {
-    case pause, wait, live
-}
-
 /// Шаги урока «Первый полёт» по порядку. Пороги — из `AscentGuide`, шаги совпадают с `MissionChecklist`.
 enum LessonStep: Int, CaseIterable, Sendable {
     case intro, throttleMax, launch, vertical, turn, follow, separate
@@ -89,7 +78,8 @@ enum LessonStep: Int, CaseIterable, Sendable {
         switch self {
         case .intro, .finish: return false
         case .throttleMax, .launch: return trigger(i)
-        case .vertical: return t.mission.launched && t.altitude > AscentGuide.verticalLimit
+        // Над рельефом: площадка выше уровня моря (≈ 1.8 км), иначе шаг кончался бы сразу после отрыва.
+        case .vertical: return t.mission.launched && t.heightAboveTerrain > AscentGuide.verticalLimit
         case .turn: return t.pitch * 180 / .pi <= Self.turnPitch
         case .follow: return t.altitude >= Self.followAltitude || Self.stageEmpty(t)
         case .separate: return trigger(i) || Self.apoapsis(t) >= AscentGuide.cutoffApoapsis
@@ -116,43 +106,6 @@ enum LessonStep: Int, CaseIterable, Sendable {
 
     /// Тангаж носа, град.
     static func pitchDegrees(_ t: FlightTelemetry) -> Double { t.pitch * 180 / .pi }
-}
-
-/// Что урок видит в игре за кадр.
-struct LessonInput: Equatable {
-    var telemetry: FlightTelemetry
-    /// Положение ручки тяги 0…1 (на паузе физики она ещё не в снимке).
-    var throttle: Double
-    /// Удерживается ▶ крестовины (рыскание вправо — разворот на восток).
-    var yawRightHeld: Bool
-}
-
-/// Пузырь подсказки: заголовок, текст, кнопка (nil — ждём действие в игре).
-struct LessonBubble: Equatable {
-    var title: String
-    var text: String
-    var button: String?
-}
-
-/// Живая плашка: «голова», выделенное число и «хвост».
-struct LivePlate: Equatable {
-    var head: String
-    var value: String
-    var tail = ""
-}
-
-/// Состояние урока на текущем шаге.
-enum LessonPhase: Equatable, Sendable {
-    /// Шаг ещё не наступил (ждём в полёте: пустая ступень, Ап 80 км).
-    case waiting
-    /// Игра на паузе, затемнение, ждём действие игрока.
-    case holding
-    /// Полёт идёт, живая плашка.
-    case running
-    /// Шаг откатили; игра на паузе, ждём «Поехали».
-    case ready
-    /// Ошибка шага; игра на паузе, ждём «Повторить шаг».
-    case failed
 }
 
 /// Чистая логика урока: шаг, фаза, счётчик ошибки. Без UI и без физики — всё через `LessonInput`.
@@ -307,7 +260,7 @@ extension LessonStep {
         let target = Int(AscentGuide.targetPitchDegrees(altitude: t.altitude).rounded())
         switch self {
         case .vertical:
-            return LivePlate(head: "Держите нос вверх · высота ", value: HUDFormat.distance(t.altitude),
+            return LivePlate(head: "Держите нос вверх · высота ", value: HUDFormat.distance(t.heightAboveTerrain),
                              tail: " из 1\(HUDFormat.thinSpace)000 м")
         case .turn:
             return LivePlate(head: "Тангаж ", value: "\(pitch)°", tail: " → цель \(Int(Self.turnPitch))°")
@@ -328,6 +281,50 @@ extension LessonStep {
                              value: HUDFormat.distance(t.orbit?.periapsisAltitude), tail: " → 70 км")
         case .intro, .throttleMax, .launch, .finish:
             return nil
+        }
+    }
+}
+
+// MARK: - Протокол урока
+
+extension FirstFlightLesson: TutorialLesson {
+    var stepIndex: Int { step.rawValue }
+    var reachedEnd: Bool { step == .finish }
+    var isClosed: Bool { false }
+    /// К скруглению игра сама возвращается к ×1.
+    var forcesRealTime: Bool { step == .circularize }
+
+    @discardableResult
+    mutating func acknowledge(_ i: LessonInput) -> Bool { acknowledge(i.telemetry) }
+
+    /// Шагов «попробуйте» в этом уроке нет.
+    @discardableResult
+    mutating func skip(_ i: LessonInput) -> Bool { false }
+
+    mutating func didRestore(_ i: LessonInput) { didRestore(i.telemetry) }
+
+    func scene(_ i: LessonInput) -> LessonScene {
+        let t = i.telemetry
+        switch phase {
+        case .holding:
+            var bubble = step.bubble(t)
+            if step == .finish {
+                bubble?.role = .hangar
+                bubble?.exitTitle = "Остаться на орбите"
+            }
+            let waits = bubble?.button == nil
+            return LessonScene(bubble: bubble, target: step.target, dims: true, passThrough: waits, pausedTag: waits)
+        case .ready:
+            return LessonScene(bubble: .restart, dims: true)
+        case .waiting, .running, .failed:
+            return LessonScene(plateBar: true)
+        }
+    }
+
+    func plate(_ i: LessonInput) -> LivePlate? {
+        switch phase {
+        case .running, .waiting: step.plate(i.telemetry, phase: phase)
+        case .holding, .ready, .failed: nil
         }
     }
 }

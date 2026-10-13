@@ -19,6 +19,8 @@ struct HangarView: View {
     @State private var pendingPreset: VesselDesign?
     /// Предложение урока «Первый полёт» при первом показе ангара.
     @State private var showTutorialOffer = false
+    /// Список уроков (кнопка «Обучение»).
+    @State private var showLessons = false
 
     private static let catalogWidth: CGFloat = 216
     private static let stackWidth: CGFloat = 232
@@ -56,6 +58,7 @@ struct HangarView: View {
             refreshScene()
         }
         .overlay { tutorialOffer }
+        .overlay { lessonList }
         .onAppear {
             // Сцены отладки/CI (`-screen`) предложение не показывают.
             if !TutorialProgress.wasOffered, DemoScenario.fromArguments == nil { showTutorialOffer = true }
@@ -130,13 +133,13 @@ struct HangarView: View {
                 .buttonStyle(HUDButtonStyle()).disabled(redoStack.isEmpty)
                 .accessibilityLabel("Повторить правку")
 
-            Button { flow.startTutorial(.firstFlight) } label: {
+            Button { showLessons = true } label: {
                 Label("Обучение", systemImage: "graduationcap")
                     .font(.system(size: 12, weight: .bold))
                     .lineLimit(1)
             }
             .buttonStyle(HUDButtonStyle())
-            .accessibilityLabel("Обучение: первый полёт")
+            .accessibilityLabel("Обучение: список уроков")
 
             Spacer(minLength: 0)
 
@@ -166,6 +169,23 @@ struct HangarView: View {
         .padding(.horizontal, 6)
         .padding(.vertical, 3)
         .hudBackground()
+    }
+
+    /// Список уроков: «Начать» — новый полёт по уроку.
+    @ViewBuilder private var lessonList: some View {
+        if showLessons {
+            ZStack {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                    .onTapGesture { showLessons = false }
+                TutorialListPanel(context: .hangar,
+                                  onStart: { id in
+                                      showLessons = false
+                                      flow.startTutorial(id)
+                                  },
+                                  onClose: { showLessons = false })
+            }
+        }
     }
 
     /// Карточка-предложение урока: «Начать» запускает урок, «Позже» прячет предложение; оба помечают его показанным.

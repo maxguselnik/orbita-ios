@@ -124,12 +124,14 @@ struct AttitudeControls: View {
         ZStack(alignment: .topLeading) {
             DPadCircle(model: model)
                 .frame(width: Self.radius * 2, height: Self.radius * 2)
+                .tutorialAnchor(.dpad)
                 .position(Self.circleCenter)
             roll("arrow.counterclockwise", "Крен влево", .rollLeft)
                 .position(x: Self.rollLeftRect.midX, y: Self.rollLeftRect.midY)
             roll("arrow.clockwise", "Крен вправо", .rollRight)
                 .position(x: Self.rollRightRect.midX, y: Self.rollRightRect.midY)
             FineControlToggle(model: model)
+                .tutorialAnchor(.fine)
                 .position(x: Self.pillCenter.x, y: Self.pillCenter.y)
             // Рамка кнопки ▶ крестовины для обучения.
             Color.clear

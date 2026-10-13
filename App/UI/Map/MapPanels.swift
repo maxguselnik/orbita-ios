@@ -66,6 +66,7 @@ struct MapToggleButton: View {
                 .frame(maxWidth: .infinity)
         }
         .buttonStyle(HUDButtonStyle(isActive: open))
+        .tutorialAnchor(.mapFlight)
         .accessibilityLabel(open ? "Закрыть карту" : "Открыть карту")
     }
 }
@@ -92,6 +93,7 @@ struct MapSASRow: View {
             .buttonStyle(HUDButtonStyle(isActive: current == .maneuver))
             .disabled(!enabled)
             .opacity(enabled ? 1 : 0.45)
+            .tutorialAnchor(.mapSASNode)
             .accessibilityLabel("SAS по узлу манёвра")
         }
     }
@@ -106,6 +108,7 @@ struct MapCenterColumn: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             MapInfoPanel(snapshot: model.map.snapshot)
+                .tutorialAnchor(.mapSummary)
             if model.map.snapshot.lunaPhase != nil, !model.hasManeuver {
                 lunaButton
             }
@@ -125,6 +128,7 @@ struct MapCenterColumn: View {
                 .padding(.horizontal, 10)
         }
         .buttonStyle(HUDButtonStyle())
+        .tutorialAnchor(.mapLuna)
         .accessibilityLabel("Поставить узел перелёта к Луне")
     }
 }
@@ -260,10 +264,12 @@ struct MapFocusPicker: View {
                     .font(.system(size: 15, weight: .bold))
             }
             .buttonStyle(HUDButtonStyle(isActive: showLegend))
+            .tutorialAnchor(.mapLegend)
             .accessibilityLabel("Легенда карты и подсказки")
         }
         .padding(4)
         .hudBackground()
+        .tutorialAnchor(.mapFocus)
     }
 
     static func name(_ focus: MapFocus) -> String {
@@ -335,6 +341,7 @@ struct ManeuverPanel: View {
                 .buttonStyle(HUDButtonStyle())
                 .disabled(!model.canWarpToManeuver)
                 .opacity(model.canWarpToManeuver ? 1 : 0.4)
+                .tutorialAnchor(.mapToNode)
                 .accessibilityLabel("Ускорить время до узла")
                 Button {
                     model.deleteManeuver()
@@ -391,6 +398,7 @@ struct ManeuverPanel: View {
         }
         .padding(5)
         .hudBackground()
+        .tutorialAnchor(.mapPanel)
     }
 
     private func timeButton(_ seconds: Double?, text: String, label: String) -> some View {

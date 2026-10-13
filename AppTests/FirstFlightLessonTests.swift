@@ -20,7 +20,7 @@ struct FirstFlightLessonTests {
     private func flight(altitude: Double, pitchDegrees: Double = 90, apo: Double? = nil, peri: Double = -300_000,
                         toApo: Double? = 100, fuel: Double = 0.8, action: StageAction = .separate,
                         warpIndex: Int = 0) -> FlightTelemetry {
-        var t = FlightTelemetry(altitude: altitude, stages: [stage(fuel: fuel)], thrust: 1_000,
+        var t = FlightTelemetry(altitude: altitude, heightAboveTerrain: altitude, stages: [stage(fuel: fuel)], thrust: 1_000,
                                 situation: .suborbital, pitch: pitchDegrees * .pi / 180, warpIndex: warpIndex)
         t.mission.launched = true
         t.nextStageAction = action
@@ -243,6 +243,32 @@ struct FirstFlightLessonTests {
         #expect(LessonStep.finish.bubble(t)?.button == "В ангар")
     }
 
+    @Test func protocolSceneMatchesPhases() {
+        var l = FirstFlightLesson()
+        let intro = l.scene(input(pad))
+        #expect(intro.dims && !intro.passThrough && intro.bubble?.button == "Понятно" && intro.target == .mission)
+        #expect(l.stepIndex == 0 && !l.reachedEnd && !l.isClosed)
+        l.acknowledge(input(pad))
+        let wait = l.scene(input(pad, throttle: 0))
+        #expect(wait.dims && wait.passThrough && wait.pausedTag && wait.target == .throttle)
+        let skipped = l.skip(input(pad))
+        #expect(!skipped)
+
+        let live = lesson(at: .vertical)
+        let scene = live.scene(input(flight(altitude: 500)))
+        #expect(!scene.dims && scene.plateBar && scene.bubble == nil)
+        #expect(live.plate(input(flight(altitude: 500)))?.head.contains("высота") == true)
+
+        let circle = lesson(at: .circularize)
+        #expect(circle.forcesRealTime)
+
+        var end = lesson(at: .circularize)
+        end.update(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000, toApo: 10)), delta: 0.02)
+        let finish = end.scene(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000)))
+        #expect(end.reachedEnd)
+        #expect(finish.bubble?.role == .hangar && finish.bubble?.exitTitle == "Остаться на орбите")
+    }
+
     @Test func liveStepsHavePlates() {
         let t = flight(altitude: 640, apo: 85_000, peri: 34_000)
         #expect(LessonStep.vertical.plate(t, phase: .running)?.head.contains("высота") == true)
@@ -280,16 +306,16 @@ struct FirstFlightLessonTests {
         let start = model.snapshot.time
         model.tick(now: 1.1)
         #expect(model.snapshot.time == start)
-        #expect(tutorial.step == .intro)
+        #expect(tutorial.firstFlightStep == .intro)
 
         model.tutorialAcknowledge()
-        #expect(tutorial.step == .throttleMax)
+        #expect(tutorial.firstFlightStep == .throttleMax)
         model.throttle = 1
         model.tick(now: 1.15)
-        #expect(tutorial.step == .launch)
+        #expect(tutorial.firstFlightStep == .launch)
         model.send(.stage)
         model.tick(now: 1.2)
-        #expect(tutorial.step == .vertical)
+        #expect(tutorial.firstFlightStep == .vertical)
         #expect(!tutorial.holdsPhysics)
 
         model.tick(now: 1.25)
@@ -305,6 +331,15 @@ struct FirstFlightLessonTests {
 
         model.exitTutorial()
         #expect(!tutorial.isActive)
+    }
+
+    /// Площадка выше уровня моря: шаг «вертикально» считает высоту над рельефом, а не над морем.
+    @Test func verticalStepCountsHeightAboveTerrainNotSeaLevel() {
+        var l = lesson(at: .vertical)
+        var t = flight(altitude: 1_790)
+        t.heightAboveTerrain = 5
+        l.update(input(t), delta: 0.02)
+        #expect(l.step == .vertical && l.phase == .running)
     }
 
     @Test func ordinaryFlightHasNoLesson() {

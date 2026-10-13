@@ -25,7 +25,7 @@ struct RootView: View {
                     FlightHUDView(model: flight, frameRate: settings.frameRate,
                                   hintsEnabled: settings.hintsEnabled,
                                   onHangar: exitToHangar,
-                                  onTutorial: { flow.startTutorial(.firstFlight) })
+                                  onTutorial: { flow.startTutorial($0) })
                         .id(flow.flightID)
                 }
             }

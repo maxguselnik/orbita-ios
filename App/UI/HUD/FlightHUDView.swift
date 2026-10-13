@@ -16,8 +16,8 @@ struct FlightHUDView: View {
     var hintsEnabled = true
     /// Выход в ангар (пауза, панель результата); модель HUD о `GameFlow` не знает.
     var onHangar: () -> Void = {}
-    /// «Обучение» в меню паузы: запуск урока (модель HUD о `GameFlow` не знает).
-    var onTutorial: () -> Void = {}
+    /// Урок из меню паузы: новый полёт по уроку (модель HUD о `GameFlow` не знает); «Все кнопки» идут поверх полёта.
+    var onTutorial: (TutorialID) -> Void = { _ in }
 
     @AppStorage(HUDHint.doneKey) private var hintsDone = false
     @State private var driver = FrameDriver()
@@ -81,7 +81,7 @@ struct FlightHUDView: View {
         .overlay(alignment: .bottom) {
             if mapOpen, !model.isPaused {
                 // Пошаговая подсказка карты: над переключателем фокуса, центр экрана свободен.
-                MapHintHost(model: model, hintsEnabled: hintsEnabled)
+                MapHintHost(model: model, hintsEnabled: hintsEnabled && !inLesson)
                     .padding(.bottom, HUDStyle.minTouch + 16)
             }
         }
@@ -164,6 +164,7 @@ struct FlightLayer: View {
 
     private var topLeft: some View {
         MissionTimeBar(model: model)
+            .tutorialAnchor(.timeBar)
             .padding(.top, 6)
             .padding(.leading, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -172,6 +173,7 @@ struct FlightLayer: View {
     private var topCenter: some View {
         VStack(spacing: 3) {
             AltimeterPanel(model: model)
+                .tutorialAnchor(.altimeter)
             FlightStatusView(model: model, ascentEnabled: hintsEnabled && !inLesson)
         }
         .padding(.top, 4)
@@ -182,10 +184,12 @@ struct FlightLayer: View {
         HStack(alignment: .top, spacing: 2) {
             if CrewPlaceholder.hasCabin(model.parts) {
                 CrewPlaceholder()
+                    .tutorialAnchor(.crew)
                     .padding(.top, 2)
                     .padding(.trailing, 2)
             }
             FlightCornerButtons(model: model)
+                .tutorialAnchor(.corner)
         }
         .padding(.trailing, 2)
         .padding(.top, 4)
@@ -207,6 +211,7 @@ struct FlightLayer: View {
             let fits = MissionCard.fitsExpanded(stackHeight: stackHeight, blockTop: capsuleTop)
             VStack(alignment: .leading, spacing: MissionCard.gap) {
                 StageStackView(model: model)
+                    .tutorialAnchor(.stageStack)
                 MissionCard(model: model, enabled: hintsEnabled || inLesson, autoExpand: fits)
                     .tutorialAnchor(.mission)
             }

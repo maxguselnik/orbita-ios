@@ -57,8 +57,15 @@ struct MapOverlayFrame: View {
             .allowsHitTesting(false)
 
             if let node {
+                // Рамка точки узла для урока.
+                Color.clear
+                    .frame(width: 28, height: 28)
+                    .tutorialAnchor(.mapNode)
+                    .position(node.center)
+                    .allowsHitTesting(false)
                 ForEach(node.items) { item in
                     ManeuverHandleKnob(handle: item.handle, direction: item.direction, model: model)
+                        .tutorialAnchor(optional: item.handle == .prograde ? .mapHandle : nil)
                         .position(item.point)
                 }
             }

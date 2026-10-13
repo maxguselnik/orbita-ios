@@ -126,6 +126,8 @@ struct WarpButtons: View {
                 }
                 .disabled(status.blocked != nil && index >= TimeWarp.physicalCount)
             }
+            // Меню открыто — шаг урока «Время и ускорение» засчитывается.
+            .onAppear { model.noteWarpMenu() }
         } label: {
             glyph(position: position, active: true)
         }
@@ -166,6 +168,7 @@ struct FlightCornerButtons: View {
     var body: some View {
         VStack(spacing: 0) {
             HUDIconButton(systemImage: "map", label: "Открыть карту", compact: true) { model.toggleMap() }
+                .tutorialAnchor(.mapButton)
             HUDIconButton(systemImage: CameraModeInfo.symbol(model.cameraMode),
                           label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))", compact: true) {
                 model.cycleCameraMode()
