@@ -3,7 +3,26 @@ import SwiftUI
 
 /// Вид детали на значке ступени.
 enum StageGlyphKind: Hashable {
-    case tank, engine, solid, decoupler, chute, pod, legs, rcs, mono
+    case tank, engine, solid, decoupler, chute, pod, legs, rcs, mono, fairing, fin
+}
+
+/// Значок для детали (каталог, редактор ступеней, исследования, HUD).
+enum PartGlyph {
+    static func kind(_ part: PartID) -> StageGlyphKind {
+        let spec = part.spec
+        switch spec.kind {
+        case .tank: return .tank
+        case .engine: return spec.isSolid ? .solid : .engine
+        case .decoupler: return .decoupler
+        case .chute: return .chute
+        case .pod, .probe: return .pod
+        case .legs: return .legs
+        case .rcs: return .rcs
+        case .monoTank: return .mono
+        case .fairing: return .fairing
+        case .fin: return .fin
+        }
+    }
 }
 
 /// Группа ступени для левой стопки HUD: номер (1 — текущая, нижняя), значки деталей и сводка `StageInfo`.
@@ -23,49 +42,12 @@ struct StageGroup: Equatable, Identifiable {
     /// Сколько значков помещается в строку.
     static let maxItems = 3
 
-    /// Группы сверху вниз (последняя ступень первой, текущая внизу).
-    /// Если состав деталей не сходится с числом ступеней в телеметрии (или деталей нет) —
-    /// значки строятся по флагам `StageInfo`.
-    static func groups(parts: [PartID], stages: [StageInfo]) -> [StageGroup] {
-        let sections = split(parts)
-        if !sections.isEmpty, sections.count == stages.count {
-            return sections.enumerated().map { index, section in
-                let number = sections.count - index
-                return StageGroup(number: number, items: items(of: section), info: stages[number - 1])
-            }
-        }
-        return stages.enumerated().reversed().map { index, info in
-            StageGroup(number: index + 1, items: flagItems(info), info: info)
-        }
-    }
-
-    /// Секции по разделителям — так же, как делит корабль физика (`Ship.sections`): разделитель открывает секцию.
-    /// Физическая функция не публична, поэтому правило повторено здесь.
-    static func split(_ parts: [PartID]) -> [[PartID]] {
-        var out: [[PartID]] = []
-        var current: [PartID] = []
-        for (index, part) in parts.enumerated() {
-            if index > 0, part.spec.kind == .decoupler {
-                out.append(current)
-                current = []
-            }
-            current.append(part)
-        }
-        if !current.isEmpty { out.append(current) }
-        return out
-    }
-
-    private static func glyph(_ part: PartID) -> StageGlyphKind {
-        let spec = part.spec
-        switch spec.kind {
-        case .tank: return .tank
-        case .engine: return spec.isSolid ? .solid : .engine
-        case .decoupler: return .decoupler
-        case .chute: return .chute
-        case .pod, .probe: return .pod
-        case .legs: return .legs
-        case .rcs: return .rcs
-        case .monoTank: return .mono
+    /// Группы сверху вниз (последняя ступень первой, текущая внизу). Значки — по `StageInfo.parts` (что срабатывает
+    /// в ступени); если деталей нет — по флагам `StageInfo`.
+    static func groups(stages: [StageInfo]) -> [StageGroup] {
+        stages.enumerated().reversed().map { index, info in
+            let glyphs = info.parts.isEmpty ? flagItems(info) : items(of: info.parts)
+            return StageGroup(number: index + 1, items: glyphs, info: info)
         }
     }
 
@@ -73,7 +55,7 @@ struct StageGroup: Equatable, Identifiable {
     private static func items(of section: [PartID]) -> [Item] {
         var out: [Item] = []
         for part in section {
-            let kind = glyph(part)
+            let kind = PartGlyph.kind(part)
             if let index = out.firstIndex(where: { $0.kind == kind }) {
                 out[index].count += 1
             } else {
@@ -94,7 +76,7 @@ struct StageGroup: Equatable, Identifiable {
     /// Не больше `maxItems` значков: сначала отбрасываются опоры и капсула.
     private static func fit(_ items: [Item]) -> [Item] {
         var out = items
-        for dropped in [StageGlyphKind.legs, .rcs, .mono, .pod] where out.count > maxItems {
+        for dropped in [StageGlyphKind.legs, .rcs, .mono, .pod, .fin] where out.count > maxItems {
             out.removeAll { $0.kind == dropped }
         }
         return Array(out.prefix(maxItems))
@@ -112,11 +94,11 @@ struct StageStackView: View {
 
     /// Сколько строк сейчас в стопке (0…`maxRows`).
     static func rowCount(model: FlightHUDModel) -> Int {
-        min(StageGroup.groups(parts: model.parts, stages: model.telemetry.stages).count, maxRows)
+        min(StageGroup.groups(stages: model.telemetry.stages).count, maxRows)
     }
 
     var body: some View {
-        let groups = StageGroup.groups(parts: model.parts, stages: model.telemetry.stages)
+        let groups = StageGroup.groups(stages: model.telemetry.stages)
         if !groups.isEmpty {
             Button {
                 withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
@@ -282,6 +264,17 @@ struct StageGlyph: Shape {
             p.move(to: pt(6, 8)); p.addLine(to: pt(6, 11))
             p.move(to: pt(1, 6)); p.addLine(to: pt(4, 6))
             p.move(to: pt(8, 6)); p.addLine(to: pt(11, 6))
+        case .fairing:
+            // Обтекатель: оживальный нос с шпангоутом.
+            p.move(to: pt(6, 0.5))
+            p.addQuadCurve(to: pt(9.5, 10), control: pt(9.5, 4))
+            p.addLine(to: pt(2.5, 10))
+            p.addQuadCurve(to: pt(6, 0.5), control: pt(2.5, 4))
+            p.move(to: pt(3.5, 7)); p.addLine(to: pt(8.5, 7))
+        case .fin:
+            // Стабилизатор: крыло-трапеция у стенки.
+            p.move(to: pt(2, 1)); p.addLine(to: pt(2, 11))
+            p.move(to: pt(2, 3)); p.addLine(to: pt(10, 8)); p.addLine(to: pt(10, 11)); p.addLine(to: pt(2, 11))
         case .mono:
             // Бак монотоплива: маленькая капсула со шпангоутом.
             p.addRoundedRect(in: CGRect(x: ox + 4 * s, y: oy + 2 * s, width: 4 * s, height: 8 * s),

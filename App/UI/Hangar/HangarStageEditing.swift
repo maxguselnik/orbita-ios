@@ -63,9 +63,9 @@ enum StageEditing {
     static func apply(_ drop: Drop, id: Int, to design: inout VesselDesign) -> Bool {
         let before = design
         switch drop {
-        case .stage(let k): VesselEditing.setStage(id, to: k, in: &design)
-        case .newLast: VesselEditing.setStage(id, to: design.stageGroups.count, in: &design)
-        case .newFirst: VesselEditing.setStage(id, to: -1, in: &design)
+        case .stage(let k): _ = VesselEditing.setStage(id, to: k, in: &design)
+        case .newLast: _ = VesselEditing.setStage(id, to: design.stageGroups.count, in: &design)
+        case .newFirst: _ = VesselEditing.setStage(id, to: -1, in: &design)
         }
         return design != before
     }
