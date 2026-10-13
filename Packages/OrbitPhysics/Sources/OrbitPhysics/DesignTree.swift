@@ -167,6 +167,10 @@ public struct PartPlacement: Sendable, Hashable {
     /// Поворот из осей детали в оси корабля (осевая без поворота — identity).
     public var orientation: Quat
 
+    /// Переходный кожух осевого разделителя: закрывает сопло двигателя над ним; nil — кожуха нет (5.2).
+    /// Кожух — часть разделителя: при разделении улетает с ним, сопло открывается.
+    public var shroud: InterstageShroud?
+
     public var bottom: Double { center.y - height / 2 }
     public var top: Double { center.y + height / 2 }
     /// Самая низкая точка детали (цилиндр с учётом `orientation`); без поворота — `bottom`.
@@ -182,6 +186,24 @@ public struct PartPlacement: Sendable, Hashable {
         self.height = height
         self.diameter = diameter
         self.orientation = orientation
+    }
+}
+
+/// Переходный кожух над осевым разделителем (контракт 5.2): усечённый конус от верха разделителя
+/// (диаметр `bottomDiameter`) вверх на `height` (диаметр `topDiameter`), соосно разделителю.
+/// Появляется, когда прямо над разделителем по оси стоит двигатель (родитель на нижнем узле или ребёнок на
+/// верхнем, без поворота и сдвига): `height` — высота двигателя, `bottomDiameter` — диаметр разделителя,
+/// `topDiameter` — диаметр детали над двигателем (нет её — max(двигатель, разделитель)). Считается по проекту
+/// при постройке корабля и сохраняется у разделителя и в обломке.
+public struct InterstageShroud: Sendable, Hashable {
+    public var height: Double
+    public var bottomDiameter: Double
+    public var topDiameter: Double
+
+    public init(height: Double, bottomDiameter: Double, topDiameter: Double) {
+        self.height = height
+        self.bottomDiameter = bottomDiameter
+        self.topDiameter = topDiameter
     }
 }
 
