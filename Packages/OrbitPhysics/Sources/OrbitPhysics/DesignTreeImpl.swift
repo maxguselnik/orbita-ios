@@ -160,6 +160,30 @@ extension VesselDesign {
         return (f * local * f.conjugate).normalized
     }
 
+    /// Переходные кожухи: осевой разделитель, над которым по оси стоит двигатель без поворота и сдвига
+    /// (двигатель — родитель, разделитель на его нижнем узле; или двигатель — ребёнок на верхнем узле
+    /// разделителя), закрывает сопло. Верхний диаметр — деталь над двигателем, иначе max(двигатель, разделитель).
+    func addShrouds(_ out: inout [PartPlacement]) {
+        let kids = childrenMap()
+        func plain(_ n: DesignPart) -> Bool { n.rotation == .zero && n.offset == .zero }
+        for (i, n) in nodes.enumerated() where n.part.spec.kind == .decoupler && n.part.spec.mount == .axial {
+            var engine: DesignPart?
+            if n.node == .bottom, let pid = n.parent, let p = node(pid), p.part.spec.kind == .engine, plain(p) {
+                engine = p
+            } else if let c = kids[n.id]?.first(where: { $0.node == .top }), c.part.spec.kind == .engine, plain(c) {
+                engine = c
+            }
+            guard let e = engine else { continue }
+            // Деталь над двигателем: его родитель, если двигатель висит на нижнем узле; иначе ребёнок на верхнем.
+            var above: DesignPart?
+            if e.node == .bottom, let pid = e.parent, pid != n.id { above = node(pid) }
+            if above == nil { above = kids[e.id]?.first { $0.node == .top && $0.id != n.id } }
+            let es = e.part.spec, ds = n.part.spec
+            out[i].shroud = InterstageShroud(height: es.height, bottomDiameter: ds.diameter,
+                                             topDiameter: above?.part.spec.diameter ?? max(es.diameter, ds.diameter))
+        }
+    }
+
     func computeLayout() -> [PartPlacement] {
         guard !nodes.isEmpty else { return [] }
         var byID: [Int: PartPlacement] = [:]
@@ -197,6 +221,7 @@ extension VesselDesign {
             byID[n.id] = p
             out.append(p)
         }
+        addShrouds(&out)
         let minBottom = out.map(\.lowest).min() ?? 0
         let rootCenter = root.flatMap { byID[$0.id] }?.center ?? .zero
         let origin = Vec3(rootCenter.x, minBottom, rootCenter.z)
