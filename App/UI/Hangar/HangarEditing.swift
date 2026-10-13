@@ -57,9 +57,16 @@ enum HangarFormat {
             return ["Монотопливо \(mass(spec.fuelMass)) · сопла \(thrust(spec.thrustVacuum))", mass(spec.wetMass)]
         case .monoTank:
             return ["Монотопливо \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
+        case .heatShield:
+            return ["Покрытие \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
         case .chute, .decoupler, .legs, .fairing, .fin:
             return [mass(spec.wetMass)]
         }
+    }
+
+    /// Предел температуры: «до 1200 К».
+    static func limit(_ spec: PartSpec) -> String {
+        "до \(Int(spec.maxTemperature.rounded())) К"
     }
 
     /// Короткое пояснение, как деталь крепится.
@@ -108,7 +115,7 @@ enum CatalogTab: CaseIterable, Identifiable {
         case .tanks: kind == .tank || kind == .monoTank
         case .engines: kind == .engine
         case .decouplers: kind == .decoupler
-        case .aero: kind == .fairing || kind == .fin
+        case .aero: kind == .fairing || kind == .fin || kind == .heatShield
         case .rcs: kind == .rcs
         case .legs: kind == .legs
         }

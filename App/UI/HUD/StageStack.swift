@@ -3,7 +3,7 @@ import SwiftUI
 
 /// Вид детали на значке ступени.
 enum StageGlyphKind: Hashable {
-    case tank, engine, solid, decoupler, chute, pod, legs, rcs, mono, fairing, fin
+    case tank, engine, solid, decoupler, chute, pod, legs, rcs, mono, fairing, fin, shield
 }
 
 /// Значок для детали (каталог, редактор ступеней, исследования, HUD).
@@ -21,6 +21,7 @@ enum PartGlyph {
         case .monoTank: return .mono
         case .fairing: return .fairing
         case .fin: return .fin
+        case .heatShield: return .shield
         }
     }
 }
@@ -271,6 +272,12 @@ struct StageGlyph: Shape {
             p.addLine(to: pt(2.5, 10))
             p.addQuadCurve(to: pt(6, 0.5), control: pt(2.5, 4))
             p.move(to: pt(3.5, 7)); p.addLine(to: pt(8.5, 7))
+        case .shield:
+            // Теплозащитный экран: выпуклое днище с абляционными полосами.
+            p.move(to: pt(1, 4)); p.addLine(to: pt(11, 4))
+            p.addQuadCurve(to: pt(1, 4), control: pt(6, 14))
+            p.move(to: pt(4, 6)); p.addLine(to: pt(4, 8))
+            p.move(to: pt(8, 6)); p.addLine(to: pt(8, 8))
         case .fin:
             // Стабилизатор: крыло-трапеция у стенки.
             p.move(to: pt(2, 1)); p.addLine(to: pt(2, 11))

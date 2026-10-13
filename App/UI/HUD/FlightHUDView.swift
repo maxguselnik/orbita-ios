@@ -179,6 +179,7 @@ struct FlightLayer: View {
             AltimeterPanel(model: model)
                 .tutorialAnchor(.altimeter)
             FlightStatusView(model: model, ascentEnabled: hintsEnabled && !inLesson)
+            ThermalGauge(model: model)
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
