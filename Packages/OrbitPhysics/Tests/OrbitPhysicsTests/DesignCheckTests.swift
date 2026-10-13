@@ -21,11 +21,12 @@ struct DesignCheckTests {
     }
 
     @Test func tooManyPartsIsBlocking() {
-        let parts = [PartID.chute, .podK1] + Array(repeating: PartID.t100, count: 29) + [.shtil]
+        let limit = VesselDesign.maxParts
+        let parts = [PartID.chute, .podK1] + Array(repeating: PartID.t100, count: limit - 1) + [.shtil]
         let i = issues(parts)
-        #expect(i.contains(.tooManyParts(limit: 30)))
+        #expect(i.contains(.tooManyParts(limit: limit)))
         #expect(i.first?.isBlocking == true)
-        #expect(issues(Array(parts.prefix(30))).contains(.tooManyParts(limit: 30)) == false)
+        #expect(issues(Array(parts.prefix(limit))).contains(.tooManyParts(limit: limit)) == false)
     }
 
     @Test func blockingFirst() {

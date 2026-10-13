@@ -28,7 +28,8 @@ struct FlightTests {
     @Test func padRotatesWithTerra() {
         let sim = FlightSim(design: .orbit)
         #expect(sim.snapshot.telemetry.situation == .prelaunch)
-        #expect(sim.snapshot.telemetry.stages.count == 3)
+        // 5.2: ступени активации — зажигание, разделение, разделение, парашют.
+        #expect(sim.snapshot.telemetry.stages.count == 4)
         let r0 = sim.activeStateVector.position.length
         run(sim, limit: 10)
         let s = sim.activeStateVector
@@ -99,10 +100,10 @@ struct FlightTests {
         #expect(sim.snapshot.vessels.count == 2)
         #expect(sim.snapshot.vessels.filter { !$0.isActive }.count == 1)
         #expect(sim.activeMass < m0 - 9_000)
-        #expect(sim.stageCount == 2)
+        #expect(sim.stageCount == 3)
         // «Штиль» зажжён автоматически при разделении.
         #expect(sim.snapshot.telemetry.maxThrust > 0)
-        #expect(sim.snapshot.telemetry.stages.count == 2)
+        #expect(sim.snapshot.telemetry.stages.count == 3)
         _ = ev
     }
 

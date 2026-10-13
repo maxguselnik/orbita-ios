@@ -27,7 +27,9 @@ struct PartsTests {
 
     @Test func lunaPresetDeltaVBudget() {
         let st = VesselDesign.luna.stageInfos()
-        #expect(st.count == 3)
+        // 5.2: ступени активации, [3] — парашют.
+        #expect(st.count == 4)
+        #expect(st[3].deltaV == 0)
         // [0] — «Титан» у земли.
         #expect(st[0].twr > 2 && st[0].twr < 3)
         #expect(st[0].twrVacuum > st[0].twr)
@@ -43,12 +45,12 @@ struct PartsTests {
         // Посадочная ступень на Луне: TWR > 3.
         let upper = VesselDesign(name: "", parts: Array(VesselDesign.luna.parts.prefix(5)))
         #expect((upper.stageInfos(pressure: 0, gravity: Bodies.luna.surfaceGravity).first?.twr ?? 0) > 3)
-        #expect(st.allSatisfy { !$0.hasSolid && $0.fuelFraction == 1 })
+        #expect(st.prefix(3).allSatisfy { !$0.hasSolid && $0.fuelFraction == 1 })
     }
 
     @Test func orbitAndJumpPresets() {
         let o = VesselDesign.orbit.stageInfos()
-        #expect(o.count == 3)
+        #expect(o.count == 4)
         #expect(o[0].twr > 1.15)
         #expect(o[0].deltaV + o[1].deltaV > 4_000)
         #expect(o[2].deltaV == 0 && o[2].twr == 0)
@@ -59,11 +61,12 @@ struct PartsTests {
 
     @Test func enginesUseOnlyOwnSection() {
         var ship = Ship(design: .orbit)
-        for i in ship.bottomSection where ship.parts[i].spec.kind == .engine { ship.parts[i].ignited = true }
+        // 5.2: зажигается первая ступень активации («Вихрь»), топливо — по группам.
+        for i in ship.partsOfStage(0) where ship.parts[i].spec.kind == .engine { ship.parts[i].ignited = true }
         let upperFuel = ship.parts[3].fuel
         for _ in 0..<10_000 { _ = ship.burn(throttle: 1, pressure: 0, dt: 0.02) }
         #expect(ship.parts[3].fuel == upperFuel)
-        #expect(ship.liquidFuel(in: ship.bottomSection) == 0)
+        #expect(ship.liquidFuel(group: ship.group[8]) == 0)
         #expect(!ship.ignitedEnginesHaveFuel().any)
         #expect(ship.crashTolerance == 6)
         #expect(Ship(design: VesselDesign(name: "", parts: [.chute, .podK1])).crashTolerance == 9)

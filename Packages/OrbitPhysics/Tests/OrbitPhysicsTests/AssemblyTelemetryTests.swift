@@ -8,10 +8,13 @@ struct AssemblyTelemetryTests {
         var design = VesselAssembly.empty
         #expect(design.parts.isEmpty)
         #expect(design.issues().contains(.empty))
-        #expect(VesselAssembly.insert(.podK1, into: &design.parts, at: 0) == 0)
-        #expect(VesselAssembly.insert(.t400, into: &design.parts, at: 1) == 1)
-        #expect(VesselAssembly.insert(.vikhr, into: &design.parts, at: 2) == 2)
-        #expect(VesselAssembly.insert(.chute, into: &design.parts, at: 0) == 0)
+        // 5.2: `parts` вычисляется из дерева — правим список и собираем линейный проект заново.
+        var parts = design.parts
+        #expect(VesselAssembly.insert(.podK1, into: &parts, at: 0) == 0)
+        #expect(VesselAssembly.insert(.t400, into: &parts, at: 1) == 1)
+        #expect(VesselAssembly.insert(.vikhr, into: &parts, at: 2) == 2)
+        #expect(VesselAssembly.insert(.chute, into: &parts, at: 0) == 0)
+        design = VesselDesign(name: design.name, parts: parts)
         #expect(design.parts == [.chute, .podK1, .t400, .vikhr])
         #expect(!design.issues().contains(where: { $0.isBlocking }))
         #expect(design.stageInfos().first?.twr ?? 0 > 1)
@@ -26,7 +29,8 @@ struct AssemblyTelemetryTests {
         #expect(VesselAssembly.move(&parts, from: 2, to: 4) == 3)
         #expect(parts == [.chute, .podK1, .t400, .decoupler, .vikhr])
         #expect(VesselAssembly.move(&parts, from: 3, to: 2) == 2)
-        #expect(VesselDesign(name: "", parts: parts).stageInfos().count == 2)
+        // 5.2: ступени активации — зажигание, разделение, парашют.
+        #expect(VesselDesign(name: "", parts: parts).stageInfos().count == 3)
         let count = parts.count
         #expect(VesselAssembly.move(&parts, from: 0, to: count) == count - 1)
         #expect(parts.last == .chute && parts.count == count)
