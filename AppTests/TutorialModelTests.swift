@@ -24,7 +24,7 @@ struct TutorialModelTests {
         #expect(tour.stepIndex == TourStep.altimeter.rawValue)
         model.tutorialAcknowledge()
         model.tick(now: 1.15)
-        let next: TourStep = CrewPlaceholder.hasCabin(model.parts) ? .crew : .corner
+        let next: TourStep = model.crew.isEmpty ? .corner : .crew
         #expect(tour.stepIndex == next.rawValue)
 
         model.exitTutorial()

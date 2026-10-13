@@ -237,8 +237,8 @@ struct RenderAndHUDTests {
     }
 
     @Test func crewShownOnlyWithCabin() {
-        #expect(CrewPlaceholder.hasCabin(VesselDesign.orbit.parts))
-        #expect(!CrewPlaceholder.hasCabin([.chute, .decoupler, .t100]))
+        #expect(!CrewModel.crew(forParts: VesselDesign.orbit.parts).isEmpty)
+        #expect(CrewModel.crew(forParts: [.chute, .decoupler, .t100]).isEmpty)
     }
 
     @Test func translationReachesPhysicsOnlyWhenRCSEnabled() {
