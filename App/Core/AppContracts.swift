@@ -106,6 +106,9 @@ protocol HangarPreview: AnyObject {
     func showFloating(_ part: PartID?, at point: CGPoint, viewSize: CGSize)
     /// Гизмо у детали: кольца поворота (красное — тангаж X, синее — крен Y, зелёное — рыскание Z) или стрелки сдвига.
     func showGizmo(_ gizmo: HangarGizmo?)
+    /// Текущее гизмо в осях раскладки: точка (поворот — точка крепления детали, сдвиг — центр) и оси 0/1/2
+    /// (поворот — оси системы узла X′/Y′/Z′, сдвиг — оси корабля); nil — гизмо нет.
+    func gizmoFrame() -> (origin: Vec3, axes: [Vec3])?
     /// Ось гизмо под пальцем: 0 — X, 1 — Y, 2 — Z; nil — мимо.
     func pickGizmoAxis(at point: CGPoint, viewSize: CGSize) -> Int?
     /// Вращение и зум камеры вокруг корабля (жесты из UI), `reset` — исходный ракурс.

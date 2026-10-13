@@ -542,7 +542,13 @@ final class HangarModel {
         guard let id = selectedID, let node = design.node(id), let index = design.index(of: id) else { return }
         let layout = design.layout()
         guard layout.indices.contains(index) else { return }
-        let c3 = layout[index].center
+        // Точка и оси гизмо — из рендера (у поворота — система узла детали); без гизмо — центр и оси корабля.
+        let frame = scene.gizmoFrame()
+        let c3 = frame?.origin ?? layout[index].center
+        let axisVec: (Int) -> Vec3 = { k in
+            if let f = frame, f.axes.indices.contains(k) { return f.axes[k] }
+            return HangarGizmoMath.axis(k)
+        }
         let center = scene.project(c3, viewSize: viewSize) ?? point
         let rotate = tool == .rotate
         var s = GizmoSession(id: id, axis: axis, rotate: rotate, startDesign: design,
@@ -550,13 +556,13 @@ final class HangarModel {
                              start: point, last: point, center: center)
         if rotate {
             let (u, v) = HangarGizmoMath.ringAxes(axis)
-            let su = scene.screenDirection(of: HangarGizmoMath.axis(u), at: c3, viewSize: viewSize)
-            let sv = scene.screenDirection(of: HangarGizmoMath.axis(v), at: c3, viewSize: viewSize)
+            let su = scene.screenDirection(of: axisVec(u), at: c3, viewSize: viewSize)
+            let sv = scene.screenDirection(of: axisVec(v), at: c3, viewSize: viewSize)
             s.sign = HangarGizmoMath.handedness(first: su, second: sv)
         } else {
-            s.direction = scene.screenDirection(of: HangarGizmoMath.axis(axis), at: c3, viewSize: viewSize)
-            let tip = Vec3(c3.x + HangarGizmoMath.axis(axis).x, c3.y + HangarGizmoMath.axis(axis).y,
-                           c3.z + HangarGizmoMath.axis(axis).z)
+            let a3 = axisVec(axis)
+            s.direction = scene.screenDirection(of: a3, at: c3, viewSize: viewSize)
+            let tip = Vec3(c3.x + a3.x, c3.y + a3.y, c3.z + a3.z)
             if let a = scene.project(c3, viewSize: viewSize), let b = scene.project(tip, viewSize: viewSize) {
                 s.pointsPerMeter = Double(hypot(b.x - a.x, b.y - a.y))
             }

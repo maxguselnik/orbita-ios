@@ -237,7 +237,7 @@ final class HangarScene: HangarPreview {
     /// Точка и оси гизмо в мировых осях сцены. Поворот: точка крепления детали и система узла (X′, Y′, Z′:
     /// у боковой ветви Z′ — наружу, Y′ — вверх, X′ = (uz, 0, −ux); у осевой — оси узла родителя из раскладки
     /// детали без её поворота и сдвига). Сдвиг: центр детали и оси корабля.
-    private func gizmoFrame() -> (origin: F3, axes: [F3])? {
+    private func gizmoSceneFrame() -> (origin: F3, axes: [F3])? {
         guard let g = gizmo, let i = gizmoIndex() else { return nil }
         let c = layout[i].center
         let center = F3(Float(c.x), Self.baseY + Float(c.y), Float(c.z))
@@ -276,7 +276,7 @@ final class HangarScene: HangarPreview {
     ]
 
     private func refreshGizmo() {
-        guard let g = gizmo, let i = gizmoIndex(), let frame = gizmoFrame() else {
+        guard let g = gizmo, let i = gizmoIndex(), let frame = gizmoSceneFrame() else {
             if gizmoRoot.isEnabled { gizmoRoot.isEnabled = false }
             gizmoBuilt = nil
             return
@@ -331,8 +331,14 @@ final class HangarScene: HangarPreview {
         return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
     }
 
+    func gizmoFrame() -> (origin: Vec3, axes: [Vec3])? {
+        guard let f = gizmoSceneFrame() else { return nil }
+        let o = Vec3(Double(f.origin.x), Double(f.origin.y - Self.baseY), Double(f.origin.z))
+        return (o, f.axes.map { Vec3(Double($0.x), Double($0.y), Double($0.z)) })
+    }
+
     func pickGizmoAxis(at point: CGPoint, viewSize: CGSize) -> Int? {
-        guard let g = gizmo, gizmoRoot.isEnabled, let frame = gizmoFrame() else { return nil }
+        guard let g = gizmo, gizmoRoot.isEnabled, let frame = gizmoSceneFrame() else { return nil }
         let c = frame.origin
         var best: Int?
         var bestDist: CGFloat = 22

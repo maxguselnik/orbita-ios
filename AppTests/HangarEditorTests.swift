@@ -22,6 +22,7 @@ final class FakeHangarScene: HangarPreview {
 
     func showFloating(_ part: PartID?, at point: CGPoint, viewSize: CGSize) { floating.append(part) }
     func showGizmo(_ gizmo: HangarGizmo?) { self.gizmo = gizmo }
+    func gizmoFrame() -> (origin: Vec3, axes: [Vec3])? { nil }
     func pickGizmoAxis(at point: CGPoint, viewSize: CGSize) -> Int? { gizmoAxis }
     func apply(_ camera: CameraInput) {}
     func project(_ point: Vec3, viewSize: CGSize) -> CGPoint? { Self.plane(point) }
