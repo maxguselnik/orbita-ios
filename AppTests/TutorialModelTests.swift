@@ -59,13 +59,17 @@ struct TutorialModelTests {
         model.tick(now: 1.15)
         #expect(tutorial.stepIndex == LunaStep.lunaNode.rawValue)
 
-        model.send(.setManeuver(DemoScenario.lunaTransferNode(model.snapshot)))
+        // Кнопка цели «К Луне» в колонке «Куда летим?».
+        #expect(model.availableGoals.contains(.toLuna))
+        #expect(!model.mapExpert)
+        model.planManeuver(.toLuna)
+        #expect(model.maneuverGoal == .toLuna)
         model.tick(now: 1.2)
         #expect(tutorial.stepIndex == LunaStep.encounter.rawValue)
         #expect(model.snapshot.time == time)
         model.tick(now: 1.25)
         #expect(model.map.snapshot.maneuver != nil)
-        // «К Луне» сам доводит прогрейд: Пе у Луны по прогнозу карты сразу в диапазоне шага «Ручки Δv».
+        // «К Луне» сам доводит прогрейд: Пе у Луны по прогнозу карты сразу в диапазоне 15–60 км.
         let peri = try #require(model.lessonInput().lunaPeriapsis)
         #expect((25_000...35_000).contains(peri))
         #expect(LunaStep.periapsisRange.contains(peri))

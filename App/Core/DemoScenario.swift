@@ -261,6 +261,8 @@ final class ScenarioFlight: FlightSimulation, FlightCheckpointing {
             _ = sim.advance(realDelta: ap.frameDelta)
         }
         if !keepAutopilot {
+            // Направление автопилота перебивает SAS: без него корабль не слушается ни SAS, ни автопрожига.
+            sim.autopilotDirection = nil
             sim.send(.setWarp(index: 0))
             sim.setInput(.neutral)
         }

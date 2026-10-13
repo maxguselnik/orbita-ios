@@ -114,6 +114,11 @@ public enum ManeuverPlanner {
             if let hit = trajectory.impact { return ManeuverOutcome(kind: .impact(hit.body), isGood: false) }
             return ManeuverOutcome(kind: .noEncounter(.luna), isGood: false)
         case .returnHome:
+            // Уже у Терры (после выхода из SOI Луны): Пе текущего участка.
+            if first.body == .terra {
+                let pe = first.elements.periapsisRadius - Bodies.terra.radius
+                return ManeuverOutcome(kind: .terraPeriapsis(pe), isGood: (20_000...50_000).contains(pe))
+            }
             if let ret = trajectory.returnToTerra, ret.body == .terra {
                 return ManeuverOutcome(kind: .terraPeriapsis(ret.periapsisAltitude),
                                        isGood: (20_000...50_000).contains(ret.periapsisAltitude))
@@ -134,6 +139,90 @@ public enum ManeuverPlanner {
             }
             return ManeuverOutcome(kind: .orbit(body: first.body, apoapsis: ap, periapsis: pe), isGood: good)
         }
+    }
+
+    // MARK: Коррекция
+
+    /// Коррекция после неточного прожига перелёта: узел в `time + 60`, импульс (прогрейд, при необходимости
+    /// радиальный) — до середины годного диапазона (Пе у Луны 30 км / у Терры 35 км).
+    /// nil — итог уже годен, цель не перелётная или подобрать нельзя (|Δv| ≤ 100 м/с).
+    public static func correction(_ goal: ManeuverGoal, body: BodyID, state: StateVector, time: Double) -> ManeuverNode? {
+        correctionSearch(goal, body: body, state: state, time: time)?.node
+    }
+
+    /// Предел Δv коррекции, м/с.
+    static let correctionLimit = 100.0
+
+    /// Коррекция и число вызовов `predict`.
+    static func correctionSearch(_ goal: ManeuverGoal, body: BodyID, state: StateVector,
+                                 time: Double) -> (node: ManeuverNode, predictions: Int)? {
+        // Тело, у которого меряем Пе, и цель (радиус Пе), м.
+        let target: CelestialBody
+        let targetAltitude: Double
+        switch (goal, body) {
+        case (.toLuna, .terra): (target, targetAltitude) = (Bodies.luna, 30_000)
+        case (.returnHome, .luna), (.returnHome, .terra): (target, targetAltitude) = (Bodies.terra, returnPeriapsis)
+        default: return nil
+        }
+        let patches = TrajectoryPredictor.defaultMapPatches
+        let pre = TrajectoryPredictor.predict(body: body, state: state, time: time, maxPatches: patches)
+        var predictions = 1
+        if outcome(goal, trajectory: pre).isGood { return nil }
+
+        /// Пе со знаком: «+» — облёт по ходу движения Луны (h_z ≥ 0), «−» — против.
+        /// Через нулевой прицельный параметр меняется плавно — секущие не застревают у дна «V».
+        func signedPeriapsis(_ traj: Trajectory) -> Double? {
+            for p in traj.patches where p.body == target.id {
+                let sign: Double = p.elements.angularMomentum.z >= 0 ? 1 : -1
+                return sign * p.elements.periapsisRadius
+            }
+            return nil
+        }
+        let nodeTime = time + 60
+        func evaluate(_ node: ManeuverNode) -> Double? {
+            predictions += 1
+            guard let p = TrajectoryPredictor.predict(node: node, body: body, state: state, time: time,
+                                                      mass: 1, thrust: 0, isp: 1, maxPatches: patches,
+                                                      preTrajectory: pre) else { return nil }
+            return signedPeriapsis(p.trajectory)
+        }
+        let targetRadius = target.radius + targetAltitude
+        /// Секущие по одной оси (прогрейд или радиальный).
+        func solve(_ make: (Double) -> ManeuverNode) -> ManeuverNode? {
+            // Начало: без импульса; встречи нет — пробуем импульсы по нарастающей.
+            var start: (x: Double, value: Double)?
+            for x in [0.0, 1, -1, 3, -3, 10, -10, 30, -30, 100, -100] {
+                if let v = evaluate(make(x)) { start = (x, v); break }
+            }
+            guard let start else { return nil }
+            // Цель — тот облёт (по ходу или против), что ближе.
+            let goalValue = start.value >= 0 ? targetRadius : -targetRadius
+            var x0 = start.x, f0 = start.value - goalValue
+            var best = (x: x0, error: abs(f0))
+            var x1 = x0 + 0.5
+            var calls = 0
+            while calls < 16, best.error > 1_000 {
+                calls += 1
+                guard let v = evaluate(make(x1)) else { x1 = 0.5 * (x0 + x1); continue }
+                let f1 = v - goalValue
+                if abs(f1) < best.error { best = (x1, abs(f1)) }
+                guard f1 != f0 else { break }
+                let step = max(-10, min(10, -f1 * (x1 - x0) / (f1 - f0)))
+                (x0, f0) = (x1, f1)
+                x1 = max(-correctionLimit, min(correctionLimit, x1 + step))
+            }
+            let node = make(best.x)
+            predictions += 1
+            guard best.error < 10_000, node.deltaV > 0,
+                  let p = TrajectoryPredictor.predict(node: node, body: body, state: state, time: time,
+                                                      mass: 1, thrust: 0, isp: 1, maxPatches: patches,
+                                                      preTrajectory: pre),
+                  outcome(goal, trajectory: p.trajectory).isGood else { return nil }
+            return node
+        }
+        if let n = solve({ ManeuverNode(time: nodeTime, prograde: $0) }) { return (n, predictions) }
+        if let n = solve({ ManeuverNode(time: nodeTime, radial: $0) }) { return (n, predictions) }
+        return nil
     }
 
     // MARK: К Луне

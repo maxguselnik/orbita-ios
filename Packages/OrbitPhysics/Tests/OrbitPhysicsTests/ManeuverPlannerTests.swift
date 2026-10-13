@@ -289,3 +289,87 @@ struct ManeuverPlannerTests {
         #expect(pe > 50_000 && !out.isGood)
     }
 }
+
+@Suite("Коррекция после неточного перелёта")
+struct ManeuverCorrectionTests {
+    static let terraOrbit = ManeuverPlannerTests.terraOrbit
+    static let lunaOrbit = circularOrbit(altitude: 30_000, body: Bodies.luna)
+
+    /// Узел `node` (с ошибкой прогрейда `error`), выполненный мгновенно: состояние сразу после импульса.
+    static func applied(_ node: ManeuverNode, error: Double, body: BodyID, state: StateVector, time: Double) -> StateVector {
+        let mu = Bodies.body(body).mu
+        let s = Kepler.propagate(position: state.position, velocity: state.velocity, mu: mu, dt: node.time - time)
+        var n = node
+        n.prograde += error
+        return StateVector(position: s.position,
+                           velocity: s.velocity + TrajectoryPredictor.deltaVVector(node: n, position: s.position, velocity: s.velocity))
+    }
+
+    static func check(_ goal: ManeuverGoal, body: BodyID, state: StateVector, time: Double, label: String) throws {
+        let before = ManeuverPlanner.outcome(goal, trajectory: TrajectoryPredictor.predict(
+            body: body, state: state, time: time, maxPatches: TrajectoryPredictor.defaultMapPatches))
+        #expect(!before.isGood, "\(label): уже годно \(before.kind)")
+        let start = Date()
+        let result = try #require(ManeuverPlanner.correctionSearch(goal, body: body, state: state, time: time), "\(label)")
+        let elapsed = Date().timeIntervalSince(start)
+        let node = result.node
+        #expect(abs(node.time - (time + 60)) < 1e-9)
+        #expect(node.deltaV < 20, "\(label): Δv \(node.deltaV)")
+        #expect(result.predictions <= 60)
+        #expect(elapsed < 0.5)
+        let traj = try ManeuverPlannerTests.after(node, body: body, state: state, time: time)
+        let out = ManeuverPlanner.outcome(goal, trajectory: traj)
+        #expect(out.isGood, "\(label): \(out.kind)")
+        #expect(ManeuverPlanner.correction(goal, body: body, state: state, time: time) == node)
+        print("Коррекция (\(label)): было \(before.kind), стало \(out.kind), прогрейд \(String(format: "%.2f", node.prograde)) "
+              + "радиал \(String(format: "%.2f", node.radial)) м/с, прогнозов \(result.predictions), \(String(format: "%.3f", elapsed)) с")
+    }
+
+    @Test(arguments: [3.0, -3.0])
+    func toLunaAfterInexactBurn(error: Double) throws {
+        let plan = try #require(ManeuverPlanner.plan(.toLuna, body: .terra, state: Self.terraOrbit, time: 0))
+        let s = Self.applied(plan, error: error, body: .terra, state: Self.terraOrbit, time: 0)
+        try Self.check(.toLuna, body: .terra, state: s, time: plan.time, label: "к Луне \(error) м/с")
+    }
+
+    @Test(arguments: [2.0, -2.0])
+    func returnHomeAtLunaAfterInexactBurn(error: Double) throws {
+        let plan = try #require(ManeuverPlanner.plan(.returnHome, body: .luna, state: Self.lunaOrbit, time: 0))
+        let s = Self.applied(plan, error: error, body: .luna, state: Self.lunaOrbit, time: 0)
+        try Self.check(.returnHome, body: .luna, state: s, time: plan.time, label: "домой у Луны \(error) м/с")
+    }
+
+    @Test(arguments: [2.0, -2.0])
+    func returnHomeAtTerraAfterInexactBurn(error: Double) throws {
+        let plan = try #require(ManeuverPlanner.plan(.returnHome, body: .luna, state: Self.lunaOrbit, time: 0))
+        let s = Self.applied(plan, error: error, body: .luna, state: Self.lunaOrbit, time: 0)
+        let traj = TrajectoryPredictor.predict(body: .luna, state: s, time: plan.time,
+                                               maxPatches: TrajectoryPredictor.defaultMapPatches)
+        let exit = try #require(traj.returnToTerra)
+        let t = exit.time + 3_600
+        let at = try #require(traj.state(at: t))
+        #expect(at.body == .terra)
+        try Self.check(.returnHome, body: .terra, state: at.state, time: t, label: "домой у Терры \(error) м/с")
+    }
+
+    @Test func alreadyGoodOrOtherGoal() throws {
+        let plan = try #require(ManeuverPlanner.plan(.toLuna, body: .terra, state: Self.terraOrbit, time: 0))
+        let s = Self.applied(plan, error: 0, body: .terra, state: Self.terraOrbit, time: 0)
+        #expect(ManeuverPlanner.correction(.toLuna, body: .terra, state: s, time: plan.time) == nil)
+        let home = try #require(ManeuverPlanner.plan(.returnHome, body: .luna, state: Self.lunaOrbit, time: 0))
+        let h = Self.applied(home, error: 0, body: .luna, state: Self.lunaOrbit, time: 0)
+        #expect(ManeuverPlanner.correction(.returnHome, body: .luna, state: h, time: home.time) == nil)
+        #expect(ManeuverPlanner.correction(.circularize, body: .terra, state: s, time: plan.time) == nil)
+        #expect(ManeuverPlanner.correction(.changeOrbit, body: .terra, state: s, time: plan.time) == nil)
+        #expect(ManeuverPlanner.correction(.toLuna, body: .luna, state: h, time: home.time) == nil)
+    }
+
+    /// После выхода к Терре итог «домой» — Пе текущего участка у Терры.
+    @Test func returnHomeOutcomeAtTerra() {
+        let s = conicState(body: Bodies.terra, periapsisRadius: Bodies.terra.radius + 35_000, apoapsisRadius: 12_000_000,
+                           phase: 0, dt: -20_000)
+        let out = ManeuverPlanner.outcome(.returnHome, trajectory: TrajectoryPredictor.predict(body: .terra, state: s, time: 0))
+        guard case .terraPeriapsis(let pe) = out.kind else { Issue.record("вид \(out.kind)"); return }
+        #expect(abs(pe - 35_000) < 1 && out.isGood)
+    }
+}

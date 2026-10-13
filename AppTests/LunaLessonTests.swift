@@ -50,13 +50,7 @@ struct LunaLessonTests {
             case .mapIntro: l.acknowledge(input(base, map: true))
             case .lunaNode: l.update(input(withNode, map: true, lunaPeri: 300_000), delta: 0.02)
             case .encounter: l.acknowledge(input(withNode, map: true, lunaPeri: 300_000))
-            case .tune: l.update(input(withNode, map: true, lunaPeri: 30_000), delta: 0.02)
-            case .toNode:
-                l.update(input(with(withNode) { $0.maneuver = node(toBurn: 10) }, map: true), delta: 0.02)
-            case .sasNode:
-                l.update(input(with(withNode) { $0.sas = .maneuver; $0.maneuver = node(toBurn: 10) }, map: true),
-                         delta: 0.02)
-            case .burn:
+            case .execute:
                 l.update(input(with(base) { $0.maneuver = node(toBurn: -30, remaining: 0.5, done: true) }), delta: 0.02)
             case .coast: l.update(input(orbitT(body: .luna, apo: .infinity, peri: 30_000)), delta: 0.02)
             case .brake: l.update(input(orbitT(body: .luna, apo: 90_000, peri: 30_000)), delta: 0.02)
@@ -71,11 +65,12 @@ struct LunaLessonTests {
     // MARK: - Порядок
 
     @Test func stepsFollowTheMockup() {
-        #expect(LunaStep.sequence.count == 13)
+        #expect(LunaStep.sequence.count == 10)
         #expect(LunaStep.sequence.first == .intro && LunaStep.sequence.last == .finish)
-        #expect(LunaStep.burn.kind == .live && LunaStep.brake.kind == .live && LunaStep.land.kind == .live)
+        #expect(LunaStep.brake.kind == .live && LunaStep.land.kind == .live && LunaStep.execute.kind == .wait)
         #expect(LunaStep.mapIntro.kind == .pause && LunaStep.encounter.kind == .pause)
-        for step in [LunaStep.mapIntro, .lunaNode, .encounter, .tune, .toNode, .sasNode] {
+        #expect(LunaStep.execute.target == .mapExecute)
+        for step in [LunaStep.mapIntro, .lunaNode, .encounter, .execute] {
             #expect(step.screen == .map)
         }
     }
@@ -121,86 +116,56 @@ struct LunaLessonTests {
         #expect(l.step == .encounter)
     }
 
-    @Test func tuneStepWaitsForPeriapsisInRange() {
-        var l = lesson(at: .tune)
-        let t = with(orbitT()) { $0.maneuver = node() }
-        l.update(input(t, map: true, lunaPeri: 120_000), delta: 0.02)
-        #expect(l.step == .tune && l.holdsPhysics)
-        let scene = l.scene(input(t, map: true, lunaPeri: 120_000))
-        #expect(scene.ringOnly && !scene.dims && scene.target == .mapHandle && scene.plateBar)
-        #expect(l.plate(input(t, map: true, lunaPeri: 120_000))?.value == HUDFormat.distance(120_000))
-        #expect(l.plate(input(t, map: true))?.head.contains("Встречи") == true)
-        l.update(input(t, map: true, lunaPeri: 25_000), delta: 0.02)
-        #expect(l.step == .toNode)
-    }
-
-    @Test func tuneStepRangeIsFifteenToSixtyKilometers() {
-        #expect(LunaStep.periapsisRange == 15_000...60_000)
-        #expect(LunaStep.periapsisRangeText == "15–60")
-        let t = with(orbitT()) { $0.maneuver = node() }
-        for (peri, passes) in [(16_000.0, true), (55_000.0, true), (14_000.0, false), (61_000.0, false)] {
-            var l = lesson(at: .tune)
-            l.update(input(t, map: true, lunaPeri: peri), delta: 0.02)
-            #expect((l.step == .toNode) == passes)
-        }
-        var none = lesson(at: .tune)
-        none.update(input(t, map: true), delta: 0.02)
-        #expect(none.step == .tune)
-    }
-
-    @Test func tuneStepPassesAtOnceIfNodeIsAlreadyGood() {
+    @Test func encounterIsAnInfoPauseOnTheMap() {
         var l = lesson(at: .encounter)
         let t = with(orbitT()) { $0.maneuver = node() }
-        l.acknowledge(input(t, map: true, lunaPeri: 32_000))
-        l.update(input(t, map: true, lunaPeri: 32_000), delta: 0.02)
-        #expect(l.step == .toNode)
+        #expect(l.scene(input(t, map: true, lunaPeri: 30_000)).bubble?.button == "Дальше")
+        l.acknowledge(input(t, map: true, lunaPeri: 30_000))
+        #expect(l.step == .execute && l.phase == .holding)
+        #expect(l.scene(input(t, map: true)).target == .mapExecute)
     }
 
-    @Test func toNodeRunsTimeAfterWarpAndEndsNearTheBurn() {
-        var l = lesson(at: .toNode)
-        let far = with(orbitT()) { $0.maneuver = node(toBurn: 900) }
-        l.update(input(far, map: true), delta: 0.02)
-        #expect(l.phase == .holding)
-        l.update(input(with(far) { $0.warpIndex = 5 }, map: true), delta: 0.02)
-        #expect(l.step == .toNode && l.phase == .running && !l.holdsPhysics)
-        l.update(input(with(far) { $0.maneuver = node(toBurn: 15) }, map: true), delta: 0.02)
-        #expect(l.step == .sasNode && l.phase == .holding)
-    }
-
-    @Test func sasNodeWaitsForManeuverMode() {
-        var l = lesson(at: .sasNode)
-        let t = with(orbitT()) { $0.maneuver = node(toBurn: 15) }
-        l.update(input(with(t) { $0.sas = .prograde }, map: true), delta: 0.02)
-        #expect(l.step == .sasNode)
-        l.update(input(with(t) { $0.sas = .maneuver }, map: true), delta: 0.02)
-        #expect(l.step == .burn && l.phase == .running)
-    }
-
-    // MARK: - Прожиг, перелёт, захват, посадка
-
-    @Test func burnFollowsRemainingDeltaVAndWaitsForThrottleZero() {
-        var l = lesson(at: .burn)
-        let before = with(orbitT()) { $0.maneuver = node(toBurn: 12) }
-        #expect(l.plate(input(before))?.head.contains("Прожиг через") == true)
-        let burning = with(orbitT()) { $0.maneuver = node(toBurn: -10, remaining: 412) }
-        let plate = l.plate(input(burning, throttle: 1))
-        #expect(plate?.value == HUDFormat.speed(412) && plate?.tail.contains("из 860") == true)
-        let done = with(orbitT()) { $0.maneuver = node(toBurn: -40, remaining: 0.4, done: true) }
-        l.update(input(done, throttle: 1), delta: 0.02)
-        #expect(l.step == .burn)
-        l.update(input(done, throttle: 0), delta: 0.02)
+    @Test func executeStepRunsOnAutoBurnAndEndsWhenTransferIsDone() {
+        var l = lesson(at: .execute)
+        let t = with(orbitT()) { $0.maneuver = node(toBurn: 600) }
+        l.update(input(t, map: true), delta: 0.02)
+        #expect(l.step == .execute && l.phase == .holding && l.holdsPhysics)
+        var started = input(t, map: true)
+        started.autoBurn = true
+        l.update(started, delta: 0.02)
+        #expect(l.step == .execute && l.phase == .running && !l.holdsPhysics)
+        // Пока автопрожиг идёт, шаг не кончается, даже если узел отработан.
+        var burning = input(with(orbitT()) { $0.maneuver = node(toBurn: -40, remaining: 0.4, done: true) })
+        burning.autoBurn = true
+        l.update(burning, delta: 0.02)
+        #expect(l.step == .execute)
+        // Автопрожиг закончен: узел удалён, орбита вытянута к Луне, тяга 0.
+        let done = input(orbitT(apo: 250_000_000), throttle: 0)
+        l.update(done, delta: 0.02)
         #expect(l.step == .coast && l.phase == .holding)
     }
 
-    @Test func deletingNodeBeforeTheBurnFailsStep() {
-        var l = lesson(at: .burn)
-        l.update(input(orbitT(), throttle: 1), delta: 0.02)
+    @Test func executePlateFollowsTheBurn() {
+        let before = with(orbitT()) { $0.maneuver = node(toBurn: 600) }
+        #expect(LunaStep.execute.plate(input(before))?.head.contains("Летим к узлу") == true)
+        let burning = with(orbitT()) { $0.maneuver = node(toBurn: -10, remaining: 412) }
+        let plate = LunaStep.execute.plate(input(burning))
+        #expect(plate?.value == HUDFormat.speed(412) && plate?.tail.contains("из 860") == true)
+    }
+
+    @Test func deletingNodeBeforeTheBurnFailsExecuteStep() {
+        var l = lesson(at: .execute)
+        var started = input(with(orbitT()) { $0.maneuver = node(toBurn: 600) }, map: true)
+        started.autoBurn = true
+        l.update(started, delta: 0.02)
+        #expect(l.phase == .running)
+        l.update(input(orbitT(), throttle: 0), delta: 0.02)
         #expect(l.phase == .failed && l.failure?.contains("Узел удалён") == true)
         l.didRestore(input(with(orbitT()) { $0.maneuver = node(toBurn: 12) }))
-        #expect(l.phase == .ready && l.failure == nil)
-        l.acknowledge(input(orbitT()))
-        #expect(l.phase == .running)
+        #expect(l.phase == .holding && l.failure == nil)
     }
+
+    // MARK: - Прожиг, перелёт, захват, посадка
 
     @Test func coastWaitsForWarpThenForLunaSOI() {
         var l = lesson(at: .coast)

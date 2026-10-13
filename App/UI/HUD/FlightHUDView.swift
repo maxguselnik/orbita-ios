@@ -70,7 +70,7 @@ struct FlightHUDView: View {
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
-                if hintsEnabled, !inLesson, !hintsDone, let hint = model.hint, !model.isPaused,
+                if hintsEnabled, !inLesson, !hintsDone, !mapOpen, let hint = model.hint, !model.isPaused,
                    hint != .stage, hint != .throttle {
                     HintBanner(hint: hint) { model.dismissHints() }
                         .frame(width: 300)
@@ -83,7 +83,7 @@ struct FlightHUDView: View {
         .animation(.easeOut(duration: 0.2), value: model.hint)
         .overlay(alignment: .topTrailing) { stagePanel }
         .overlay(alignment: .bottom) {
-            if mapOpen, !model.isPaused {
+            if mapOpen, model.mapExpert, !model.isPaused {
                 // Пошаговая подсказка карты: над переключателем фокуса, центр экрана свободен.
                 MapHintHost(model: model, hintsEnabled: hintsEnabled && !inLesson)
                     .padding(.bottom, HUDStyle.minTouch + 16)
@@ -280,7 +280,7 @@ struct ManeuverBadgeHost: View {
 
     var body: some View {
         if let status = model.telemetry.maneuver {
-            ManeuverBadge(status: status) { model.toggleMap() }
+            ManeuverBadge(status: status, autoText: model.autoBurnText) { model.toggleMap() }
         }
     }
 }
@@ -310,7 +310,7 @@ struct MapLayer: View {
     }
 }
 
-/// Левая колонка карты: SAS (вкл/выкл и «по узлу») и кнопка «Полёт».
+/// Левая колонка карты: цели «Куда летим?» сверху, внизу SAS (вкл/выкл и «по узлу») и кнопка «Полёт».
 struct MapLeftColumn: View {
     let model: FlightHUDModel
 
@@ -318,6 +318,7 @@ struct MapLeftColumn: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            MapGoalsColumn(model: model)
             Spacer(minLength: 0)
             MapSASRow(model: model)
             MapToggleButton(model: model)

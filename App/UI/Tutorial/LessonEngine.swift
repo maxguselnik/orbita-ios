@@ -11,6 +11,8 @@ enum LessonElement: Hashable, Sendable {
     case navball, speed, sas, rcs, dpad, fine
     // Карта
     case mapLuna, mapSummary, mapHandle, mapToNode, mapSASNode, mapPanel, mapFocus, mapLegend, mapNode, mapFlight
+    /// Колонка целей «Куда летим?» и кнопка «Выполнить манёвр» простой карты.
+    case mapGoals, mapExecute
 }
 
 /// Вид шага: `pause` — игра на паузе, ждём кнопку в пузыре; `wait` — пауза, ждём действие игрока
@@ -36,6 +38,8 @@ struct LessonInput: Equatable {
     var dpadHeld = false
     /// Карта открыта.
     var mapOpen = false
+    /// Идёт автопрожиг («Выполнить манёвр»).
+    var autoBurn = false
     /// Сколько раз открывалось меню ускорения времени (счётчик растёт).
     var warpMenuCount = 0
     /// Пе у Луны по прогнозу карты (после узла, если он не выполнен), м; nil — встречи нет.

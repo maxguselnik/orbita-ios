@@ -88,10 +88,16 @@ struct ManeuverDrag: Sendable {
     var offset: Double
     /// Время кадра начала удержания (ставит модель).
     var start: TimeInterval?
+    /// Множитель скорости: ползунок «Подправить» простой карты ставит `ManeuverPlanner.fineStep` (0.1 или 1).
+    var scale: Double
+    /// Ползунок «Подправить»: цель манёвра сохраняется (ручки «Эксперт» уводят узел от цели).
+    var fromJog: Bool
 
-    init(handle: ManeuverHandle, offset: Double = 0) {
+    init(handle: ManeuverHandle, offset: Double = 0, scale: Double = 1, fromJog: Bool = false) {
         self.handle = handle
         self.offset = offset
+        self.scale = scale
+        self.fromJog = fromJog
     }
 
     /// Мёртвая зона у ручки, pt.
