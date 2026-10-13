@@ -59,7 +59,7 @@ final class HangarModel {
     struct Report {
         var infos: [StageInfo] = []
         var issues: [DesignIssue] = []
-        var rows: [StageRow] = []
+        var rows: [HangarStageRow] = []
         var markers: DesignMarkers?
         var totalDV = 0.0
         var twr: Double?

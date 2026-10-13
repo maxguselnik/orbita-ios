@@ -1,7 +1,7 @@
 import OrbitPhysics
 
 /// Строка редактора ступеней: детали ступени активации и сводка. Чистая логика без SwiftUI.
-struct StageRow: Identifiable, Equatable {
+struct HangarStageRow: Identifiable, Equatable {
     /// Значок детали; копии симметрии (одна группа) объединены и переносятся вместе.
     struct Badge: Identifiable, Equatable {
         /// id первой детали группы.
@@ -32,21 +32,21 @@ enum StageEditing {
     private static let prefix = "stagepart:"
 
     /// Строки по порядку ступеней (снизу вверх: [0] — первая). `infos` — `design.stageInfos(…)` в том же порядке.
-    static func rows(design: VesselDesign, infos: [StageInfo]) -> [StageRow] {
+    static func rows(design: VesselDesign, infos: [StageInfo]) -> [HangarStageRow] {
         design.stageGroups.enumerated().map { k, ids in
-            var badges: [StageRow.Badge] = []
+            var badges: [HangarStageRow.Badge] = []
             var seenGroups: [Int: Int] = [:]
             for id in ids {
                 guard let node = design.node(id) else { continue }
                 if let group = node.symmetryGroup, let index = seenGroups[group] {
-                    badges[index] = StageRow.Badge(id: badges[index].id, part: badges[index].part,
+                    badges[index] = HangarStageRow.Badge(id: badges[index].id, part: badges[index].part,
                                                    count: badges[index].count + 1)
                 } else {
                     if let group = node.symmetryGroup { seenGroups[group] = badges.count }
-                    badges.append(StageRow.Badge(id: id, part: node.part, count: 1))
+                    badges.append(HangarStageRow.Badge(id: id, part: node.part, count: 1))
                 }
             }
-            return StageRow(stage: k, badges: badges, info: infos.indices.contains(k) ? infos[k] : nil)
+            return HangarStageRow(stage: k, badges: badges, info: infos.indices.contains(k) ? infos[k] : nil)
         }
     }
 

@@ -64,7 +64,7 @@ struct HangarStagePanel: View {
 
 /// Строка ступени: номер, значки, сводка.
 private struct StageRowView: View {
-    let row: StageRow
+    let row: HangarStageRow
     let model: HangarModel
 
     var body: some View {
@@ -118,7 +118,7 @@ private struct StageRowView: View {
 
 /// Значок детали ступени 32 × 32 pt; у копий симметрии — счётчик.
 private struct StageBadgeView: View {
-    let badge: StageRow.Badge
+    let badge: HangarStageRow.Badge
 
     var body: some View {
         StageGlyph(kind: PartGlyph.kind(badge.part))
