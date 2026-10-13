@@ -26,11 +26,17 @@ struct RenderAndHUDTests {
         let scene = HangarScene()
         let size = CGSize(width: 300, height: 300)
         #expect(scene.pickPart(at: CGPoint(x: 150, y: 150), viewSize: size) == nil)
-        scene.show(parts: [.podK1], selected: nil)
-        #expect(scene.pickPart(at: CGPoint(x: 150, y: 150), viewSize: size) == 0)
+        let design = VesselDesign(name: "Тест", parts: [.podK1])
+        scene.show(design: design, selected: [], ghost: nil)
+        #expect(scene.pickPart(at: CGPoint(x: 150, y: 150), viewSize: size) == design.nodes[0].id)
         #expect(scene.pickPart(at: .zero, viewSize: size) == nil)
-        #expect(scene.nearestAttachment(at: CGPoint(x: 150, y: 130), viewSize: size) == 0)
-        #expect(scene.nearestAttachment(at: CGPoint(x: 150, y: 170), viewSize: size) == 1)
+        let targets = VesselEditing.attachTargets(for: .t100, symmetry: 1, in: design)
+        let top = targets.first { $0.node == .top }
+        let bottom = targets.first { $0.node == .bottom }
+        let topPoint = top.flatMap { scene.project($0.position, viewSize: size) }
+        let bottomPoint = bottom.flatMap { scene.project($0.position, viewSize: size) }
+        #expect(topPoint != nil && bottomPoint != nil)
+        if let topPoint, let bottomPoint { #expect(topPoint.y < bottomPoint.y) }
     }
 
     @Test func chuteHintDoesNotMistakeUnlitLastEngineForParachute() {
@@ -194,17 +200,27 @@ struct RenderAndHUDTests {
         #expect(AtmosphereScale.markerPosition(altitude: 70_000) == 0)
     }
 
-    @Test func stageGroupsFollowDecouplersAndTelemetry() {
-        let design = VesselDesign.orbit
-        let groups = StageGroup.groups(parts: design.parts, stages: design.stageInfos())
+    @Test func stageGroupsFollowStageInfoPartsAndFlags() {
+        func info(_ parts: [PartID]) -> StageInfo {
+            var i = StageInfo(deltaV: 100, twr: 1.5, twrVacuum: 1.6, fuelFraction: 1, burnTime: 30, hasSolid: false,
+                              fuelMass: 100, fuelCapacity: 100, hasLiquidEngine: true)
+            i.parts = parts
+            return i
+        }
+        let stages = [info([.shtil, .t400]), info([.decoupler, .vikhr]), info([.chute])]
+        let groups = StageGroup.groups(stages: stages)
         #expect(groups.map(\.number) == [3, 2, 1])
-        #expect(groups.first?.items.map(\.kind) == [.chute, .pod])
+        #expect(groups.first?.items.map(\.kind) == [.chute])
         #expect(groups.last?.isCurrent == true)
-        #expect(groups.last?.items.contains { $0.kind == .tank && $0.count == 2 } == true)
-        // Без деталей — заглушка по флагам ступени.
-        let stub = StageGroup.groups(parts: [], stages: design.stageInfos())
-        #expect(stub.count == 3)
+        #expect(groups.last?.items.count == 2)
+        #expect(groups.last?.items.contains { $0.kind == .tank } == true)
+        // Без списка деталей — значки по флагам ступени.
+        let stub = StageGroup.groups(stages: [info([])])
         #expect(stub.last?.items.map(\.kind) == [.tank, .engine])
+        // Новые глифы.
+        let aero = StageGroup.groups(stages: [info([.fairing, .fin, .fin])])
+        #expect(aero.last?.items.map(\.kind) == [.fairing, .fin])
+        #expect(aero.last?.items.last?.count == 2)
     }
 
     @Test func throttleArcMapsTouchAngleToFraction() {
@@ -256,8 +272,8 @@ struct RenderAndHUDTests {
     }
 
     @Test func rcsPartsAppearInHangarCatalog() {
-        let misc = CatalogTab.misc.parts.map(\.id)
-        #expect(misc.contains(.rcsBlock) && misc.contains(.m100))
+        #expect(CatalogTab.rcs.parts.map(\.id).contains(.rcsBlock))
+        #expect(CatalogTab.tanks.parts.map(\.id).contains(.m100))
         #expect(HangarFormat.details(PartCatalog.spec(.rcsBlock)) == ["Монотопливо 60 кг · сопла 2 кН", "140 кг"])
         #expect(HangarFormat.details(PartCatalog.spec(.m100)).first == "Монотопливо 160 кг")
     }
