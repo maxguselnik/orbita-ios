@@ -134,6 +134,20 @@ struct LunaLessonTests {
         #expect(l.step == .toNode)
     }
 
+    @Test func tuneStepRangeIsFifteenToSixtyKilometers() {
+        #expect(LunaStep.periapsisRange == 15_000...60_000)
+        #expect(LunaStep.periapsisRangeText == "15–60")
+        let t = with(orbitT()) { $0.maneuver = node() }
+        for (peri, passes) in [(16_000.0, true), (55_000.0, true), (14_000.0, false), (61_000.0, false)] {
+            var l = lesson(at: .tune)
+            l.update(input(t, map: true, lunaPeri: peri), delta: 0.02)
+            #expect((l.step == .toNode) == passes)
+        }
+        var none = lesson(at: .tune)
+        none.update(input(t, map: true), delta: 0.02)
+        #expect(none.step == .tune)
+    }
+
     @Test func tuneStepPassesAtOnceIfNodeIsAlreadyGood() {
         var l = lesson(at: .encounter)
         let t = with(orbitT()) { $0.maneuver = node() }
