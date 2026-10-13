@@ -379,7 +379,7 @@ final class HangarModel {
 
     func resetStaging() {
         var d = design
-        _ = VesselEditing.resetStaging(in: &d)
+        VesselEditing.resetStaging(in: &d)
         commit(d)
         feedback(.tap)
     }
@@ -596,9 +596,9 @@ final class HangarModel {
         guard let node = design.node(s.id) else { return }
         var d = design
         if s.rotate {
-            _ = VesselEditing.setRotation(s.id, HangarGizmoMath.setting(node.rotation, s.axis, to: value), in: &d)
+            VesselEditing.setRotation(s.id, HangarGizmoMath.setting(node.rotation, s.axis, to: value), in: &d)
         } else {
-            _ = VesselEditing.setOffset(s.id, HangarGizmoMath.setting(node.offset, s.axis, to: value), in: &d)
+            VesselEditing.setOffset(s.id, HangarGizmoMath.setting(node.offset, s.axis, to: value), in: &d)
         }
         guard d != design else { return }
         writeDesign(d)
@@ -612,11 +612,11 @@ final class HangarModel {
         if tool == .rotate {
             let step = fineStep ? HangarGizmoMath.angleStep : 1
             let value = HangarGizmoMath.wrapped(HangarGizmoMath.component(node.rotation, axis) + direction * step)
-            _ = VesselEditing.setRotation(id, HangarGizmoMath.setting(node.rotation, axis, to: value), in: &d)
+            VesselEditing.setRotation(id, HangarGizmoMath.setting(node.rotation, axis, to: value), in: &d)
         } else {
             let step = fineStep ? HangarGizmoMath.offsetStep : 0.02
             let value = HangarGizmoMath.component(node.offset, axis) + direction * step
-            _ = VesselEditing.setOffset(id, HangarGizmoMath.setting(node.offset, axis, to: value), in: &d)
+            VesselEditing.setOffset(id, HangarGizmoMath.setting(node.offset, axis, to: value), in: &d)
         }
         commit(d)
     }
@@ -626,9 +626,9 @@ final class HangarModel {
         guard let id = selectedID else { return }
         var d = design
         if tool == .rotate {
-            _ = VesselEditing.setRotation(id, Vec3(0, 0, 0), in: &d)
+            VesselEditing.setRotation(id, Vec3(0, 0, 0), in: &d)
         } else {
-            _ = VesselEditing.setOffset(id, Vec3(0, 0, 0), in: &d)
+            VesselEditing.setOffset(id, Vec3(0, 0, 0), in: &d)
         }
         commit(d)
         feedback(.tap)
