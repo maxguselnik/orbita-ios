@@ -79,9 +79,11 @@ public struct VesselState: Sendable, Hashable {
     public var situation: VesselSituation
     /// Активен ли (интегрируется численно) или «на рельсах».
     public var isActive: Bool
-    /// Детали сверху вниз (для рендера), индексы двигателей с факелом,
+    /// Детали в порядке `VesselDesign.nodes` (для линейного стека — сверху вниз), индексы двигателей с факелом,
     /// состояние и раскрытие парашюта 0…1.
     public var parts: [PartID]
+    /// Раскладка деталей (5.2) — те же индексы, что `parts`; начало — `position`. Пусто — рендер ставит стек.
+    public var layout: [PartPlacement]
     public var firingEngines: [Int]
     public var chute: ChuteState
     public var chuteDeploy: Double
@@ -97,7 +99,8 @@ public struct VesselState: Sendable, Hashable {
                 situation: VesselSituation = .prelaunch, isActive: Bool = true,
                 parts: [PartID] = [], firingEngines: [Int] = [],
                 chute: ChuteState = .none, chuteDeploy: Double = 0,
-                rcsTranslation: Vec3 = .zero, rcsRotation: Vec3 = .zero) {
+                rcsTranslation: Vec3 = .zero, rcsRotation: Vec3 = .zero, layout: [PartPlacement] = []) {
+        self.layout = layout
         self.id = id
         self.body = body
         self.position = position
@@ -168,6 +171,9 @@ public struct StageInfo: Sendable, Hashable {
 
     /// Тяговооружённость в вакууме.
     public var twrVacuum: Double
+    /// Детали, которые срабатывают в этой ступени активации (двигатели, разделители, парашют, обтекатель) — для
+    /// значков HUD и редактора ступеней; пусто — значки по флагам.
+    public var parts: [PartID] = []
 
     public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool, fuelMass: Double = 0, fuelCapacity: Double = 0, hasLiquidEngine: Bool = false) {
         self.deltaV = deltaV

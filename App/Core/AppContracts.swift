@@ -82,11 +82,15 @@ protocol FlightHaptics: AnyObject {
     func update(snapshot: WorldSnapshot, events: [SimEvent])
 }
 
-/// Поток B: 3D-превью корабля в ангаре. UI (C) показывает его через `HangarSceneView`.
+/// Поток B: 3D-превью корабля в ангаре (конструктор 5.2). UI (C) показывает его через `HangarSceneView`.
 @MainActor
 protocol HangarPreview: AnyObject {
-    /// Стек деталей сверху вниз; `selected` — индекс подсвеченной детали.
-    func show(parts: [PartID], selected: Int?)
+    /// Дерево проекта (раскладка — `design.layout()`); `selected` — id подсвеченных деталей.
+    func show(design: VesselDesign, selected: Set<Int>)
     /// Вращение и зум камеры вокруг корабля (жесты из UI), `reset` — исходный ракурс.
     func apply(_ camera: CameraInput)
+    /// Точка в осях раскладки (м) → точка экрана вида размера `viewSize`, pt; nil — за камерой.
+    func project(_ point: Vec3, viewSize: CGSize) -> CGPoint?
+    /// id детали под точкой экрана; nil — пусто.
+    func pickPart(at point: CGPoint, viewSize: CGSize) -> Int?
 }

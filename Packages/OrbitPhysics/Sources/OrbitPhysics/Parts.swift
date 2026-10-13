@@ -6,6 +6,8 @@ public enum PartKind: String, Sendable, Hashable, Codable {
     case pod, probe, chute, decoupler, tank, legs, engine
     /// Блок РСУ (поступательные и поворотные сопла на монотопливе, свой запас) и бак монотоплива.
     case rcs, monoTank
+    /// Обтекатель (снижает сопротивление колонны, которую венчает; сбрасывается ступенью) и стабилизатор.
+    case fairing, fin
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
@@ -14,6 +16,8 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case legs
     case shtil, vikhr, titan, molot
     case rcsBlock, m100
+    /// Этап 5.2: боковой разделитель, обтекатели 1.25/2.5 м, стабилизатор.
+    case decouplerRadial, fairing, fairingXL, fin
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -36,6 +40,16 @@ public struct PartSpec: Sendable, Hashable {
     public let diameter: Double
 
     public var wetMass: Double { dryMass + fuelMass }
+
+    /// Как деталь крепится (контракт 5.2): капсулы, модуль, осевые разделители, парашют, опоры, обтекатели —
+    /// по оси; боковой разделитель и стабилизатор — только сбоку; баки, двигатели, РСУ, монотопливо — как угодно.
+    public var mount: PartMount {
+        switch id {
+        case .decouplerRadial, .fin: .radial
+        case .t100, .t200, .t400, .t800, .j64, .shtil, .vikhr, .titan, .molot, .rcsBlock, .m100: .any
+        default: .axial
+        }
+    }
 
     /// Массовый расход на полной тяге, кг/с.
     public var massFlow: Double { ispVacuum > 0 ? thrustVacuum / (ispVacuum * standardGravity) : 0 }
@@ -76,6 +90,12 @@ public enum PartCatalog {
         // Блок РСУ: тяга — на одно направление (сумма сопел), Isp монотоплива.
         make(.rcsBlock, "Блок РСУ «Рой»", .rcs, dry: 0.08, fuel: 0.06, thrust: 2, isp: (100, 240), h: 0.3, w: 1.25),
         make(.m100, "Бак монотоплива М-100", .monoTank, dry: 0.04, fuel: 0.16, h: 0.45, w: 1.25),
+        // Этап 5.2. Боковой разделитель: `w` — толщина плиты (от родителя наружу).
+        make(.decouplerRadial, "Боковой разделитель Р-1", .decoupler, dry: 0.025, h: 0.6, w: 0.25),
+        make(.fairing, "Обтекатель О-1", .fairing, dry: 0.05, h: 1.2, w: 1.25),
+        make(.fairingXL, "Обтекатель О-2", .fairing, dry: 0.15, h: 2.2, w: 2.5),
+        // Стабилизатор: `h` — хорда вдоль оси, `w` — размах наружу.
+        make(.fin, "Стабилизатор С-1", .fin, dry: 0.04, h: 1.0, w: 0.6),
     ]
 
     private static let byID: [PartID: PartSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
@@ -88,16 +108,7 @@ public let chuteFullCdA = 700.0
 
 // MARK: - Проект корабля
 
-/// Корабль как стек деталей сверху вниз. Секции разделены разделителями; нижняя работает первой.
-public struct VesselDesign: Sendable, Hashable, Codable {
-    public var name: String
-    public var parts: [PartID]
-
-    public init(name: String, parts: [PartID]) {
-        self.name = name
-        self.parts = parts
-    }
-
+extension VesselDesign {
     public static let jump = VesselDesign(name: "Прыжок", parts: [.chute, .podK1, .decoupler, .molot])
     public static let orbit = VesselDesign(name: "Орбита", parts: [.chute, .podK1, .decoupler, .t400, .shtil,
                                                                   .decoupler, .t800, .t800, .vikhr])
