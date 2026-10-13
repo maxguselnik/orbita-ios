@@ -221,33 +221,14 @@ enum DemoScenario: String, CaseIterable, Sendable {
                          attitude: Quat(basisX: side, y: nose, z: side.cross(nose)))
     }
 
-    /// Узел перелёта к Луне: ближайшая точка орбиты с гомановской фазой, прогрейд — гомановский,
-    /// доведённый до Пе у Луны ≈ 30 км (`TrajectoryPredictor.tuneLunaPeriapsis`).
+    /// Узел перелёта к Луне (`ManeuverPlanner.plan(.toLuna, …)`): гомановская фаза, Пе у Луны ≈ 30 км.
     static func lunaTransferNode(_ world: WorldSnapshot) -> ManeuverNode {
         guard let v = world.vessels.first(where: { $0.id == world.activeVessel }) else {
             return ManeuverNode(time: world.time + 600)
         }
-        let mu = Bodies.terra.mu
-        let target = TrajectoryPredictor.hohmannLunaPhase(radius: v.position.length)
-        let period = OrbitElements(position: v.position, velocity: v.velocity, mu: mu).period
-        // Фаза за оборот корабля меняется на ~2π; ищем первое приближение к нужной в пределах двух оборотов.
-        let horizon = period.isFinite ? 2 * period : 20_000
-        var best = (dt: 60.0, error: Double.infinity)
-        var dt = 60.0
-        while dt < horizon {
-            let s = Kepler.propagate(position: v.position, velocity: v.velocity, mu: mu, dt: dt)
-            let phase = TrajectoryPredictor.lunaPhase(position: s.position, velocity: s.velocity, time: world.time + dt)
-            let error = abs(remainder(phase - target, 2 * Double.pi))
-            if error < best.error { best = (dt, error) }
-            if error < 0.01 { break }
-            dt += 5
-        }
-        let radius = v.position.length
-        let hohmann = ManeuverNode(time: world.time + best.dt, prograde: TrajectoryPredictor.hohmannLunaDeltaV(radius: radius))
-        // Гоман целит почти в центр Луны: доводим прогрейд до Пе у Луны ≈ 30 км (не вышло — как есть).
-        return TrajectoryPredictor.tuneLunaPeriapsis(node: hohmann, body: v.body,
-                                                     state: StateVector(position: v.position, velocity: v.velocity),
-                                                     time: world.time) ?? hohmann
+        return ManeuverPlanner.plan(.toLuna, body: v.body,
+                                    state: StateVector(position: v.position, velocity: v.velocity),
+                                    time: world.time) ?? ManeuverNode(time: world.time + 600)
     }
 
     /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
