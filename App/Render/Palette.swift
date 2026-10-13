@@ -85,11 +85,12 @@ enum Palette {
 
     /// Небо: u = (1 + sin(возвышение)) / 2; 0.5 — горизонт.
     static let skyRow: [Key] = [
-        Key(u: 0.00, rgb: [0.42, 0.52, 0.64]),
-        Key(u: 0.50, rgb: [0.74, 0.84, 0.95]),
-        Key(u: 0.56, rgb: [0.55, 0.72, 0.92]),
-        Key(u: 0.75, rgb: [0.32, 0.52, 0.86]),
-        Key(u: 1.00, rgb: [0.16, 0.34, 0.74]),
+        Key(u: 0.00, rgb: [0.60, 0.70, 0.80]),
+        Key(u: 0.50, rgb: [0.84, 0.91, 0.97]),
+        Key(u: 0.535, rgb: [0.66, 0.81, 0.96]),
+        Key(u: 0.60, rgb: [0.42, 0.65, 0.94]),
+        Key(u: 0.75, rgb: [0.22, 0.46, 0.86]),
+        Key(u: 1.00, rgb: [0.10, 0.27, 0.70]),
     ]
     /// Звёзды: яркость по u.
     static let starRow: [Key] = [
@@ -305,8 +306,12 @@ enum Palette {
             z += 2.4 * n2 * (1 - smooth(4.5, 6.5, z))
             if h > 0 { z += 0.5 * n3 + (noise - 0.5) * 0.12 }
             // Окрестность площадки (экватор, долгота 0): луга, а не джунгли.
+            // Вокруг площадки — зелёные луга с заплатками степи и рощ (пятна цвета ~ по 600 м).
             let padAngle = acos(clampd(d.x, -1, 1))
-            z += (3.5 - z) * exp(-pow(padAngle / 0.02, 4))
+            let padW = exp(-pow(padAngle / 0.03, 4))
+            z += (4.0 - z) * padW * 0.85
+            if h > 0 { z += (noise - 0.5) * 1.6 * padW }
+            if h > 0 { u += (0.45 - u) * padW * 0.9 }
             if h > 0 { u += (noise - 0.5) * 0.01 }
             let v = 1 - (clampd(z, 0, Double(terraZoneCount - 1)) + 0.5) / Double(terraZoneCount)
             return SIMD2(Float(clampd(u, 0.004, 0.996)), Float(v))

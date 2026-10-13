@@ -99,7 +99,7 @@ final class CloudVisual {
 
     /// Четыре материала: три оттенка плотного клуба и тонкая дымка. Ночью темнее (`shade`).
     private static func cloudMaterials(tex: TextureResource, shade: Float) -> [UnlitMaterial] {
-        let tones: [(Float, Float)] = [(1.0, 0.85), (0.88, 0.85), (0.76, 0.8), (0.95, 0.5)]
+        let tones: [(Float, Float)] = [(1.0, 0.92), (0.86, 0.92), (0.68, 0.9), (0.95, 0.5)]
         return tones.map { tone, opacity in
             let c = CGFloat(0.97 * shade * tone)
             return SoftTextures.material(tex, tint: UIColor(red: c, green: c, blue: min(1, c * 1.03), alpha: 1), opacity: opacity)
@@ -158,9 +158,9 @@ final class CloudVisual {
                     guard dist < rv else { continue }
                     var rng = Rng(s: Self.cellSeed(ix, iy, iz))
                     let alt = r2.squareRoot() - planetR + (rng.next() - 0.5) * size
-                    guard alt >= 2_000, alt <= 12_000 else { continue }
-                    // Больше кучевых низко и слоистых высоко, меньше посередине.
-                    let p = alt < 4_500 ? 0.42 : (alt < 8_000 ? 0.14 : 0.3)
+                    guard alt >= 1_600, alt <= 12_000 else { continue }
+                    // Кучевые на 1.6–3.4 км — реже, но крупными кучами; меньше посередине, слоистые высоко.
+                    let p = alt < 3_400 ? 0.17 : (alt < 4_500 ? 0.12 : (alt < 8_000 ? 0.12 : 0.3))
                     guard rng.next() < p else { continue }
                     candidates.append(Candidate(dist: dist, center: center, altitude: alt, state: rng.s))
                 }
@@ -182,8 +182,8 @@ final class CloudVisual {
             let count: Int
             let spread: Double
             if c.altitude < 5_000 {
-                count = 4 + Int(rng.next() * 3)
-                spread = 700
+                count = 7 + Int(rng.next() * 4)
+                spread = 650
             } else if c.altitude > 8_000 {
                 count = 3
                 spread = 1_600
@@ -196,19 +196,23 @@ final class CloudVisual {
                 break
             }
             for _ in 0..<count {
-                let o1 = (rng.next() - 0.5) * 2 * spread
-                let o2 = (rng.next() - 0.5) * 2 * spread
+                var o1 = (rng.next() - 0.5) * 2 * spread
+                var o2 = (rng.next() - 0.5) * 2 * spread
                 let rise = rng.next()
                 let rx: Double
                 let ry: Double
                 var tone = 0
                 var lift = rise * 350
                 if c.altitude < 5_000 {
-                    // Кучевые: шапка из клубов, верхние светлее.
-                    rx = 380 + rng.next() * 420
-                    ry = rx * (0.62 + rng.next() * 0.2)
+                    // Кучевые: плоское основание, купол из клубов; верх светлый, низ в тени.
+                    rx = 300 + rng.next() * 380 - 150 * rise
+                    ry = rx * (0.70 + rng.next() * 0.2)
                     tone = rise > 0.66 ? 0 : (rise > 0.33 ? 1 : 2)
-                    lift = rise * 450
+                    lift = rise * rise * 600 + ry * 0.4
+                    // Купол: чем выше клуб, тем ближе к центру облака.
+                    let k = 1 - 0.55 * rise
+                    o1 *= k
+                    o2 *= k
                 } else if c.altitude > 8_000 {
                     // Высокие слоистые: широкие плоские мягкие пятна.
                     rx = 1_800 + rng.next() * 1_300

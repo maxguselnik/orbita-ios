@@ -85,17 +85,27 @@ final class SkyVisual {
 
         // Солнце: яркий диск и ореол, лицом к камере.
         var disc = MeshBuilder()
-        disc.disc(radius: Self.sunRadius * 0.012, segments: 32)
-        var halo = MeshBuilder()
-        halo.disc(radius: Self.sunRadius * 0.045, segments: 32)
+        disc.disc(radius: Self.sunRadius * 0.014, segments: 32)
         if let m = disc.makeMesh(name: "sun") {
-            sun.addChild(ModelEntity(mesh: m, materials: [UnlitMaterial(color: UIColor(red: 1, green: 0.97, blue: 0.88, alpha: 1))]))
+            sun.addChild(ModelEntity(mesh: m, materials: [UnlitMaterial(color: UIColor(red: 1, green: 0.98, blue: 0.9, alpha: 1))]))
         }
-        if let m = halo.makeMesh(name: "halo") {
-            var mat = UnlitMaterial(color: UIColor(red: 1, green: 0.85, blue: 0.6, alpha: 1))
-            mat.blending = .transparent(opacity: .init(floatLiteral: 0.18))
+        // Ореол: стопка дисков растущего радиуса с малой непрозрачностью — мягкое свечение без альфа-текстур.
+        let haloSteps: [(r: Float, a: Float, c: UIColor)] = [
+            (0.022, 0.30, UIColor(red: 1, green: 0.95, blue: 0.78, alpha: 1)),
+            (0.036, 0.14, UIColor(red: 1, green: 0.92, blue: 0.72, alpha: 1)),
+            (0.058, 0.09, UIColor(red: 1, green: 0.90, blue: 0.70, alpha: 1)),
+            (0.095, 0.06, UIColor(red: 1, green: 0.90, blue: 0.75, alpha: 1)),
+            (0.150, 0.045, UIColor(red: 1, green: 0.92, blue: 0.82, alpha: 1)),
+            (0.230, 0.035, UIColor(red: 0.98, green: 0.93, blue: 0.88, alpha: 1)),
+        ]
+        for (i, h) in haloSteps.enumerated() {
+            var d = MeshBuilder()
+            d.disc(radius: Self.sunRadius * h.r, segments: 48)
+            guard let m = d.makeMesh(name: "halo\(i)") else { continue }
+            var mat = UnlitMaterial(color: h.c)
+            mat.blending = .transparent(opacity: .init(floatLiteral: h.a))
             let e = ModelEntity(mesh: m, materials: [mat])
-            e.position = F3(0, 0, -Self.sunRadius * 0.01)
+            e.position = F3(0, 0, -Self.sunRadius * 0.002 * Float(i + 1))
             sun.addChild(e)
         }
         let sd = f3(Self.sunDirection)

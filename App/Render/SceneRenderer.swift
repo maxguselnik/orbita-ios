@@ -38,6 +38,7 @@ final class SceneRenderer: FlightRenderer {
     private var exploded: Set<VesselID> = []
     private let atmosphere = AtmosphereVisual()
     private let clouds = CloudVisual()
+    private let backdrop = GroundBackdrop()
     private let cloudShell = CloudShell()
     private let effects = VesselEffects()
     private var governor = QualityGovernor()
@@ -59,6 +60,7 @@ final class SceneRenderer: FlightRenderer {
         flightRoot.addChild(pad.root)
         flightRoot.addChild(atmosphere.root)
         flightRoot.addChild(clouds.root)
+        flightRoot.addChild(backdrop.root)
         flightRoot.addChild(cloudShell.root)
         flightRoot.addChild(effects.root)
         pad.root.isEnabled = false
@@ -160,6 +162,7 @@ final class SceneRenderer: FlightRenderer {
         pad.root.isEnabled = false
         atmosphere.reset()
         clouds.reset()
+        backdrop.reset()
         cloudShell.reset()
         effects.reset()
         shake = CameraShake()
@@ -335,6 +338,7 @@ final class SceneRenderer: FlightRenderer {
             skyBrightness: brightness, sun: SkyVisual.sunDirection, frameBody: frame, quality: quality)
         atmosphere.update(atmo)
         clouds.update(atmo)
+        backdrop.update(atmo)
         cloudShell.update(atmo)
 
         // Эффекты активного корабля: дым, потоки воздуха, конденсация, плазма.
