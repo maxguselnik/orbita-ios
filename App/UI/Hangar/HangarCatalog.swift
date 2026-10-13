@@ -74,6 +74,8 @@ struct PartCard: View {
             .frame(maxWidth: .infinity, minHeight: 52, alignment: .leading)
         }
         .buttonStyle(HUDButtonStyle())
+        .draggable("part:" + spec.id.rawValue)
+        .disabled(isDisabled)
         .opacity(isDisabled ? 0.4 : 1)
         .allowsHitTesting(!isDisabled)
         .accessibilityLabel("Добавить: \(spec.name)")

@@ -38,6 +38,8 @@ final class SceneRenderer: FlightRenderer {
     private var exploded: Set<VesselID> = []
     private let atmosphere = AtmosphereVisual()
     private let clouds = CloudVisual()
+    private let backdrop = GroundBackdrop()
+    private let cloudShell = CloudShell()
     private let effects = VesselEffects()
     private var governor = QualityGovernor()
     private var shake = CameraShake()
@@ -48,6 +50,7 @@ final class SceneRenderer: FlightRenderer {
         camera.camera.fieldOfViewInDegrees = 60
         camera.camera.near = 0.1
         camera.camera.far = Self.flightFar
+        SoftTextures.shared.start()
         root.addChild(camera)
         root.addChild(flightRoot)
         root.addChild(map.root)
@@ -57,26 +60,33 @@ final class SceneRenderer: FlightRenderer {
         flightRoot.addChild(pad.root)
         flightRoot.addChild(atmosphere.root)
         flightRoot.addChild(clouds.root)
+        flightRoot.addChild(backdrop.root)
+        flightRoot.addChild(cloudShell.root)
         flightRoot.addChild(effects.root)
         pad.root.isEnabled = false
 
         Task { [weak self] in
-            let terraTex = await Palette.texture([Palette.terraRow, Palette.terraPolarRow])
-            let lunaTex = await Palette.texture([Palette.lunaRow, Palette.lunaCraterRow])
+            let terraTex = await Palette.terraTexture()
+            let lunaTex = await Palette.lunaTexture()
             guard let self else { return }
-            let terraMat = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1))
-            let lunaMat = Self.terrainMaterial(lunaTex, fallback: UIColor(white: 0.5, alpha: 1))
+            let terraMat = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1),
+                                                roughness: 0.93)
+            let lunaMat = Self.terrainMaterial(lunaTex, fallback: UIColor(white: 0.5, alpha: 1), roughness: 1)
             self.terra.material = terraMat
             self.luna.material = lunaMat
             self.map.setMaterials(terra: terraMat, luna: lunaMat)
+            // Облачный слой готовится дольше палитр: рельеф уже виден.
+            let cloudTex = await CloudShell.makeTexture()
+            self.cloudShell.setTexture(cloudTex)
+            self.map.setCloudTexture(cloudTex)
         }
     }
 
-    private static func terrainMaterial(_ tex: TextureResource?, fallback: UIColor) -> any Material {
+    private static func terrainMaterial(_ tex: TextureResource?, fallback: UIColor, roughness: Float) -> any Material {
         guard let tex else { return SimpleMaterial(color: fallback, roughness: 0.95, isMetallic: false) }
         var m = PhysicallyBasedMaterial()
         m.baseColor = .init(tint: .white, texture: .init(tex))
-        m.roughness = .init(floatLiteral: 0.93)
+        m.roughness = .init(floatLiteral: roughness)
         m.metallic = .init(floatLiteral: 0)
         // Без бликов: иначе по краю диска с орбиты Френель отражает студийное окружение (бежевая «дымка»).
         m.specular = .init(floatLiteral: 0)
@@ -152,6 +162,8 @@ final class SceneRenderer: FlightRenderer {
         pad.root.isEnabled = false
         atmosphere.reset()
         clouds.reset()
+        backdrop.reset()
+        cloudShell.reset()
         effects.reset()
         shake = CameraShake()
         map.reset()
@@ -182,11 +194,9 @@ final class SceneRenderer: FlightRenderer {
         lastActive = active.id
         if switched { effects.reset() }
         rig.setDefaultDistance(max(height * 1.7, 14), snap: switched)
-        if switched {
-            // Высоко над телом — смотреть сверху, чтобы была видна кривизна; у земли — почти горизонтально.
-            let alt = simd_length(pos) - Bodies.body(active.body).radius
-            rig.setDefaultElevation(alt > 30_000 ? 0.45 : 0.12)
-        }
+        // Плавно раскрывать горизонт на подъёме; ручное вращение сохраняется.
+        let altitude = simd_length(pos) - Bodies.body(active.body).radius
+        rig.setDefaultElevation(0.12 + 0.33 * clampd(altitude / 70_000, 0, 1))
 
         let forward: D3, up: D3
         switch cameraMode {
@@ -230,7 +240,9 @@ final class SceneRenderer: FlightRenderer {
             var scale = 1.0
             if b == frame {
                 let nearest = dist - Bodies.body(b).radius
-                let keep = max(30_000, 4 * camToTarget)
+                // Импостор только на большой высоте: рельеф до 150 км рисуется в натуральную величину,
+                // иначе земля у горизонта «ползёт» относительно корабля и эффектов.
+                let keep = max(150_000, 4 * camToTarget)
                 if nearest > keep { scale = keep / nearest }
             } else {
                 scale = min(1, 1.6e6 / dist)
@@ -316,6 +328,7 @@ final class SceneRenderer: FlightRenderer {
             }
         }
         sky.update(up: localUp, brightness: brightness)
+        sky.setFill(luna: frame == .luna)
 
         // Атмосфера Терры: дымка, ореол, облака.
         let terraRel = RenderFrame.bodyCenter(.terra, in: frame, luna: luna) - eye
@@ -325,6 +338,8 @@ final class SceneRenderer: FlightRenderer {
             skyBrightness: brightness, sun: SkyVisual.sunDirection, frameBody: frame, quality: quality)
         atmosphere.update(atmo)
         clouds.update(atmo)
+        backdrop.update(atmo)
+        cloudShell.update(atmo)
 
         // Эффекты активного корабля: дым, потоки воздуха, конденсация, плазма.
         let t = snapshot.telemetry
@@ -347,7 +362,10 @@ final class SceneRenderer: FlightRenderer {
         camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
         camera.camera.fieldOfViewInDegrees = Float(60 + 5 * shake.speedFeel)
         let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)
-        var near = clampd(0.25 * min(toVessel, clearance), 0.05, 1_000)
+        // Ближняя плоскость мала, пока камера у корабля: факел длиной с корабль не должен
+        // обрезаться у камеры; дальность глубины на горизонте для рельефа не критична.
+        var near = clampd(0.08 * min(toVessel, clearance), 0.05, 1_000)
+        if camToTarget < 300 { near = min(near, 0.6) }
         if clearance < 500 { near = min(near, 0.5) }
         camera.camera.near = Float(near)
     }

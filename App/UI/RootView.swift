@@ -24,7 +24,8 @@ struct RootView: View {
                 if let flight {
                     FlightHUDView(model: flight, frameRate: settings.frameRate,
                                   hintsEnabled: settings.hintsEnabled,
-                                  onHangar: exitToHangar)
+                                  onHangar: exitToHangar,
+                                  onTutorial: { flow.startTutorial($0) })
                         .id(flow.flightID)
                 }
             }
@@ -32,6 +33,8 @@ struct RootView: View {
         .background(.black)
         .statusBarHidden()
         .persistentSystemOverlays(.hidden)
+        // Первый свайп снизу показывает индикатор «домой», сворачивает только второй (тяга тянется у нижнего края).
+        .defersSystemGestures(on: .bottom)
         .onAppear {
             if flow.screen == .flight, flight == nil { startFlight() }
         }
@@ -42,7 +45,7 @@ struct RootView: View {
     private func startFlight() {
         let feedback = feedback ?? makeFeedback()
         renderer.reset()
-        let model = FlightHUDModel(makeSimulation: { [flow] in flow.makeSimulation() }, scenario: flow.scenario)
+        let model = FlightHUDModel(makeSimulation: { [flow] in flow.makeSimulation() }, scenario: flow.scenario, tutorial: flow.tutorial)
         model.feedback = feedback
         feedback.recalibrate()
         feedback.setPaused(false)

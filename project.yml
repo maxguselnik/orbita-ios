@@ -48,3 +48,24 @@ targets:
         MARKETING_VERSION: 0.1.0
         CURRENT_PROJECT_VERSION: 1
         ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+  OrbitaTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - AppTests
+    dependencies:
+      - target: Orbita
+      - package: OrbitPhysics
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  Orbita:
+    build:
+      targets:
+        Orbita: all
+        OrbitaTests: [test]
+    test:
+      targets:
+        - OrbitaTests

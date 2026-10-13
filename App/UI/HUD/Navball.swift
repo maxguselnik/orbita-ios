@@ -2,113 +2,13 @@ import OrbitPhysics
 import simd
 import SwiftUI
 
-/// Навбол снизу по центру: шкала скорости/курса (тап — орбита/поверхность), 3D-сфера,
-/// слева от сферы — переключатель режима камеры и плашка узла манёвра.
-struct NavballView: View {
-    let model: FlightHUDModel
-
-    static let diameter: CGFloat = 124
-
-    var body: some View {
-        let t = model.telemetry
-        let frame = model.speedFrame(for: t)
-        VStack(spacing: 4) {
-            NavballReadout(telemetry: t, frame: frame) {
-                model.toggleSpeedFrame()
-            }
-            NavballSphere(telemetry: t, frame: frame)
-                .frame(width: Self.diameter, height: Self.diameter)
-                .overlay(alignment: .bottomLeading) {
-                    // Слева от сферы: плашка узла манёвра (если есть) над кнопкой камеры.
-                    VStack(alignment: .trailing, spacing: 6) {
-                        if let status = t.maneuver {
-                            ManeuverBadge(status: status) { model.toggleMap() }
-                        }
-                        CameraModeButton(model: model)
-                    }
-                    .fixedSize()
-                    .alignmentGuide(.leading) { $0[.trailing] + 12 }
-                }
-        }
-    }
-}
-
-/// Скорость в выбранной системе и курс. Тап — орбита ↔ поверхность.
-struct NavballReadout: View {
-    let telemetry: FlightTelemetry
-    let frame: SpeedFrame
-    let onTap: () -> Void
-
-    var body: some View {
-        let speed = frame == .orbit ? telemetry.speed : telemetry.surfaceSpeed
-        Button(action: onTap) {
-            HStack(spacing: 6) {
-                Text(frame == .orbit ? "ОРБ" : "ПОВ")
-                    .font(.system(size: 10, weight: .heavy))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(frame == .orbit ? HUDStyle.active : NavballPalette.prograde,
-                                in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                Text(HUDFormat.speed(speed))
-                    .font(.system(size: 13, weight: .bold).monospacedDigit())
-                Text(HUDFormat.heading(telemetry.heading))
-                    .font(.system(size: 13, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(HUDStyle.secondaryText)
-            }
-            .foregroundStyle(.white)
-            .lineLimit(1)
-            .padding(.horizontal, 8)
-            .frame(minWidth: 150, minHeight: 30)
-            .hudBackground(corner: 8)
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(frame == .orbit ? "Орбитальная скорость \(HUDFormat.speed(speed))"
-                                            : "Скорость относительно поверхности \(HUDFormat.speed(speed))")
-        .accessibilityHint("Переключить орбита или поверхность")
-    }
-}
-
-/// Кнопка режима камеры: одно нажатие — следующий режим по кругу.
-struct CameraModeButton: View {
-    let model: FlightHUDModel
-
-    static let width: CGFloat = 52
-
-    var body: some View {
-        let mode = model.cameraMode
-        Button {
-            model.cycleCameraMode()
-        } label: {
-            VStack(spacing: 1) {
-                Image(systemName: Self.symbol(mode))
-                    .font(.system(size: 16, weight: .semibold))
-                Text(Self.shortName(mode))
-                    .font(.system(size: 9, weight: .bold))
-                    .lineLimit(1)
-            }
-            .frame(width: Self.width, height: 48)
-        }
-        .buttonStyle(HUDButtonStyle())
-        .accessibilityLabel("Камера: \(Self.fullName(mode))")
-        .accessibilityHint("Переключить режим камеры")
-    }
-
+/// Значки и названия режимов камеры (кнопка в правой колонке).
+enum CameraModeInfo {
     static func symbol(_ mode: CameraMode) -> String {
         switch mode {
         case .free: "rotate.3d"
         case .follow: "scope"
         case .heading: "location.north.line"
-        }
-    }
-
-    static func shortName(_ mode: CameraMode) -> String {
-        switch mode {
-        case .free: "СВОБ"
-        case .follow: "СЛЕД"
-        case .heading: "КУРС"
         }
     }
 
@@ -128,6 +28,8 @@ enum NavballPalette {
     static let normal = Color(red: 0.90, green: 0.45, blue: 1.0)
     static let radial = Color(red: 0.35, green: 0.88, blue: 1.0)
     static let maneuver = Color(red: 0.25, green: 0.55, blue: 1.0)
+    /// Цель помощника подъёма.
+    static let target = Color(red: 1.0, green: 0.85, blue: 0.2)
 }
 
 // MARK: - Сфера
@@ -138,10 +40,13 @@ enum NavballPalette {
 struct NavballSphere: View {
     let telemetry: FlightTelemetry
     let frame: SpeedFrame
+    /// Целевой тангаж помощника подъёма, рад (курс — восток); nil — маркера нет.
+    var targetPitch: Double?
 
     var body: some View {
         let basis = NavballGeometry.Basis(pitch: telemetry.pitch, heading: telemetry.heading, roll: telemetry.roll)
         let markers = Self.markers(telemetry, frame: frame)
+        let target = targetPitch.map { basis.local(NavballGeometry.direction(latitude: $0, heading: AscentGuide.targetHeading)) }
         GeometryReader { geo in
             let r = min(geo.size.width, geo.size.height) / 2
             ZStack {
@@ -161,6 +66,15 @@ struct NavballSphere: View {
                         .frame(width: 20, height: 20)
                         .shadow(color: .black, radius: 1.5)
                         .offset(x: r * CGFloat(marker.vector.x), y: -r * CGFloat(marker.vector.z))
+                }
+
+                if let target, target.y > 0.02 {
+                    Image(systemName: "diamond.fill")
+                        .font(.system(size: 15, weight: .bold))
+                        .foregroundStyle(NavballPalette.target)
+                        .shadow(color: .black, radius: 1.5)
+                        .offset(x: r * CGFloat(target.x), y: -r * CGFloat(target.z))
+                        .accessibilityHidden(true)
                 }
 
                 NoseMarker()

@@ -7,8 +7,7 @@ enum HangarEditing {
     static func add(_ part: PartID, to parts: inout [PartID], selected: Int?) -> Int? {
         guard parts.count < VesselDesign.maxParts else { return nil }
         let at = selected.map { min(max($0 + 1, 0), parts.count) } ?? parts.count
-        parts.insert(part, at: at)
-        return at
+        return VesselAssembly.insert(part, into: &parts, at: at)
     }
 
     /// Поднимает деталь на строку выше; nil — некуда.
@@ -45,9 +44,9 @@ enum HangarEditing {
         return out
     }
 
-    /// Пустой проект с одной капсулой К-1.
+    /// Действительно пустой проект: первую командную деталь выбирает игрок.
     static var cleared: VesselDesign {
-        VesselDesign(name: "Новый корабль", parts: [.podK1])
+        VesselAssembly.empty
     }
 }
 
@@ -77,6 +76,10 @@ enum HangarFormat {
             let isp = "Isp \(Int(spec.ispSeaLevel.rounded()))–\(Int(spec.ispVacuum.rounded())) с"
             return ["Тяга \(thrust(spec.thrustVacuum)) · \(isp)", spec.isSolid
                     ? "РДТТ · \(mass(spec.wetMass))" : mass(spec.wetMass)]
+        case .rcs:
+            return ["Монотопливо \(mass(spec.fuelMass)) · сопла \(thrust(spec.thrustVacuum))", mass(spec.wetMass)]
+        case .monoTank:
+            return ["Монотопливо \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
         case .chute, .decoupler, .legs:
             return [mass(spec.wetMass)]
         }
@@ -112,7 +115,7 @@ enum CatalogTab: CaseIterable, Identifiable {
         case .pods: kind == .pod || kind == .probe
         case .tanks: kind == .tank
         case .engines: kind == .engine
-        case .misc: kind == .chute || kind == .decoupler || kind == .legs
+        case .misc: kind == .chute || kind == .decoupler || kind == .legs || kind == .rcs || kind == .monoTank
         }
     }
 

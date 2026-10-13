@@ -15,6 +15,8 @@ final class HangarScene: HangarPreview {
     private let ship = VesselVisual(parts: [])
     private let markers = Entity()
     private let highlight = Entity()
+    private let attachmentMarker = Entity()
+    private var attachmentIndex = 0
 
     private var parts: [PartID] = []
     private var selected: Int?
@@ -45,6 +47,7 @@ final class HangarScene: HangarPreview {
         ship.root.position = F3(0, Self.baseY, 0)
         root.addChild(markers)
         root.addChild(highlight)
+        root.addChild(attachmentMarker)
         camera.camera.fieldOfViewInDegrees = Self.fovDegrees
         camera.camera.near = 0.3
         camera.camera.far = 600
@@ -90,6 +93,76 @@ final class HangarScene: HangarPreview {
             }
         }
         startAnimating()
+    }
+
+    /// Выбранное крепление подсвечено кольцом, независимо от выделения детали.
+    func markAttachment(_ index: Int) {
+        attachmentIndex = min(max(0, index), parts.count)
+        let radius = Float(parts.isEmpty ? 0.65 : parts[min(attachmentIndex, parts.count - 1)].spec.diameter / 2 + 0.12)
+        var mesh = MeshBuilder()
+        mesh.lathe(ringProfile(inner: radius, outer: radius + 0.08, thickness: 0.06),
+                   segments: 32, y0: Float(attachmentHeight(attachmentIndex)))
+        replaceChildren(of: attachmentMarker, with: mesh.makeMesh(name: "attachment"),
+                        material: UnlitMaterial(color: .cyan))
+    }
+
+    private func attachmentHeight(_ index: Int) -> Double {
+        Double(Self.baseY) + (index == 0 ? stackHeight : bottoms[index - 1])
+    }
+
+    private func project(_ point: F3, viewSize: CGSize) -> CGPoint? {
+        guard viewSize.width > 1, viewSize.height > 1 else { return nil }
+        let local = camera.orientation.inverse.act(point - camera.position)
+        guard local.z < -camera.camera.near else { return nil }
+        let t = tan(Double(Self.fovDegrees) * .pi / 360)
+        let scale = Double(viewSize.height) / (2 * -Double(local.z) * t)
+        return CGPoint(x: Double(viewSize.width) / 2 + Double(local.x) * scale,
+                       y: Double(viewSize.height) / 2 - Double(local.y) * scale)
+    }
+
+    /// Снап к ближайшему креплению при перетаскивании на 3D-превью.
+    func nearestAttachment(at point: CGPoint, viewSize: CGSize) -> Int {
+        var nearest = parts.count
+        var shortest = CGFloat.infinity
+        for index in 0...parts.count {
+            guard let projected = project(F3(0, Float(attachmentHeight(index)), 0), viewSize: viewSize) else { continue }
+            let distance = hypot(projected.x - point.x, projected.y - point.y)
+            if distance < shortest { shortest = distance; nearest = index }
+        }
+        return nearest
+    }
+
+    /// Луч из камеры пересекает габариты деталей. Возвращается ближайшая к камере.
+    func pickPart(at point: CGPoint, viewSize: CGSize) -> Int? {
+        guard viewSize.width > 1, viewSize.height > 1 else { return nil }
+        let t = Float(tan(Double(Self.fovDegrees) * .pi / 360))
+        let x = Float(2 * point.x / viewSize.width - 1) * t * Float(viewSize.width / viewSize.height)
+        let y = Float(1 - 2 * point.y / viewSize.height) * t
+        let ray = simd_normalize(camera.orientation.act(F3(x, y, -1)))
+        let origin = camera.position
+        var nearest = Float.infinity
+        var result: Int?
+        for i in parts.indices {
+            let spec = parts[i].spec
+            let radius = Float(spec.diameter / 2)
+            let y0 = Self.baseY + Float(bottoms[i])
+            let lo = F3(-radius, y0, -radius)
+            let hi = F3(radius, y0 + Float(spec.height), radius)
+            var enter: Float = 0
+            var exit = Float.infinity
+            for axis in 0..<3 {
+                if abs(ray[axis]) < 1e-6 {
+                    if origin[axis] < lo[axis] || origin[axis] > hi[axis] { exit = -1 }
+                } else {
+                    let a = (lo[axis] - origin[axis]) / ray[axis]
+                    let b = (hi[axis] - origin[axis]) / ray[axis]
+                    enter = max(enter, min(a, b))
+                    exit = min(exit, max(a, b))
+                }
+            }
+            if exit >= enter, enter < nearest { nearest = enter; result = i }
+        }
+        return result
     }
 
     // MARK: - Камера

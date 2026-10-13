@@ -1,6 +1,7 @@
 import OrbitPhysics
 import RealityKit
 import simd
+import UIKit
 
 /// 3D-модель корабля: стек деталей сверху вниз, факелы двигателей, купол парашюта.
 /// Корень — нижняя точка стека (`VesselState.position`), ось +Y — нос.
@@ -14,15 +15,24 @@ final class VesselVisual {
     /// Низ каждой детали над низом стека, м (для эффектов: сопла двигателей).
     var partBottoms: [Double] { bottoms }
     /// Полупрозрачный внешний ореол факела поверх непрозрачных слоёв (отключается, если роняет рендер).
-    static var transparentPlumeGlow = true
+    static var transparentPlumeGlow = false
+    /// Мягкий факел: конус с градиентной прозрачностью по длине и светлым ядром. При `false` (или пока
+    /// текстуры не готовы) рисуются прежние непрозрачные слои — запасной путь на случай сбоев рендера.
+    static var softPlume = true
+    private var plumesSoft = false
     private var plumes: [Int: (entity: Entity, outer: ModelEntity, core: ModelEntity, glow: ModelEntity?)] = [:]
     private var canopy: Entity?
+    /// Струйки РСУ: по 20 конусов на блок (4 выступа × 5 слотов, индекс `k * 5 + slot`).
+    static var rcsPuffsEnabled = true
+    private var rcsPuffs: [(partIndex: Int, jets: [ModelEntity])] = []
+    private var rcsLit = false
     private var maxDiameter: Double = 1
 
     /// Радиус ограничивающей сферы вокруг середины стека, м (с куполом — больше).
     private(set) var boundingRadius: Double = 1
 
     init(parts: [PartID]) {
+        SoftTextures.shared.start()
         rebuild(parts)
     }
 
@@ -30,6 +40,8 @@ final class VesselVisual {
         parts = newParts
         for c in Array(root.children) { c.removeFromParent() }
         plumes.removeAll()
+        rcsPuffs.removeAll()
+        rcsLit = false
         canopy = nil
         stackHeight = newParts.reduce(0) { $0 + $1.spec.height }
         maxDiameter = newParts.reduce(0.5) { max($0, $1.spec.diameter) }
@@ -53,6 +65,9 @@ final class VesselVisual {
             if spec.kind == .engine {
                 makePlume(index: i, spec: spec)
             }
+            if spec.kind == .rcs, Self.rcsPuffsEnabled {
+                makeRCSPuffs(index: i)
+            }
             if spec.kind == .chute {
                 makeCanopy(top: bottoms[i] + spec.height)
             }
@@ -62,35 +77,143 @@ final class VesselVisual {
 
     private static var plumeMesh: MeshResource?
     private static var canopyPieces: [PartModels.Piece] = []
+    private static var softOuterMesh: MeshResource?
+    private static var softCoreMesh: MeshResource?
+    private static var softMaterials: (outer: UnlitMaterial, solid: UnlitMaterial, core: UnlitMaterial)?
 
     private static func sharedPlumeMesh() -> MeshResource? {
         if let m = plumeMesh { return m }
         var b = MeshBuilder()
         // Единичный факел: y от 0 (срез сопла) до −1, радиус среза 1.
-        b.lathe([SIMD2(0, -1), SIMD2(0.35, -0.85), SIMD2(0.8, -0.5), SIMD2(1.08, -0.18),
-                 SIMD2(1.0, -0.04), SIMD2(0.9, 0)], segments: 24)
+        b.lathe([SIMD2(0, -1), SIMD2(0.10, -0.9), SIMD2(0.22, -0.65), SIMD2(0.4, -0.3),
+                 SIMD2(0.65, -0.08), SIMD2(0.48, 0)], segments: 24)
         plumeMesh = b.makeMesh(name: "plume")
         return plumeMesh
     }
 
+    /// Мягкие меши и материалы факела; `nil`, пока текстуры не готовы или режим выключен.
+    private static func softPlumeKit() -> (outer: MeshResource, core: MeshResource,
+                                           mats: (outer: UnlitMaterial, solid: UnlitMaterial, core: UnlitMaterial))? {
+        let t = SoftTextures.shared
+        guard softPlume, t.isReady, let tex = t.plumeOuter, let coreTex = t.plumeCore else { return nil }
+        if softOuterMesh == nil {
+            // Профиль от сопла (UV.x = 0) к концу (1): расширяющийся конус, закруглённый кончик.
+            softOuterMesh = SoftMeshes.axialLathe(
+                [SIMD2(0.55, 0), SIMD2(0.80, -0.10), SIMD2(0.78, -0.32), SIMD2(0.58, -0.58),
+                 SIMD2(0.32, -0.82), SIMD2(0.0, -1.0)], segments: 20, name: "plumeSoft")
+            softCoreMesh = SoftMeshes.axialLathe(
+                [SIMD2(0.45, 0), SIMD2(0.62, -0.12), SIMD2(0.55, -0.4), SIMD2(0.32, -0.7),
+                 SIMD2(0.0, -1.0)], segments: 16, name: "plumeCoreSoft")
+        }
+        if softMaterials == nil {
+            softMaterials = (
+                SoftTextures.material(tex, tint: .white, opacity: 0.9),
+                SoftTextures.material(tex, tint: UIColor(red: 1.0, green: 0.95, blue: 0.78, alpha: 1), opacity: 0.95),
+                SoftTextures.material(coreTex, tint: .white, opacity: 1.0))
+        }
+        guard let o = softOuterMesh, let c = softCoreMesh, let m = softMaterials else { return nil }
+        return (o, c, m)
+    }
+
     private func makePlume(index: Int, spec: PartSpec) {
-        guard let mesh = Self.sharedPlumeMesh() else { return }
+        let kit = Self.softPlumeKit()
+        guard let mesh = kit?.outer ?? Self.sharedPlumeMesh() else { return }
         let mats = RenderMaterials.shared
         let e = Entity()
         e.position = F3(0, Float(bottoms[index]), 0)
-        let outer = ModelEntity(mesh: mesh, materials: [spec.isSolid ? mats.plumeSolid : mats.plumeOuter])
-        let core = ModelEntity(mesh: mesh, materials: [mats.plumeCore])
+        let outer: ModelEntity
+        let core: ModelEntity
+        if let kit {
+            outer = ModelEntity(mesh: kit.outer, materials: [spec.isSolid ? kit.mats.solid : kit.mats.outer])
+            core = ModelEntity(mesh: kit.core, materials: [kit.mats.core])
+        } else {
+            outer = ModelEntity(mesh: mesh, materials: [spec.isSolid ? mats.plumeSolid : mats.plumeOuter])
+            core = ModelEntity(mesh: mesh, materials: [mats.plumeCore])
+        }
         e.addChild(outer)
         e.addChild(core)
         var glow: ModelEntity?
-        if Self.transparentPlumeGlow {
+        if kit == nil, Self.transparentPlumeGlow {
             let g = ModelEntity(mesh: mesh, materials: [mats.plumeGlow])
             e.addChild(g)
             glow = g
         }
+        plumesSoft = kit != nil
         e.isEnabled = false
         root.addChild(e)
         plumes[index] = (e, outer, core, glow)
+    }
+
+    private static var rcsPuffMesh: MeshResource?
+    private static var rcsPuffMaterial: UnlitMaterial?
+
+    private func makeRCSPuffs(index: Int) {
+        if Self.rcsPuffMesh == nil {
+            var b = MeshBuilder()
+            // Единичная струйка: от сопла (y = 0) расширяется к y = 1, радиус до 1.
+            b.lathe([SIMD2(0.35, 0), SIMD2(0.7, 0.3), SIMD2(1.0, 0.65), SIMD2(0, 1)], segments: 10)
+            Self.rcsPuffMesh = b.makeMesh(name: "rcsPuff")
+        }
+        if Self.rcsPuffMaterial == nil {
+            var m = UnlitMaterial(color: UIColor(white: 0.96, alpha: 1))
+            m.blending = .transparent(opacity: .init(floatLiteral: 0.55))
+            Self.rcsPuffMaterial = m
+        }
+        guard let mesh = Self.rcsPuffMesh, let mat = Self.rcsPuffMaterial else { return }
+        let holder = Entity()
+        holder.position = F3(0, Float(bottoms[index]), 0)
+        var jets: [ModelEntity] = []
+        for k in 0..<4 {
+            for slot in 0..<5 {
+                let jet = ModelEntity(mesh: mesh, materials: [mat])
+                jet.position = PartModels.rcsExhaustOrigin(block: k, slot: slot)
+                jet.orientation = PartModels.rcsAlign(PartModels.rcsExhaustDir(block: k, slot: slot))
+                jet.isEnabled = false
+                holder.addChild(jet)
+                jets.append(jet)
+            }
+        }
+        root.addChild(holder)
+        rcsPuffs.append((index, jets))
+    }
+
+    /// Струйки РСУ по команде корабля: поступательная (a) и поворотная (rot: x — тангаж, y — крен, z — рыскание).
+    private func updateRCS(_ v: VesselState, time: Double) {
+        let tr = v.rcsTranslation, rot = v.rcsRotation
+        let peak = max(abs(tr.x), abs(tr.y), abs(tr.z), abs(rot.x), abs(rot.y), abs(rot.z))
+        guard peak > 0.02 else {
+            if rcsLit {
+                for set in rcsPuffs { for j in set.jets where j.isEnabled { j.isEnabled = false } }
+                rcsLit = false
+            }
+            return
+        }
+        rcsLit = true
+        for set in rcsPuffs {
+            for k in 0..<4 {
+                let rx = Double(PartModels.rcsRadial[k].x), rz = Double(PartModels.rcsRadial[k].z)
+                // Знак s > 0 — выхлоп вниз: тяга вперёд (+Y), тангаж и рыскание дают разные стороны блоков.
+                let s = tr.y - rz * rot.x + rx * rot.z
+                let values: [Double] = [
+                    max(-s, 0),
+                    max(s, 0),
+                    max(-rx * tr.x, 0) + max(-rz * tr.z, 0),
+                    max(-rot.y, 0),
+                    max(rot.y, 0),
+                ]
+                for slot in 0..<5 {
+                    let jet = set.jets[k * 5 + slot]
+                    let val = clampd(values[slot], 0, 1)
+                    let on = val > 0.03
+                    if jet.isEnabled != on { jet.isEnabled = on }
+                    guard on else { continue }
+                    let flick = 1 + 0.22 * sin(time * 91 + Double(k * 5 + slot) * 1.7 + Double(set.partIndex))
+                    let length = (0.25 + 0.95 * val) * flick
+                    let width = 0.05 * (0.6 + 0.4 * val)
+                    jet.scale = F3(Float(width), Float(length), Float(width))
+                }
+            }
+        }
     }
 
     private func makeCanopy(top: Double) {
@@ -126,6 +249,10 @@ final class VesselVisual {
     func update(_ v: VesselState, relativePosition: D3, pressure: Double, time: Double) {
         root.transform = Transform(scale: .one, rotation: quatf(v.attitude.quatd), translation: f3(relativePosition))
 
+        // Текстуры факела дозагрузились (или режим переключили): пересобрать на мягкий вариант.
+        if Self.softPlume != plumesSoft, !plumes.isEmpty, Self.softPlumeKit() != nil || plumesSoft {
+            rebuild(parts)
+        }
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
             let on = v.firingEngines.contains(i)
@@ -137,17 +264,24 @@ final class VesselVisual {
             let flick = 1 + 0.06 * sin(time * 53 + Double(i)) + 0.04 * sin(time * 97 + 2 * Double(i))
             // Отдельное мерцание ядра: оно «дышит» быстрее оболочки.
             let coreFlick = 1 + 0.09 * sin(time * 71 + 3 * Double(i)) + 0.05 * sin(time * 131 + Double(i))
-            let length = spec.diameter * (spec.isSolid ? 7.5 : 2.5 + 6 * thr) * (1 + 0.7 * vac) * flick
-            let width = re * (1 + 2.2 * vac) * (0.75 + 0.25 * thr)
+            let length = spec.diameter * (spec.isSolid ? 5.0 : 1.2 + 4.0 * thr) * (1 + 0.7 * vac) * flick
+            let width = re * (1 + 0.9 * vac) * (0.4 + 0.6 * sqrt(thr))
             // Непрозрачные слои: широкая оранжевая оболочка короче, узкое светлое ядро длиннее.
-            p.outer.scale = F3(Float(width), Float(length * 0.7), Float(width))
-            let coreW = Float(width * 0.55)
-            p.core.scale = F3(coreW, Float(length * coreFlick), coreW)
+            // Мягкий факел: конус длиннее (конец прозрачный), ядро узкое и яркое.
+            let outerLen = length * (plumesSoft ? 1.15 : 0.7)
+            let coreLen = length * (plumesSoft ? 0.7 : 0.9) * coreFlick
+            p.outer.scale = F3(Float(width), Float(outerLen), Float(width))
+            let coreW = Float(width * (plumesSoft ? 0.5 : 0.55))
+            p.core.scale = F3(coreW, Float(coreLen), coreW)
             // Ореол шире и длиннее оболочки; в вакууме расширяется сильнее.
             if let g = p.glow {
                 let gw = Float(width * (1.35 + 0.5 * vac))
                 g.scale = F3(gw, Float(length * 0.95), gw)
             }
+        }
+
+        if Self.rcsPuffsEnabled, !rcsPuffs.isEmpty {
+            updateRCS(v, time: time)
         }
 
         if let canopy {

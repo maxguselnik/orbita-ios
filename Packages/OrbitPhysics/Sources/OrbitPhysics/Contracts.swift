@@ -24,7 +24,8 @@ public struct ControlInput: Sendable, Hashable, Codable {
     public var pitch: Double
     public var yaw: Double
     public var roll: Double
-    /// Поступательное RCS −1…1 по осям корабля.
+    /// Поступательное RCS −1…1 по осям корабля (x — правый борт, y — нос/вперёд, z — спина/вверх).
+    /// Действует, только когда RCS включено (`FlightCommand.setRCS`) и есть монотопливо.
     public var translation: Vec3
 
     public init(throttle: Double = 0, pitch: Double = 0, yaw: Double = 0, roll: Double = 0, translation: Vec3 = .zero) {
@@ -48,6 +49,9 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     case setManeuver(ManeuverNode?)
     /// Ускорение «на рельсах» до узла: само сбрасывается до ×1 за `ManeuverStatus.warpLead` до начала прожига.
     case warpToManeuver
+    /// Включить/выключить РСУ. Включённое РСУ даёт поступательную тягу по `ControlInput.translation`
+    /// и добавляет момент к повороту (ручному и SAS), расходуя монотопливо.
+    case setRCS(Bool)
 }
 
 // MARK: - Состояние
@@ -81,13 +85,19 @@ public struct VesselState: Sendable, Hashable {
     public var firingEngines: [Int]
     public var chute: ChuteState
     public var chuteDeploy: Double
+    /// Сопла РСУ в этом кадре, оси корабля −1…1: поступательная команда (`translation`)
+    /// и поворотная (`rotation`: x — тангаж, y — крен, z — рыскание со знаком оси +Z).
+    /// Нули — РСУ молчит (выключено, нет топлива или нет команды). Только у активного корабля.
+    public var rcsTranslation: Vec3
+    public var rcsRotation: Vec3
 
     public init(id: VesselID, body: BodyID, position: Vec3, velocity: Vec3,
                 attitude: Quat = .identity, angularVelocity: Vec3 = .zero,
                 mass: Double, throttle: Double = 0,
                 situation: VesselSituation = .prelaunch, isActive: Bool = true,
                 parts: [PartID] = [], firingEngines: [Int] = [],
-                chute: ChuteState = .none, chuteDeploy: Double = 0) {
+                chute: ChuteState = .none, chuteDeploy: Double = 0,
+                rcsTranslation: Vec3 = .zero, rcsRotation: Vec3 = .zero) {
         self.id = id
         self.body = body
         self.position = position
@@ -102,6 +112,8 @@ public struct VesselState: Sendable, Hashable {
         self.firingEngines = firingEngines
         self.chute = chute
         self.chuteDeploy = chuteDeploy
+        self.rcsTranslation = rcsTranslation
+        self.rcsRotation = rcsRotation
     }
 }
 
@@ -132,6 +144,11 @@ public struct OrbitSummary: Sendable, Hashable {
     }
 }
 
+/// Действие следующего нажатия «Ступень», вычисленное симуляцией.
+public enum StageAction: Sendable, Hashable {
+    case ignite, separate, armChute, none
+}
+
 /// Сводка по ступени для HUD и ангара. Индекс 0 — текущая (нижняя) ступень.
 public struct StageInfo: Sendable, Hashable {
     /// Δv ступени, м/с (текущая — по текущему давлению, остальные — вакуум).
@@ -140,21 +157,28 @@ public struct StageInfo: Sendable, Hashable {
     public var twr: Double
     /// Остаток топлива 0…1.
     public var fuelFraction: Double
+    public var fuelMass: Double
+    public var fuelCapacity: Double
     /// Время работы на полной тяге, с.
     public var burnTime: Double
     /// Есть ли РДТТ (нельзя дросселировать).
     public var hasSolid: Bool
+    /// Жидкостные двигатели остаются регулируемыми даже вместе с РДТТ.
+    public var hasLiquidEngine: Bool
 
     /// Тяговооружённость в вакууме.
     public var twrVacuum: Double
 
-    public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool) {
+    public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool, fuelMass: Double = 0, fuelCapacity: Double = 0, hasLiquidEngine: Bool = false) {
         self.deltaV = deltaV
         self.twr = twr
         self.twrVacuum = twrVacuum
+        self.fuelMass = fuelMass
+        self.fuelCapacity = fuelCapacity
         self.fuelFraction = fuelFraction
         self.burnTime = burnTime
         self.hasSolid = hasSolid
+        self.hasLiquidEngine = hasLiquidEngine
     }
 }
 
@@ -222,6 +246,30 @@ public struct MissionRecord: Sendable, Hashable {
         self.lunaOrbit = lunaOrbit
         self.landedLuna = landedLuna
         self.returnedFromSpace = returnedFromSpace
+    }
+}
+
+/// РСУ активного корабля для HUD.
+public struct RCSStatus: Sendable, Hashable {
+    /// Есть ли на корабле блоки РСУ.
+    public var available: Bool
+    /// Включено ли РСУ (команда `setRCS`); сохраняется, даже если блоков нет.
+    public var enabled: Bool
+    /// Монотопливо на всём корабле, кг: остаток и ёмкость.
+    public var monoMass: Double
+    public var monoCapacity: Double
+    /// Сопла работают в этом кадре.
+    public var firing: Bool
+
+    public var monoFraction: Double { monoCapacity > 0 ? monoMass / monoCapacity : 0 }
+
+    public init(available: Bool = false, enabled: Bool = false, monoMass: Double = 0,
+                monoCapacity: Double = 0, firing: Bool = false) {
+        self.available = available
+        self.enabled = enabled
+        self.monoMass = monoMass
+        self.monoCapacity = monoCapacity
+        self.firing = firing
     }
 }
 
@@ -306,6 +354,7 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var warpFactor: Double
     public var missionTime: Double
     /// Оставшиеся ступени по порядку срабатывания: [0] — текущая, последний — капсула.
+    public var nextStageAction: StageAction = .none
     public var stages: [StageInfo]
     /// Текущая суммарная тяга, Н, и максимум при полной тяге.
     public var thrust: Double
@@ -339,6 +388,8 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var mission: MissionRecord
     /// Узел манёвра активного корабля (nil — нет).
     public var maneuver: ManeuverStatus?
+    /// РСУ активного корабля.
+    public var rcs: RCSStatus
 
     public init(altitude: Double = 0, heightAboveTerrain: Double = 0, speed: Double = 0,
                 surfaceSpeed: Double = 0, verticalSpeed: Double = 0, dynamicPressure: Double = 0,
@@ -350,7 +401,7 @@ public struct FlightTelemetry: Sendable, Hashable {
                 staticPressure: Double = 0, pitch: Double = 0, heading: Double = 0, roll: Double = 0,
                 navball: NavballVectors = NavballVectors(), chute: ChuteState = .none, chuteSafe: Bool = false,
                 warpIndex: Int = 0, warpBlocked: WarpResetReason? = nil, mission: MissionRecord = MissionRecord(),
-                maneuver: ManeuverStatus? = nil) {
+                maneuver: ManeuverStatus? = nil, rcs: RCSStatus = RCSStatus()) {
         self.altitude = altitude
         self.heightAboveTerrain = heightAboveTerrain
         self.speed = speed
@@ -382,6 +433,7 @@ public struct FlightTelemetry: Sendable, Hashable {
         self.warpBlocked = warpBlocked
         self.mission = mission
         self.maneuver = maneuver
+        self.rcs = rcs
     }
 }
 
@@ -452,3 +504,11 @@ public protocol FlightSimulation: AnyObject {
     /// Прогноз после узла манёвра; nil — узел невозможен (например, корабль на грунте).
     func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction?
 }
+
+/// Контрольная точка для отката (обучение). Симуляции без поддержки возвращают nil.
+public protocol FlightCheckpointing: AnyObject {
+    func checkpoint() -> SimCheckpoint
+    func restore(_ checkpoint: SimCheckpoint)
+}
+
+extension FlightSim: FlightCheckpointing {}

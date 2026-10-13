@@ -54,6 +54,8 @@ final class MapVisual {
     private var bodiesRequested = false
     private var terraMaterial: (any Material)?
     private var lunaMaterial: (any Material)?
+    private let cloudBody = ModelEntity()
+    private var cloudTime = 0.0
     private var terraMesh: MeshResource?
     private var lunaMesh: MeshResource?
 
@@ -62,6 +64,9 @@ final class MapVisual {
         root.addChild(content)
         root.addChild(stars)
         content.addChild(terraBody)
+        terraBody.addChild(cloudBody)
+        cloudBody.scale = F3(repeating: Float(1 + CloudShell.height / Bodies.terra.radius))
+        cloudBody.isEnabled = false
         content.addChild(lunaGroup)
         lunaGroup.addChild(lunaBody)
         lunaGroup.addChild(soiSphere)
@@ -123,6 +128,13 @@ final class MapVisual {
         terraMaterial = terra
         lunaMaterial = luna
         applyBodyModels()
+    }
+
+    /// Облачный слой Терры на карте (когда текстура готова).
+    func setCloudTexture(_ tex: TextureResource?) {
+        guard let tex, let mesh = CloudShell.unitSphere else { return }
+        cloudBody.model = ModelComponent(mesh: mesh, materials: [CloudShell.material(tex, opacity: 0.75)])
+        cloudBody.isEnabled = true
     }
 
     /// Кубосфера уровня 1 (24 патча рельефа) — один меш тела радиуса 1.
@@ -302,6 +314,8 @@ final class MapVisual {
         content.position = f3(-f)
         let terraRot = RenderFrame.bodyRotation(.terra, terraRotation: s.terraRotation)
         terraBody.orientation = quatf(terraRot)
+        cloudTime += dt
+        cloudBody.orientation = simd_quatf(angle: Float(CloudShell.driftRate * cloudTime), axis: F3(0, 0, 1))
         lunaGroup.position = f3(luna)
         if let active = s.vessels.first(where: { $0.id == s.activeVessel }) ?? s.vessels.first {
             let p = active.position.d3 / MapScale.metersPerUnit + (active.body == .luna ? luna : .zero)

@@ -33,12 +33,12 @@ enum HUDHint: Hashable {
 
     var text: String {
         switch self {
-        case .stage: "Нажмите «Ступень», чтобы запустить двигатели"
-        case .throttle: "Тяга — ползунок слева"
+        case .stage: "Нажмите «Пуск», чтобы запустить двигатели"
+        case .throttle: "Двигатель зажжён: установите тягу MAX слева"
         case .turn: "Плавно наклоняйте на восток (джойстик вправо)"
         case .warp: "Ускорение времени — в верхней панели"
-        case .chute: "Нажмите «Ступень» — раскроется парашют"
-        case .chuteStages: "Нажмите «Ступень» — сначала отделятся ступени, затем парашют"
+        case .chute: "Нажмите «Парашют» — он раскроется при безопасной скорости"
+        case .chuteStages: "Сначала завершите ступени, затем нажмите «Парашют»"
         }
     }
 }
@@ -141,7 +141,7 @@ struct FlightAdvisor {
            t.chute == .stowed, t.chuteSafe {
             // `stages.count` совпадает с числом секций корабля: «Ступень» раскрывает парашют, только когда
             // секция одна (иначе сперва зажигает двигатели или отделяет нижнюю ступень).
-            return t.stages.count > 1 ? .chuteStages : .chute
+            return t.nextStageAction == .armChute ? .chute : (t.nextStageAction == .none ? nil : .chuteStages)
         }
         if t.body == .terra, airborne || t.situation == .orbiting, t.altitude > 70_000, t.warpIndex == 0,
            fresh(.warp, limit: 10) {

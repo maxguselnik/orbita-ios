@@ -4,6 +4,8 @@ import Foundation
 
 public enum PartKind: String, Sendable, Hashable, Codable {
     case pod, probe, chute, decoupler, tank, legs, engine
+    /// Блок РСУ (поступательные и поворотные сопла на монотопливе, свой запас) и бак монотоплива.
+    case rcs, monoTank
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
@@ -11,6 +13,7 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case t100, t200, t400, t800, j64
     case legs
     case shtil, vikhr, titan, molot
+    case rcsBlock, m100
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -22,6 +25,7 @@ public struct PartSpec: Sendable, Hashable {
     public let kind: PartKind
     public let dryMass: Double
     /// Топливо: для баков — жидкое, для РДТТ — твёрдое внутри двигателя.
+    /// Для `.rcs` и `.monoTank` — монотопливо.
     public let fuelMass: Double
     public let thrustVacuum: Double
     public let ispSeaLevel: Double
@@ -69,6 +73,9 @@ public enum PartCatalog {
         make(.vikhr, "«Вихрь»", .engine, dry: 1.5, thrust: 215, isp: (250, 320), h: 1.3, w: 1.25),
         make(.titan, "«Титан»", .engine, dry: 6, thrust: 1630, isp: (285, 310), h: 2.4, w: 2.5),
         make(.molot, "РДТТ «Молот»", .engine, dry: 0.75, fuel: 2.81, thrust: 227, isp: (170, 195), solid: true, h: 3.6, w: 1.25),
+        // Блок РСУ: тяга — на одно направление (сумма сопел), Isp монотоплива.
+        make(.rcsBlock, "Блок РСУ «Рой»", .rcs, dry: 0.08, fuel: 0.06, thrust: 2, isp: (100, 240), h: 0.3, w: 1.25),
+        make(.m100, "Бак монотоплива М-100", .monoTank, dry: 0.04, fuel: 0.16, h: 0.45, w: 1.25),
     ]
 
     private static let byID: [PartID: PartSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
@@ -166,6 +173,21 @@ struct Ship: Sendable, Hashable {
     }
 
     var bottomSection: Range<Int> { sections.last ?? 0..<0 }
+
+    /// Блоки РСУ на корабле.
+    var rcsBlocks: Int { parts.reduce(0) { $0 + ($1.spec.kind == .rcs ? 1 : 0) } }
+    /// Монотопливо всего корабля (общий пул `.rcs` + `.monoTank`) и его ёмкость, кг.
+    var monoMass: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.fuel : 0) } }
+    var monoCapacity: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.spec.fuelMass : 0) } }
+    static func holdsMono(_ k: PartKind) -> Bool { k == .rcs || k == .monoTank }
+
+    /// Забрать `amount` кг монотоплива из общего пула пропорционально остаткам.
+    mutating func drawMono(_ amount: Double) {
+        let total = monoMass
+        guard amount > 0, total > 0 else { return }
+        let k = max(0, 1 - amount / total)
+        for i in parts.indices where Self.holdsMono(parts[i].spec.kind) { parts[i].fuel *= k }
+    }
 
     func liquidFuel(in r: Range<Int>) -> Double {
         r.reduce(0) { $0 + (parts[$1].spec.kind == .tank ? parts[$1].fuel : 0) }
@@ -299,7 +321,7 @@ struct Ship: Sendable, Hashable {
                                  twrVacuum: m0 > 0 && gravity > 0 ? tVac / (m0 * gravity) : 0,
                                  fuelFraction: cap > 0 ? fuel / cap : 0,
                                  burnTime: max(tLiq, tSol),
-                                 hasSolid: hasSolid))
+                                 hasSolid: hasSolid, fuelMass: fuel, fuelCapacity: cap, hasLiquidEngine: hasLiquidEngine))
         }
         return out
     }

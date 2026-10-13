@@ -6,8 +6,16 @@ import OrbitPhysics
 enum DemoScenario: String, CaseIterable, Sendable {
     /// Ангар с проектом «Орбита».
     case hangar
+    /// Ангар без деталей: проверка начала сборки с нуля.
+    case hangarEmpty
     /// На площадке, «Орбита».
     case flight
+    /// Урок «Первый полёт» на площадке (первый шаг).
+    case tutorial
+    /// Урок «Полёт к Луне» на орбите 80 км (первый шаг).
+    case tutorialLuna
+    /// Урок «Все кнопки» на площадке (первый шаг).
+    case tutorialControls
     /// Подъём на автопилоте, около max Q.
     case ascent
     /// Подъём на автопилоте, около 1 Маха (конденсационный конус, тряска).
@@ -16,10 +24,15 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case staging
     /// На орбите 80×74 км.
     case orbit
+    /// На орбите 80×74 км с блоком РСУ: РСУ включено, держится команда «вперёд и вправо» — HUD с поступательным
+    /// джойстиком и струйки сопел в рендере.
+    case rcs
     /// Перелёт к Луне, вход в её сферу влияния.
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
     case lunaSurface
+    /// Посадочный блок в 1.5 км над Луной (свободное падение, касание через ~40 с) при низком Солнце: видны кратеры у места посадки.
+    case lunaDescent
     /// Капсула над площадкой, купол раскрывается в кадре.
     case chute
     /// Капсула на куполе за секунды до касания; затем экран результата.
@@ -34,6 +47,16 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case mapManeuver
     /// Карта при входе в сферу влияния Луны, фокус на Луне.
     case mapLuna
+
+    /// Урок обучения, который открывает сцена.
+    var tutorial: TutorialID? {
+        switch self {
+        case .tutorial: .firstFlight
+        case .tutorialLuna: .toLuna
+        case .tutorialControls: .controls
+        default: nil
+        }
+    }
 
     /// Сцена открывается на карте.
     var opensMap: Bool {
@@ -58,8 +81,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .flight:
+        case .hangar, .hangarEmpty, .flight, .tutorial, .tutorialControls:
             return FlightSim(design: .orbit)
+        case .tutorialLuna:
+            return TutorialID.toLuna.makeSimulation()
         case .ascent:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in sim.time >= 55 }
         case .transonic:
@@ -77,12 +102,17 @@ enum DemoScenario: String, CaseIterable, Sendable {
             return flight
         case .orbit, .map:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .rcs:
+            return ScenarioFlight(design: Self.rcsDesign, goal: .orbit, keepAutopilot: false,
+                                  rcsOn: true, heldTranslation: Vec3(0.6, 1, 0)) { _, ap in ap.isFinished }
         case .lunaApproach, .mapLuna:
             return ScenarioFlight(design: .luna, goal: .lunaEncounter, keepAutopilot: false) { sim, _ in
                 sim.activeBody == .luna
             }
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .lunaDescent:
+            return Self.lunaDescent(height: 1_500, speed: 0)
         case .chute:
             let sim = Self.descent(chute: true, height: 2_500, speed: 120)
             sim.send(.deployChute)
@@ -103,6 +133,11 @@ enum DemoScenario: String, CaseIterable, Sendable {
         }
     }
 
+    /// «Орбита» с блоком РСУ и баком монотоплива под капсулой.
+    private static let rcsDesign = VesselDesign(
+        name: "РСУ",
+        parts: [.chute, .podK1, .rcsBlock, .m100, .decoupler, .t400, .shtil, .decoupler, .t800, .t800, .vikhr])
+
     /// Капсула К-1 (с парашютом или без) над площадкой (≈ 1 км к северу), падает со скоростью `speed`.
     private static func descent(chute: Bool, height: Double, speed: Double) -> FlightSim {
         let design = VesselDesign(name: "Спуск", parts: chute ? [.chute, .podK1] : [.podK1])
@@ -113,6 +148,22 @@ enum DemoScenario: String, CaseIterable, Sendable {
         let east = Vec3.unitZ.cross(up).normalized
         let v = World.surfaceVelocity(body: .terra, position: r) - up * speed
         return FlightSim(design: design, body: .terra, position: r, velocity: v,
+                         attitude: Quat(basisX: east, y: up, z: east.cross(up)))
+    }
+
+    /// Посадочный блок «Луны» над грунтом Луны, Солнце ≈ 17° над горизонтом (тени в кратерах).
+    private static func lunaDescent(height: Double, speed: Double) -> FlightSim {
+        let design = VesselDesign(name: "Посадка", parts: [.chute, .podK1, .t800, .legs, .shtil])
+        // Направление на Солнце — как `SkyVisual.sunDirection` (инерциальная система, неподвижно).
+        let sun = Vec3(0.6, 0.75, 0.3).normalized
+        let side = sun.cross(Vec3.unitZ).normalized
+        let up = (sun * 0.3 + side * 0.954).normalized
+        let fixed = World.toBodyFixed(up, body: .luna, time: 0)
+        let ground = Bodies.luna.radius + Terrain.surfaceHeight(body: .luna, direction: fixed)
+        let r = up * (ground + height)
+        let east = Vec3.unitZ.cross(up).normalized
+        let v = World.surfaceVelocity(body: .luna, position: r) - up * speed
+        return FlightSim(design: design, body: .luna, position: r, velocity: v,
                          attitude: Quat(basisX: east, y: up, z: east.cross(up)))
     }
 
@@ -167,13 +218,18 @@ enum DemoScenario: String, CaseIterable, Sendable {
 }
 
 /// Полёт, прокрученный автопилотом до условия; дальше — по вводу игрока или тем же автопилотом.
-final class ScenarioFlight: FlightSimulation {
+final class ScenarioFlight: FlightSimulation, FlightCheckpointing {
     private let sim: FlightSim
     private let autopilot: Autopilot?
     private var pending = 0.0
+    /// Поступательная команда, которую сцена держит поверх ввода игрока (нули — не переопределять).
+    private let heldTranslation: Vec3
 
+    /// `rcsOn` — включить РСУ после прокрутки; `heldTranslation` — удерживаемая команда РСУ (сцена `rcs`).
     init(design: VesselDesign, goal: Autopilot.Goal, keepAutopilot: Bool,
+         rcsOn: Bool = false, heldTranslation: Vec3 = .zero,
          until done: (FlightSim, Autopilot) -> Bool) {
+        self.heldTranslation = heldTranslation
         sim = FlightSim(design: design)
         let ap = Autopilot(goal: goal)
         while !done(sim, ap) && !ap.isFinished && sim.time < 600_000 {
@@ -184,13 +240,21 @@ final class ScenarioFlight: FlightSimulation {
             sim.send(.setWarp(index: 0))
             sim.setInput(.neutral)
         }
+        if rcsOn { sim.send(.setRCS(true)) }
         autopilot = keepAutopilot ? ap : nil
     }
 
     var snapshot: WorldSnapshot { sim.snapshot }
 
+    /// Откат (обучение) — только когда автопилот уже не ведёт.
+    func checkpoint() -> SimCheckpoint { sim.checkpoint() }
+    func restore(_ checkpoint: SimCheckpoint) { sim.restore(checkpoint) }
+
     func setInput(_ input: ControlInput) {
-        if autopilot?.isFinished ?? true { sim.setInput(input) }
+        guard autopilot?.isFinished ?? true else { return }
+        var held = input
+        if heldTranslation != .zero { held.translation = heldTranslation }
+        sim.setInput(held)
     }
 
     func send(_ command: FlightCommand) {
