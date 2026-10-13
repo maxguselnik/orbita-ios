@@ -36,6 +36,9 @@ final class CrewAssets {
     /// Диагностика загрузки текстур (галерея CI).
     private(set) var failures = 0
     private(set) var lastError = ""
+    /// Сколько текстур начато и какая создаётся сейчас (поиск зависания).
+    private(set) var started = 0
+    private(set) var current = ""
 
     /// Общие текстуры + текстуры персонажа (радужка, нашивка, бирка, голова).
     func prepare(id: String, name: String) async {
@@ -69,10 +72,14 @@ final class CrewAssets {
             lastError = "\(key): нет картинки"
             return
         }
+        // Без мипмапов, как у облаков: текстуры маленькие, а генерация мипмапов на симуляторе может не завершаться.
         var options = TextureResource.CreateOptions(semantic: .color)
-        options.mipmapsMode = .allocateAndGenerateAll
+        options.mipmapsMode = .none
+        started += 1
+        current = key
         do {
             textures[key] = try await TextureResource(image: cg, options: options)
+            current = ""
         } catch {
             failures += 1
             lastError = "\(key): \(error)"

@@ -133,9 +133,14 @@ final class CrewStage {
             if i < slots.count { slots[i] = c } else { slots.append(c) }
             if fresh { c.update(time: t) }
         }
-        let a = CrewAssets.shared
-        info = "места \(slots.count) · текстуры \(a.textureCount) · ошибки \(a.failures) \(a.lastError.prefix(60))"
+        refreshInfo()
 
+    }
+
+    private func refreshInfo() {
+        let a = CrewAssets.shared
+        let next = "места \(slots.count) · текстуры \(a.textureCount)/\(a.started) · сейчас \(a.current) · ошибки \(a.failures) \(a.lastError.prefix(50))"
+        if next != info { info = next }
     }
 
     func start() {
@@ -147,6 +152,7 @@ final class CrewStage {
                 guard let self else { return }
                 let t = self.time
                 for case let c? in self.slots { c.update(time: t) }
+                if Self.showsDiagnostics { self.refreshInfo() }
             }
         }
     }
