@@ -710,6 +710,8 @@ final class FlightHUDModel {
             return "Авария · \(HUDFormat.speed(speed))"
         case .soiChanged(_, let to):
             return "Сфера влияния: \(Bodies.body(to).name)"
+        case .partDestroyed(let part):
+            return "Сгорела деталь: \(part.spec.name)"
         case .warpReset(let reason):
             return "Ускорение сброшено: \(warpReasonText(reason))"
         }

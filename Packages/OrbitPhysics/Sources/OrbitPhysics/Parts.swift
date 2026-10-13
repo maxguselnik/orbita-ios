@@ -6,6 +6,10 @@ public enum PartKind: String, Sendable, Hashable, Codable {
     case pod, probe, chute, decoupler, tank, legs, engine
     /// Блок РСУ (поступательные и поворотные сопла на монотопливе, свой запас) и бак монотоплива.
     case rcs, monoTank
+    /// Обтекатель (снижает сопротивление колонны, которую венчает; сбрасывается ступенью) и стабилизатор.
+    case fairing, fin
+    /// Теплозащитный экран (абляционное покрытие хранится в `fuelMass`).
+    case heatShield
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
@@ -14,6 +18,10 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case legs
     case shtil, vikhr, titan, molot
     case rcsBlock, m100
+    /// Этап 5.2: боковой разделитель, обтекатели 1.25/2.5 м, стабилизатор.
+    case decouplerRadial, fairing, fairingXL, fin
+    /// Теплозащитные экраны 1.25 и 2.5 м.
+    case heatShield, heatShieldXL
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -36,6 +44,26 @@ public struct PartSpec: Sendable, Hashable {
     public let diameter: Double
 
     public var wetMass: Double { dryMass + fuelMass }
+
+    /// Как деталь крепится (контракт 5.2): капсулы, модуль, осевые разделители, парашют, опоры, обтекатели —
+    /// по оси; боковой разделитель и стабилизатор — только сбоку; баки, двигатели, РСУ, монотопливо — как угодно.
+    /// Предел температуры детали, К (5.2): выше — деталь разрушается. Значения — по типу детали (A уточняет).
+    public var maxTemperature: Double {
+        switch kind {
+        case .heatShield: 3300
+        case .pod, .engine, .fairing: 2400
+        case .tank, .decoupler, .monoTank, .fin: 2000
+        case .probe, .chute, .legs, .rcs: 1600
+        }
+    }
+
+    public var mount: PartMount {
+        switch id {
+        case .decouplerRadial, .fin: .radial
+        case .t100, .t200, .t400, .t800, .j64, .shtil, .vikhr, .titan, .molot, .rcsBlock, .m100: .any
+        default: .axial
+        }
+    }
 
     /// Массовый расход на полной тяге, кг/с.
     public var massFlow: Double { ispVacuum > 0 ? thrustVacuum / (ispVacuum * standardGravity) : 0 }
@@ -76,6 +104,15 @@ public enum PartCatalog {
         // Блок РСУ: тяга — на одно направление (сумма сопел), Isp монотоплива.
         make(.rcsBlock, "Блок РСУ «Рой»", .rcs, dry: 0.08, fuel: 0.06, thrust: 2, isp: (100, 240), h: 0.3, w: 1.25),
         make(.m100, "Бак монотоплива М-100", .monoTank, dry: 0.04, fuel: 0.16, h: 0.45, w: 1.25),
+        // Этап 5.2. Боковой разделитель: `w` — толщина плиты (от родителя наружу).
+        make(.decouplerRadial, "Боковой разделитель Р-1", .decoupler, dry: 0.025, h: 0.6, w: 0.25),
+        make(.fairing, "Обтекатель О-1", .fairing, dry: 0.05, h: 1.2, w: 1.25),
+        make(.fairingXL, "Обтекатель О-2", .fairing, dry: 0.15, h: 2.2, w: 2.5),
+        // Стабилизатор: `h` — хорда вдоль оси, `w` — размах наружу.
+        make(.fin, "Стабилизатор С-1", .fin, dry: 0.04, h: 1.0, w: 0.6),
+        // Теплозащитные экраны: `fuel` — абляционное покрытие.
+        make(.heatShield, "Теплозащитный экран Э-1", .heatShield, dry: 0.1, fuel: 0.2, h: 0.2, w: 1.25),
+        make(.heatShieldXL, "Теплозащитный экран Э-2", .heatShield, dry: 0.3, fuel: 0.8, h: 0.3, w: 2.5),
     ]
 
     private static let byID: [PartID: PartSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
@@ -88,22 +125,42 @@ public let chuteFullCdA = 700.0
 
 // MARK: - Проект корабля
 
-/// Корабль как стек деталей сверху вниз. Секции разделены разделителями; нижняя работает первой.
-public struct VesselDesign: Sendable, Hashable, Codable {
-    public var name: String
-    public var parts: [PartID]
-
-    public init(name: String, parts: [PartID]) {
-        self.name = name
-        self.parts = parts
-    }
-
+extension VesselDesign {
     public static let jump = VesselDesign(name: "Прыжок", parts: [.chute, .podK1, .decoupler, .molot])
     public static let orbit = VesselDesign(name: "Орбита", parts: [.chute, .podK1, .decoupler, .t400, .shtil,
                                                                   .decoupler, .t800, .t800, .vikhr])
-    public static let luna = VesselDesign(name: "Луна", parts: [.chute, .podK1, .t800, .legs, .shtil, .decoupler,
-                                                               .t800, .t800, .vikhr, .decouplerXL, .j64, .titan])
-    public static let presets: [VesselDesign] = [jump, orbit, luna]
+    /// «Луна»: капсула с теплозащитным экраном Э-1 отделяется от посадочной ступени перед входом (5.2).
+    public static let luna = VesselDesign(name: "Луна", parts: [.chute, .podK1, .heatShield, .decoupler, .t800, .legs,
+                                                               .shtil, .decoupler, .t800, .t800, .vikhr,
+                                                               .decouplerXL, .j64, .titan])
+    /// «Ускорители»: ядро как у «Орбиты» без средней ступени, два РДТТ «Молот» на боковых разделителях
+    /// с обтекателями сверху, четыре стабилизатора у низа ядра.
+    public static let boosters: VesselDesign = {
+        var n: [DesignPart] = [
+            DesignPart(id: 0, part: .chute, parent: nil),
+            DesignPart(id: 1, part: .podK1, parent: 0),
+            DesignPart(id: 2, part: .decoupler, parent: 1),
+            DesignPart(id: 3, part: .t800, parent: 2),
+            DesignPart(id: 4, part: .t800, parent: 3),
+            DesignPart(id: 5, part: .vikhr, parent: 4),
+        ]
+        for (k, a) in [0.0, 180].enumerated() {
+            let dec = 6 + k, booster = 8 + k
+            n.append(DesignPart(id: dec, part: .decouplerRadial, parent: 4, node: .radial, angle: a, height: 0.5,
+                                symmetryGroup: 0))
+            n.append(DesignPart(id: booster, part: .molot, parent: dec, node: .radial, angle: a, height: 0.5,
+                                symmetryGroup: 1))
+            n.append(DesignPart(id: 10 + k, part: .fairing, parent: booster, node: .top, symmetryGroup: 2))
+        }
+        for (k, a) in [45.0, 135, 225, 315].enumerated() {
+            n.append(DesignPart(id: 12 + k, part: .fin, parent: 4, node: .radial, angle: a, height: 0.15,
+                                symmetryGroup: 3))
+        }
+        var d = VesselDesign(name: "Ускорители", nodes: n)
+        d.normalizeOrder()
+        return d.autoStaged()
+    }()
+    public static let presets: [VesselDesign] = [jump, orbit, luna, boosters]
 
     /// Полная масса, кг.
     public var mass: Double { parts.reduce(0) { $0 + $1.spec.wetMass } }
@@ -114,215 +171,3 @@ public struct VesselDesign: Sendable, Hashable, Codable {
     }
 }
 
-// MARK: - Корабль во время полёта
-
-struct PartInstance: Sendable, Hashable {
-    var id: PartID
-    var fuel: Double
-    var ignited: Bool
-    var spec: PartSpec { id.spec }
-}
-
-/// Тяга и расход нижней секции за шаг.
-struct ThrustResult {
-    var thrust: Double = 0
-    var liquidThrust: Double = 0
-    var solidThrust: Double = 0
-    var maxThrust: Double = 0
-}
-
-struct Ship: Sendable, Hashable {
-    var parts: [PartInstance]
-
-    init(design: VesselDesign) {
-        parts = design.parts.map { PartInstance(id: $0, fuel: $0.spec.fuelMass, ignited: false) }
-    }
-
-    init(parts: [PartInstance]) { self.parts = parts }
-
-    var mass: Double { parts.reduce(0) { $0 + $1.spec.dryMass + $1.fuel } }
-    var length: Double { parts.reduce(0) { $0 + $1.spec.height } }
-    var maxDiameter: Double { parts.reduce(0) { max($0, $1.spec.diameter) } }
-    /// Площадь лобового сопротивления × Cd, м².
-    var dragArea: Double { let w = maxDiameter > 0 ? maxDiameter : 1; return Double.pi * w * w / 4 * 0.5 }
-    var hasChute: Bool { parts.contains { $0.id == .chute } }
-    var hasLegs: Bool { parts.contains { $0.id == .legs } }
-
-    /// Стабильна ли «щитом вперёд» (снизу капсула, парашют или опоры).
-    var retroStable: Bool {
-        guard let last = parts.last else { return false }
-        switch last.spec.kind {
-        case .pod, .probe, .chute, .legs: return true
-        default: return false
-        }
-    }
-
-    /// Допуск посадочной скорости, м/с.
-    var crashTolerance: Double { hasLegs ? 12 : (retroStable ? 9 : 6) }
-
-    /// Секции сверху вниз: диапазоны индексов; разделитель открывает секцию.
-    var sections: [Range<Int>] {
-        var out: [Range<Int>] = []
-        var start = 0
-        for i in parts.indices where i > 0 && parts[i].spec.kind == .decoupler {
-            out.append(start..<i)
-            start = i
-        }
-        if !parts.isEmpty { out.append(start..<parts.count) }
-        return out
-    }
-
-    var bottomSection: Range<Int> { sections.last ?? 0..<0 }
-
-    /// Блоки РСУ на корабле.
-    var rcsBlocks: Int { parts.reduce(0) { $0 + ($1.spec.kind == .rcs ? 1 : 0) } }
-    /// Монотопливо всего корабля (общий пул `.rcs` + `.monoTank`) и его ёмкость, кг.
-    var monoMass: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.fuel : 0) } }
-    var monoCapacity: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.spec.fuelMass : 0) } }
-    static func holdsMono(_ k: PartKind) -> Bool { k == .rcs || k == .monoTank }
-
-    /// Забрать `amount` кг монотоплива из общего пула пропорционально остаткам.
-    mutating func drawMono(_ amount: Double) {
-        let total = monoMass
-        guard amount > 0, total > 0 else { return }
-        let k = max(0, 1 - amount / total)
-        for i in parts.indices where Self.holdsMono(parts[i].spec.kind) { parts[i].fuel *= k }
-    }
-
-    func liquidFuel(in r: Range<Int>) -> Double {
-        r.reduce(0) { $0 + (parts[$1].spec.kind == .tank ? parts[$1].fuel : 0) }
-    }
-
-    /// Работают ли двигатели нижней секции (тяга > 0 при текущем дросселе).
-    func isThrusting(throttle: Double) -> Bool {
-        let r = bottomSection
-        let liq = liquidFuel(in: r)
-        for i in r {
-            let p = parts[i]
-            guard p.spec.kind == .engine, p.ignited else { continue }
-            if p.spec.isSolid ? p.fuel > 0 : (throttle > 0 && liq > 1e-9) { return true }
-        }
-        return false
-    }
-
-    /// Индексы деталей-двигателей, которые сейчас дают тягу (для факела).
-    func firingEngines(throttle: Double) -> [Int] {
-        let r = bottomSection
-        let liq = liquidFuel(in: r)
-        return r.filter { i in
-            let p = parts[i]
-            guard p.spec.kind == .engine, p.ignited else { return false }
-            return p.spec.isSolid ? p.fuel > 0 : (throttle > 0 && liq > 1e-9)
-        }
-    }
-
-    /// Есть ли у зажжённых двигателей нижней секции топливо.
-    func ignitedEnginesHaveFuel() -> (any: Bool, solid: Bool, liquid: Bool) {
-        let r = bottomSection
-        let liq = liquidFuel(in: r)
-        var s = false, l = false
-        for i in r {
-            let p = parts[i]
-            guard p.spec.kind == .engine, p.ignited else { continue }
-            if p.spec.isSolid { if p.fuel > 0 { s = true } } else if liq > 1e-9 { l = true }
-        }
-        return (s || l, s, l)
-    }
-
-    /// Шаг двигателей нижней секции: расход топлива и тяга. `pressure` — относительное давление.
-    mutating func burn(throttle: Double, pressure p: Double, dt: Double) -> ThrustResult {
-        var res = ThrustResult()
-        let r = bottomSection
-        let liq = liquidFuel(in: r)
-        var flow = 0.0
-        for i in r {
-            let spec = parts[i].spec
-            guard spec.kind == .engine, parts[i].ignited else { continue }
-            if spec.isSolid {
-                if parts[i].fuel > 0 {
-                    let t = spec.thrust(pressure: p)
-                    let use = spec.massFlow * dt
-                    let frac = use > parts[i].fuel ? parts[i].fuel / use : 1
-                    res.solidThrust += t * frac
-                    res.maxThrust += t
-                    parts[i].fuel = max(0, parts[i].fuel - use)
-                }
-            } else if liq > 1e-9 {
-                res.maxThrust += spec.thrust(pressure: p)
-                if throttle > 0 {
-                    res.liquidThrust += spec.thrust(pressure: p) * throttle
-                    flow += spec.massFlow * throttle
-                }
-            }
-        }
-        if flow > 0 {
-            var use = flow * dt
-            if use > liq { res.liquidThrust *= liq / use; use = liq }
-            for i in r where parts[i].spec.kind == .tank && parts[i].fuel > 0 {
-                parts[i].fuel = max(0, parts[i].fuel - parts[i].fuel / liq * use)
-            }
-        }
-        res.thrust = res.liquidThrust + res.solidThrust
-        return res
-    }
-
-    /// Максимальная тяга и средний Isp нижней секции при давлении `p` (для прогноза прожига).
-    func currentStagePerformance(pressure p: Double) -> (thrust: Double, isp: Double) {
-        let r = bottomSection
-        let liq = liquidFuel(in: r)
-        var t = 0.0, flow = 0.0
-        for i in r {
-            let p0 = parts[i], spec = p0.spec
-            guard spec.kind == .engine else { continue }
-            if spec.isSolid ? p0.fuel <= 0 : liq <= 1e-9 { continue }
-            t += spec.thrust(pressure: p)
-            flow += spec.massFlow
-        }
-        return (t, flow > 0 ? t / (flow * standardGravity) : 0)
-    }
-
-    /// Сводка по ступеням: [0] — текущая (по давлению `pressure`), остальные — вакуум.
-    func stageInfos(pressure: Double, gravity: Double) -> [StageInfo] {
-        let secs = sections
-        var out: [StageInfo] = []
-        for (k, r) in secs.enumerated().reversed() {
-            let isFirst = k == secs.count - 1
-            let p = isFirst ? pressure : 0
-            let m0 = parts[0..<r.upperBound].reduce(0) { $0 + $1.spec.dryMass + $1.fuel }
-            var liq = 0.0, liqCap = 0.0, sol = 0.0, solCap = 0.0
-            var tl = 0.0, ts = 0.0, tlVac = 0.0, tsVac = 0.0, flowL = 0.0, flowS = 0.0
-            var hasSolid = false, hasLiquidEngine = false
-            for i in r {
-                let pi = parts[i], s = pi.spec
-                if s.kind == .tank { liq += pi.fuel; liqCap += s.fuelMass }
-                if s.kind == .engine {
-                    if s.isSolid {
-                        hasSolid = true
-                        sol += pi.fuel; solCap += s.fuelMass
-                        if pi.fuel > 0 { ts += s.thrust(pressure: p); tsVac += s.thrustVacuum; flowS += s.massFlow }
-                    } else {
-                        hasLiquidEngine = true
-                        tl += s.thrust(pressure: p); tlVac += s.thrustVacuum; flowL += s.massFlow
-                    }
-                }
-            }
-            if !hasLiquidEngine || liq <= 1e-9 { tl = 0; tlVac = 0; flowL = 0 }
-            let fuel = (hasLiquidEngine ? liq : 0) + sol
-            let cap = (hasLiquidEngine ? liqCap : 0) + solCap
-            let t = tl + ts, tVac = tlVac + tsVac
-            let flow = flowL + flowS
-            let isp = flow > 0 ? t / (flow * standardGravity) : 0
-            let dv = isp > 0 && fuel > 0 && m0 > fuel ? isp * standardGravity * log(m0 / (m0 - fuel)) : 0
-            // Время работы: жидкая часть и РДТТ по отдельности, берём большее.
-            let tLiq = flowL > 0 ? (hasLiquidEngine ? liq : 0) / flowL : 0
-            let tSol = flowS > 0 ? sol / flowS : 0
-            out.append(StageInfo(deltaV: dv,
-                                 twr: m0 > 0 && gravity > 0 ? t / (m0 * gravity) : 0,
-                                 twrVacuum: m0 > 0 && gravity > 0 ? tVac / (m0 * gravity) : 0,
-                                 fuelFraction: cap > 0 ? fuel / cap : 0,
-                                 burnTime: max(tLiq, tSol),
-                                 hasSolid: hasSolid, fuelMass: fuel, fuelCapacity: cap, hasLiquidEngine: hasLiquidEngine))
-        }
-        return out
-    }
-}

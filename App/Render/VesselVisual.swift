@@ -3,17 +3,26 @@ import RealityKit
 import simd
 import UIKit
 
-/// 3D-модель корабля: стек деталей сверху вниз, факелы двигателей, купол парашюта.
-/// Корень — нижняя точка стека (`VesselState.position`), ось +Y — нос.
+/// 3D-модель корабля: детали по раскладке (`VesselState.layout`), факелы двигателей, купол парашюта.
+/// Корень — нижняя точка корабля на оси корня (`VesselState.position`), ось +Y — нос.
 @MainActor
 final class VesselVisual {
     let root = Entity()
     private(set) var parts: [PartID] = []
-    /// Высота стека и низ каждой детали над низом стека, м.
+    /// Раскладка деталей, по которой построена модель (для старого стека — собранная из `parts`).
+    private(set) var layout: [PartPlacement] = []
+    /// Размер раскладки, пришедшей снаружи (0 — не было; по нему SceneRenderer узнаёт о пересборке).
+    private(set) var sourceLayoutCount = 0
+    /// Высота корабля (верх самой высокой детали над самой нижней точкой), м.
     private(set) var stackHeight: Double = 0
-    private var bottoms: [Double] = []
-    /// Низ каждой детали над низом стека, м (для эффектов: сопла двигателей).
-    var partBottoms: [Double] { bottoms }
+    /// Середина габарита по высоте над самой нижней точкой, м.
+    private(set) var centerY: Double = 0
+    /// Наибольший вынос деталей от оси корня с учётом их размера, м (ширина корабля = 2 ×).
+    private(set) var halfWidth: Double = 0.5
+    /// Центр габарита в плоскости XZ (оси корабля), м.
+    private(set) var centerXZ = SIMD2<Double>(0, 0)
+    /// Срез сопел двигателей в осях корабля, м: индекс детали → точка (для дыма и пыли у сопел).
+    private(set) var nozzlePositions: [Int: D3] = [:]
     /// Полупрозрачный внешний ореол факела поверх непрозрачных слоёв (отключается, если роняет рендер).
     static var transparentPlumeGlow = false
     /// Мягкий факел: конус с градиентной прозрачностью по длине и светлым ядром. При `false` (или пока
@@ -28,50 +37,242 @@ final class VesselVisual {
     private var rcsLit = false
     private var maxDiameter: Double = 1
 
-    /// Радиус ограничивающей сферы вокруг середины стека, м (с куполом — больше).
-    private(set) var boundingRadius: Double = 1
+    // Нагрев деталей: ступенчатый уровень свечения (0 — холодная) и кэш материалов по уровням.
+    private static let heatSteps = 8
+    private static let heatStart = 0.4
+    private var heatLevels: [Int] = []
+    private static var heatMaterials: [UnlitMaterial] = []
+    /// Последний известный нагрев деталей (по нему при разрушении ищется самая горячая из одноимённых).
+    private var lastHeat: [Double] = []
+    // Вспышки разрушения деталей: общий корень (переживает пересборку), ожидающие и идущие.
+    private let flashRoot = Entity()
+    private var pendingFlashes: [(position: F3, size: Float)] = []
+    private var flashes: [(entity: ModelEntity, start: Double, size: Float)] = []
+    private static var flashMesh: MeshResource?
+    private static var flashMaterial: UnlitMaterial?
+    private static let flashLife = 0.6
+    /// Меши каждой детали (для призрака) и применённый к детали призрак: nil — обычный вид.
+    private var holders: [[ModelEntity]] = []
+    private var ghostApplied: [Int: Bool] = [:]
+    private var originalMaterials: [ObjectIdentifier: [any Material]] = [:]
+    private static var ghostMaterials: (valid: UnlitMaterial, invalid: UnlitMaterial)?
 
-    init(parts: [PartID]) {
-        SoftTextures.shared.start()
-        rebuild(parts)
+    /// Полупрозрачный материал призрака: зелёный (можно) или красный (нельзя).
+    static func ghostMaterial(valid: Bool) -> UnlitMaterial {
+        if ghostMaterials == nil {
+            func make(_ c: UIColor) -> UnlitMaterial {
+                var m = UnlitMaterial(color: c)
+                m.blending = .transparent(opacity: .init(floatLiteral: 0.5))
+                return m
+            }
+            ghostMaterials = (make(UIColor(red: 0.25, green: 0.9, blue: 0.4, alpha: 1)),
+                              make(UIColor(red: 0.95, green: 0.25, blue: 0.2, alpha: 1)))
+        }
+        guard let g = ghostMaterials else { return UnlitMaterial() }
+        return valid ? g.valid : g.invalid
     }
 
-    func rebuild(_ newParts: [PartID]) {
+    /// Цвет свечения для уровня 1…8: тёмно-красный → оранжевый → бело-жёлтый.
+    private static func heatMaterial(level: Int) -> UnlitMaterial {
+        if heatMaterials.isEmpty {
+            for l in 1...heatSteps {
+                let t = Float(l - 1) / Float(heatSteps - 1)
+                let c: (Float, Float, Float)
+                if t < 0.5 {
+                    let k = t / 0.5
+                    c = (0.35 + 0.65 * k, 0.04 + 0.41 * k, 0.02 + 0.06 * k)
+                } else {
+                    let k = (t - 0.5) / 0.5
+                    c = (1.0, 0.45 + 0.5 * k, 0.08 + 0.62 * k)
+                }
+                heatMaterials.append(UnlitMaterial(color: UIColor(red: CGFloat(c.0), green: CGFloat(c.1),
+                                                                  blue: CGFloat(c.2), alpha: 1)))
+            }
+        }
+        return heatMaterials[min(max(level, 1), heatSteps) - 1]
+    }
+
+    /// Свечение деталей по `partHeat`: материал меняется только при смене уровня-ступеньки.
+    private func updateHeat(_ heat: [Double]) {
+        lastHeat = heat
+        let usable = heat.count == holders.count
+        if heatLevels.count != holders.count { heatLevels = Array(repeating: 0, count: holders.count) }
+        for i in holders.indices {
+            var level = 0
+            if usable, heat[i] > Self.heatStart {
+                let t = min(1, (heat[i] - Self.heatStart) / (1 - Self.heatStart))
+                level = max(1, Int((t * Double(Self.heatSteps)).rounded(.up)))
+            }
+            guard heatLevels[i] != level, ghostApplied[i] == nil else { continue }
+            heatLevels[i] = level
+            for m in holders[i] {
+                let key = ObjectIdentifier(m)
+                if level > 0 {
+                    if originalMaterials[key] == nil { originalMaterials[key] = m.model?.materials ?? [] }
+                    m.model?.materials = [Self.heatMaterial(level: level)]
+                } else if let orig = originalMaterials[key] {
+                    m.model?.materials = orig
+                }
+            }
+        }
+    }
+
+    /// Деталь `id` разрушена: вспышка на месте самой горячей из одноимённых (вызывать до пересборки).
+    func flash(part id: PartID) {
+        func heat(_ i: Int) -> Double { i < lastHeat.count ? lastHeat[i] : 0 }
+        let best = parts.indices.filter { parts[$0] == id }.max { heat($0) < heat($1) }
+        guard let i = best, layout.indices.contains(i) else { return }
+        let p = layout[i]
+        pendingFlashes.append((F3(Float(p.center.x), Float(p.center.y), Float(p.center.z)),
+                               Float(max(p.diameter, p.height) * 0.9)))
+    }
+
+    private func updateFlashes(time: Double) {
+        if !pendingFlashes.isEmpty {
+            if Self.flashMesh == nil { Self.flashMesh = MeshResource.generateSphere(radius: 1) }
+            if Self.flashMaterial == nil { Self.flashMaterial = UnlitMaterial(color: UIColor(red: 1, green: 0.8, blue: 0.4, alpha: 1)) }
+            if let mesh = Self.flashMesh, let mat = Self.flashMaterial {
+                for f in pendingFlashes {
+                    let e = ModelEntity(mesh: mesh, materials: [mat])
+                    e.position = f.position
+                    e.scale = .zero
+                    flashRoot.addChild(e)
+                    flashes.append((e, time, f.size))
+                }
+            }
+            pendingFlashes.removeAll()
+        }
+        guard !flashes.isEmpty else { return }
+        var alive: [(entity: ModelEntity, start: Double, size: Float)] = []
+        for f in flashes {
+            let t = (time - f.start) / Self.flashLife
+            if t >= 1 || t < 0 {
+                f.entity.removeFromParent()
+                continue
+            }
+            // Быстро вспыхивает и сжимается до нуля.
+            let k = Float(t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75)
+            f.entity.scale = F3(repeating: f.size * (0.4 + 0.9 * Float(t)) * max(k, 0))
+            alive.append(f)
+        }
+        flashes = alive
+    }
+
+    /// Детали с индексами `indices` рисуются призраком (`valid` — цвет); остальные — обычно. Меняются только отличия.
+    func setGhost(_ indices: Set<Int>, valid: Bool) {
+        for i in holders.indices {
+            let want: Bool? = indices.contains(i) ? valid : nil
+            guard ghostApplied[i] != want else { continue }
+            ghostApplied[i] = want
+            for m in holders[i] {
+                let key = ObjectIdentifier(m)
+                if let want {
+                    if originalMaterials[key] == nil { originalMaterials[key] = m.model?.materials ?? [] }
+                    m.model?.materials = [Self.ghostMaterial(valid: want)]
+                } else if let orig = originalMaterials[key] {
+                    m.model?.materials = orig
+                }
+            }
+        }
+    }
+
+    /// Радиус ограничивающей сферы вокруг середины габарита, м (с куполом — больше).
+    private(set) var boundingRadius: Double = 1
+
+    init(parts: [PartID], layout: [PartPlacement] = []) {
+        SoftTextures.shared.start()
+        root.addChild(flashRoot)
+        rebuild(parts: parts, layout: layout)
+    }
+
+    /// Раскладка старого стека: детали сверху вниз на оси, вплотную.
+    static func stackLayout(_ parts: [PartID]) -> [PartPlacement] {
+        var top = parts.reduce(0) { $0 + $1.spec.height }
+        return parts.map { id in
+            let spec = id.spec
+            top -= spec.height
+            return PartPlacement(center: Vec3(0, top + spec.height / 2, 0), height: spec.height, diameter: spec.diameter)
+        }
+    }
+
+    /// Пересборка по `parts` и раскладке `newLayout`; если размеры не совпали — прежний стек сверху вниз.
+    func rebuild(parts newParts: [PartID], layout newLayout: [PartPlacement]) {
         parts = newParts
-        for c in Array(root.children) { c.removeFromParent() }
+        sourceLayoutCount = newLayout.count
+        let lay = newLayout.count == newParts.count ? newLayout : Self.stackLayout(newParts)
+        layout = lay
+        for c in Array(root.children) where c !== flashRoot { c.removeFromParent() }
+        heatLevels.removeAll()
         plumes.removeAll()
         rcsPuffs.removeAll()
+        nozzlePositions.removeAll()
+        originalMaterials.removeAll()
         rcsLit = false
         canopy = nil
-        stackHeight = newParts.reduce(0) { $0 + $1.spec.height }
-        maxDiameter = newParts.reduce(0.5) { max($0, $1.spec.diameter) }
-        bottoms = []
-        var top = stackHeight
-        for id in newParts {
-            top -= id.spec.height
-            bottoms.append(top)
+
+        let low = lay.map(\.lowest).min() ?? 0
+        let high = lay.map { $0.top + ($0.shroud?.height ?? 0) }.max() ?? 0
+        stackHeight = max(0, high)
+        centerY = (high + low) / 2
+        var minX = Double.infinity, maxX = -Double.infinity, minZ = Double.infinity, maxZ = -Double.infinity
+        var reach = 0.25
+        for p in lay {
+            let r = max(p.diameter, p.shroud.map { max($0.bottomDiameter, $0.topDiameter) } ?? 0) / 2
+            minX = min(minX, p.center.x - r); maxX = max(maxX, p.center.x + r)
+            minZ = min(minZ, p.center.z - r); maxZ = max(maxZ, p.center.z + r)
+            reach = max(reach, hypot(p.center.x, p.center.z) + r)
         }
+        centerXZ = lay.isEmpty ? .zero : SIMD2((minX + maxX) / 2, (minZ + maxZ) / 2)
+        halfWidth = reach
+        maxDiameter = max(0.5, 2 * reach)
+
+        holders = []
         for (i, id) in newParts.enumerated() {
             let spec = id.spec
+            let pl = lay[i]
+            let q = PartModels.placementRotation(pl)
+            let center = F3(Float(pl.center.x), Float(pl.center.y), Float(pl.center.z))
+            let half = Float(pl.height / 2)
+            // Низ и верх детали в осях корабля (вращение вокруг центра детали).
+            let bottomPoint = center + q.act(F3(0, -half, 0))
+            let topPoint = center + q.act(F3(0, half, 0))
+            // Держатель — в центре детали, модель внутри опущена на полвысоты: поворот идёт вокруг центра.
             let holder = Entity()
-            holder.position = F3(0, Float(bottoms[i]), 0)
+            holder.position = center
+            holder.orientation = q
+            let inner = Entity()
+            inner.position = F3(0, -half, 0)
+            holder.addChild(inner)
             root.addChild(holder)
             let pieces = spec.kind == .legs
-                ? PartModels.pieces(id) + PartModels.legs(diameter: spec.diameter, height: spec.height, drop: bottoms[i])
+                ? PartModels.pieces(id) + PartModels.legs(diameter: spec.diameter, height: spec.height,
+                                                          drop: max(0, pl.bottom))
                 : PartModels.pieces(id)
-            for p in pieces {
-                holder.addChild(ModelEntity(mesh: p.mesh, materials: [p.material]))
+            var models: [ModelEntity] = []
+            // Переходный кожух разделителя: часть держателя, улетает вместе с ним.
+            var shroudPieces: [PartModels.Piece] = []
+            if let sh = pl.shroud {
+                shroudPieces = PartModels.shroud(base: spec.height, height: sh.height,
+                                                 bottomDiameter: sh.bottomDiameter, topDiameter: sh.topDiameter)
             }
+            for p in pieces + shroudPieces {
+                let m = ModelEntity(mesh: p.mesh, materials: [p.material])
+                inner.addChild(m)
+                models.append(m)
+            }
+            holders.append(models)
             if spec.kind == .engine {
-                makePlume(index: i, spec: spec)
+                nozzlePositions[i] = D3(Double(bottomPoint.x), Double(bottomPoint.y), Double(bottomPoint.z))
+                makePlume(index: i, spec: spec, at: bottomPoint, rotation: q)
             }
             if spec.kind == .rcs, Self.rcsPuffsEnabled {
-                makeRCSPuffs(index: i)
+                makeRCSPuffs(index: i, at: bottomPoint)
             }
             if spec.kind == .chute {
-                makeCanopy(top: bottoms[i] + spec.height)
+                makeCanopy(at: topPoint)
             }
         }
+        ghostApplied.removeAll()
         boundingRadius = stackHeight / 2 + maxDiameter
     }
 
@@ -115,12 +316,13 @@ final class VesselVisual {
         return (o, c, m)
     }
 
-    private func makePlume(index: Int, spec: PartSpec) {
+    private func makePlume(index: Int, spec: PartSpec, at origin: F3, rotation: simd_quatf) {
         let kit = Self.softPlumeKit()
         guard let mesh = kit?.outer ?? Self.sharedPlumeMesh() else { return }
         let mats = RenderMaterials.shared
         let e = Entity()
-        e.position = F3(0, Float(bottoms[index]), 0)
+        e.position = origin
+        e.orientation = rotation
         let outer: ModelEntity
         let core: ModelEntity
         if let kit {
@@ -147,7 +349,7 @@ final class VesselVisual {
     private static var rcsPuffMesh: MeshResource?
     private static var rcsPuffMaterial: UnlitMaterial?
 
-    private func makeRCSPuffs(index: Int) {
+    private func makeRCSPuffs(index: Int, at origin: F3) {
         if Self.rcsPuffMesh == nil {
             var b = MeshBuilder()
             // Единичная струйка: от сопла (y = 0) расширяется к y = 1, радиус до 1.
@@ -161,7 +363,7 @@ final class VesselVisual {
         }
         guard let mesh = Self.rcsPuffMesh, let mat = Self.rcsPuffMaterial else { return }
         let holder = Entity()
-        holder.position = F3(0, Float(bottoms[index]), 0)
+        holder.position = origin
         var jets: [ModelEntity] = []
         for k in 0..<4 {
             for slot in 0..<5 {
@@ -216,7 +418,7 @@ final class VesselVisual {
         }
     }
 
-    private func makeCanopy(top: Double) {
+    private func makeCanopy(at top: F3) {
         if Self.canopyPieces.isEmpty {
             let mats = RenderMaterials.shared
             var prof: [SIMD2<Float>] = []
@@ -238,7 +440,7 @@ final class VesselVisual {
             }
         }
         let e = Entity()
-        e.position = F3(0, Float(top), 0)
+        e.position = top
         for p in Self.canopyPieces { e.addChild(ModelEntity(mesh: p.mesh, materials: [p.material])) }
         e.isEnabled = false
         root.addChild(e)
@@ -251,8 +453,10 @@ final class VesselVisual {
 
         // Текстуры факела дозагрузились (или режим переключили): пересобрать на мягкий вариант.
         if Self.softPlume != plumesSoft, !plumes.isEmpty, Self.softPlumeKit() != nil || plumesSoft {
-            rebuild(parts)
+            rebuild(parts: parts, layout: sourceLayoutCount == parts.count ? layout : [])
         }
+        updateHeat(v.partHeat)
+        updateFlashes(time: time)
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
             let on = v.firingEngines.contains(i)

@@ -63,6 +63,53 @@ enum PartModels {
 
     private static let seg = 32
 
+    private static var shroudCache: [String: [Piece]] = [:]
+
+    /// Переходный кожух разделителя: полый усечённый конус от `base` (верх разделителя) вверх на `height`;
+    /// диаметр снизу/сверху — `bottomDiameter`/`topDiameter`. Двусторонний (сопло внутри не просвечивает),
+    /// торцы открыты, по низу тёмная полоса. Оси — детали, низ детали — y = 0.
+    static func shroud(base: Double, height: Double, bottomDiameter: Double, topDiameter: Double) -> [Piece] {
+        let key = "\(base)|\(height)|\(bottomDiameter)|\(topDiameter)"
+        if let c = shroudCache[key] { return c }
+        let mats = RenderMaterials.shared
+        let y0 = Float(base), y1 = Float(base + height)
+        let r0 = Float(bottomDiameter / 2), r1 = Float(topDiameter / 2)
+        var cone = MeshBuilder()
+        cone.lathe([SIMD2(r0, y0), SIMD2(r1, y1)], segments: seg, twoSided: true)
+        let bandH = min(Float(height) * 0.12, 0.15)
+        let rb = r0 + (r1 - r0) * (bandH / max(Float(height), 1e-3))
+        var band = MeshBuilder()
+        band.lathe([SIMD2(r0 * 1.01, y0), SIMD2(rb * 1.01, y0 + bandH)], segments: seg, twoSided: true)
+        var out: [Piece] = []
+        if let m = cone.makeMesh(name: "shroud") { out.append((m, mats.darkGray)) }
+        if let m = band.makeMesh(name: "shroudBand") { out.append((m, mats.black)) }
+        shroudCache[key] = out
+        return out
+    }
+
+    /// Ширина (по касательной) плиты бокового разделителя, м.
+    static let radialPlateWidth: Float = 0.45
+
+    /// Модель строится в осях «наружу — +X» и поворачивается вокруг Y: только у деталей с направлением.
+    static func rotatesWithOutward(_ id: PartID) -> Bool { id == .fin || id == .decouplerRadial }
+
+    /// Поворот детали: оси детали → оси корабля. Единственное место, где читается ориентация детали.
+    /// Поворот модели детали: `orientation` из физики (оси детали → оси корабля) и, у боковых, азимут вокруг
+    /// собственной оси, чтобы локальный +X модели смотрел по `outward`.
+    static func placementRotation(_ p: PartPlacement) -> simd_quatf {
+        let o = p.orientation
+        let q = simd_quatf(ix: Float(o.x), iy: Float(o.y), iz: Float(o.z), r: Float(o.w))
+        guard p.outward.x * p.outward.x + p.outward.y * p.outward.y + p.outward.z * p.outward.z > 1e-9 else { return q }
+        let local = o.conjugate.rotate(p.outward)
+        return q * simd_quatf(angle: yaw(outward: local), axis: F3(0, 1, 0))
+    }
+
+    /// Угол поворота вокруг +Y, переводящий +X в `outward` (в RealityKit поворот на θ уводит +X в (cosθ, 0, −sinθ)).
+    static func yaw(outward o: Vec3) -> Float {
+        guard o.x * o.x + o.z * o.z > 1e-9 else { return 0 }
+        return Float(-atan2(o.z, o.x))
+    }
+
     private static func cyl(_ r: Float, _ y0: Float, _ y1: Float, caps: Bool = true) -> [SIMD2<Float>] {
         caps ? [SIMD2(0, y0), SIMD2(r, y0), SIMD2(r, y1), SIMD2(0, y1)] : [SIMD2(r, y0), SIMD2(r, y1)]
     }
@@ -109,6 +156,18 @@ enum PartModels {
             let base = lathe(cyl(r, 0, 0.3 * h))
             let cap = lathe([SIMD2(r, 0.3 * h), SIMD2(r, 0.55 * h), SIMD2(r * 0.75, h), SIMD2(0, h)])
             return [(base, mats.darkGray), (cap, mats.red)]
+        case .decoupler where id == .decouplerRadial:
+            // Плита-кронштейн: модель в осях «наружу — +X», центр по X в середине плиты, низ по Y — 0.
+            let w = radialPlateWidth
+            var plate = MeshBuilder()
+            plate.box(center: F3(0, h / 2, 0), x: F3(d / 2, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, w / 2))
+            var band = MeshBuilder()
+            band.box(center: F3(0, h / 2, 0), x: F3(d / 2 * 1.04, 0, 0), y: F3(0, 0.14 * h, 0), z: F3(0, 0, w / 2 * 1.04))
+            var bolts = MeshBuilder()
+            for sy: Float in [0.18, 0.82] {
+                bolts.box(center: F3(0, sy * h, 0), x: F3(d / 2 * 1.06, 0, 0), y: F3(0, 0.05 * h, 0), z: F3(0, 0, 0.05 * w))
+            }
+            return [(plate, mats.darkGray), (band, mats.orange), (bolts, mats.metal)]
         case .decoupler:
             let ring = lathe(cyl(r, 0, h))
             let band = lathe(cyl(r * 1.01, 0.35 * h, 0.65 * h, caps: false))
@@ -163,6 +222,35 @@ enum PartModels {
                 }
             }
             return [(ring, mats.darkGray), (band, mats.yellow), (pods, mats.white), (nozzles, mats.darkMetal)]
+        case .heatShield:
+            // Низкая выпуклая чаша днищем вниз: абляционное покрытие, кромка-кольцо по краю.
+            var prof: [SIMD2<Float>] = []
+            for i in 0...8 {
+                let rho = Float(i) / 8 * 0.97
+                prof.append(SIMD2(r * rho, 0.55 * h * pow(rho, 2.2)))
+            }
+            prof += [SIMD2(r, 0.55 * h), SIMD2(r, h), SIMD2(0, h)]
+            let dish = lathe(prof)
+            let rim = lathe(cyl(r * 1.012, 0.58 * h, 0.9 * h, caps: false))
+            let edge = lathe(cyl(r * 1.006, 0.9 * h, h, caps: false))
+            return [(dish, mats.shield), (rim, mats.orange), (edge, mats.darkGray)]
+        case .fairing:
+            // Оживальный нос: цилиндрический поясок у основания и выпуклый контур к острой вершине.
+            var prof: [SIMD2<Float>] = [SIMD2(0, 0), SIMD2(r, 0), SIMD2(r, 0.18 * h)]
+            for i in 1...10 {
+                let t = Float(i) / 10
+                prof.append(SIMD2(r * (1 - t) * (1 + 0.9 * t), 0.18 * h + 0.82 * h * t))
+            }
+            let shell = lathe(prof)
+            let band = lathe(cyl(r * 1.012, 0.02 * h, 0.09 * h, caps: false))
+            let seam = lathe(cyl(r * 1.006, 0.17 * h, 0.2 * h, caps: false))
+            return [(shell, mats.white), (band, mats.orange), (seam, mats.darkGray)]
+        case .fin:
+            // Трапециевидное перо: корень (x = −d/2) на всю хорду h, кромка (x = +d/2) короче и сдвинута вниз.
+            let poly: [SIMD2<Float>] = [SIMD2(-r, 0), SIMD2(-r, h), SIMD2(r, 0.42 * h), SIMD2(r, 0)]
+            var fin = MeshBuilder()
+            fin.prism(poly, halfThickness: 0.025)
+            return [(fin, mats.orange)]
         case .monoTank:
             let body = lathe([SIMD2(0, 0), SIMD2(r * 0.88, 0), SIMD2(r, 0.13 * h), SIMD2(r, 0.87 * h),
                               SIMD2(r * 0.88, h), SIMD2(0, h)])

@@ -79,9 +79,11 @@ public struct VesselState: Sendable, Hashable {
     public var situation: VesselSituation
     /// Активен ли (интегрируется численно) или «на рельсах».
     public var isActive: Bool
-    /// Детали сверху вниз (для рендера), индексы двигателей с факелом,
+    /// Детали в порядке `VesselDesign.nodes` (для линейного стека — сверху вниз), индексы двигателей с факелом,
     /// состояние и раскрытие парашюта 0…1.
     public var parts: [PartID]
+    /// Раскладка деталей (5.2) — те же индексы, что `parts`; начало — `position`. Пусто — рендер ставит стек.
+    public var layout: [PartPlacement]
     public var firingEngines: [Int]
     public var chute: ChuteState
     public var chuteDeploy: Double
@@ -90,6 +92,8 @@ public struct VesselState: Sendable, Hashable {
     /// Нули — РСУ молчит (выключено, нет топлива или нет команды). Только у активного корабля.
     public var rcsTranslation: Vec3
     public var rcsRotation: Vec3
+    /// Нагрев деталей 0…1 (температура / предел детали), те же индексы, что `parts`; пусто — холодные (5.2).
+    public var partHeat: [Double] = []
 
     public init(id: VesselID, body: BodyID, position: Vec3, velocity: Vec3,
                 attitude: Quat = .identity, angularVelocity: Vec3 = .zero,
@@ -97,7 +101,8 @@ public struct VesselState: Sendable, Hashable {
                 situation: VesselSituation = .prelaunch, isActive: Bool = true,
                 parts: [PartID] = [], firingEngines: [Int] = [],
                 chute: ChuteState = .none, chuteDeploy: Double = 0,
-                rcsTranslation: Vec3 = .zero, rcsRotation: Vec3 = .zero) {
+                rcsTranslation: Vec3 = .zero, rcsRotation: Vec3 = .zero, layout: [PartPlacement] = []) {
+        self.layout = layout
         self.id = id
         self.body = body
         self.position = position
@@ -168,6 +173,9 @@ public struct StageInfo: Sendable, Hashable {
 
     /// Тяговооружённость в вакууме.
     public var twrVacuum: Double
+    /// Детали, которые срабатывают в этой ступени активации (двигатели, разделители, парашют, обтекатель) — для
+    /// значков HUD и редактора ступеней; пусто — значки по флагам.
+    public var parts: [PartID] = []
 
     public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool, fuelMass: Double = 0, fuelCapacity: Double = 0, hasLiquidEngine: Bool = false) {
         self.deltaV = deltaV
@@ -250,6 +258,27 @@ public struct MissionRecord: Sendable, Hashable {
 }
 
 /// РСУ активного корабля для HUD.
+/// Нагрев деталей (5.2): самая горячая деталь, абляционное покрытие теплозащитных экранов.
+public struct ThermalStatus: Sendable, Hashable {
+    /// Температура самой горячей детали / её предел, 0…1 (≥ 1 — деталь разрушается).
+    public var hottest: Double
+    public var hottestPart: PartID?
+    /// Абляционное покрытие экранов, кг, и его ёмкость (0 — экранов нет).
+    public var ablator: Double
+    public var ablatorCapacity: Double
+    /// Набегающий поток сейчас встречает теплозащитный экран.
+    public var shieldFacingFlow: Bool
+
+    public init(hottest: Double = 0, hottestPart: PartID? = nil, ablator: Double = 0, ablatorCapacity: Double = 0,
+                shieldFacingFlow: Bool = false) {
+        self.hottest = hottest
+        self.hottestPart = hottestPart
+        self.ablator = ablator
+        self.ablatorCapacity = ablatorCapacity
+        self.shieldFacingFlow = shieldFacingFlow
+    }
+}
+
 public struct RCSStatus: Sendable, Hashable {
     /// Есть ли на корабле блоки РСУ.
     public var available: Bool
@@ -365,6 +394,8 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var atmosphereDensity: Double
     /// Нагрев при входе 0…1 (плазма, звук).
     public var heating: Double
+    /// Тепловое состояние деталей при входе в атмосферу (5.2).
+    public var thermal = ThermalStatus()
     /// Перегрузка, g.
     public var gForce: Double
     /// Тело текущей SOI.
@@ -487,6 +518,8 @@ public enum SimEvent: Sendable, Hashable {
     case crash(speed: Double)
     case soiChanged(from: BodyID, to: BodyID)
     case warpReset(WarpResetReason)
+    /// Деталь разрушилась от перегрева (5.2).
+    case partDestroyed(PartID)
 }
 
 // MARK: - Симуляция

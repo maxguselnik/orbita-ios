@@ -181,6 +181,10 @@ final class SceneRenderer: FlightRenderer {
         let quality = governor.update(dt: frameDelta, target: 1 / max(30, targetFrameRate))
         let frame = active.body
         let luna = snapshot.lunaPosition.d3
+        // Разрушение детали: вспышка на её месте — до пересборки модели по новым parts/layout.
+        for e in events {
+            if case .partDestroyed(let id) = e { vessels[active.id]?.flash(part: id) }
+        }
         let activeVisual = visual(for: active)
 
         // Камера: цель — середина стека.
@@ -347,7 +351,8 @@ final class SceneRenderer: FlightRenderer {
         let groundUnder = Terrain.surfaceHeight(body: frame, direction: vec3(rot.inverse.act(radial)))
         effects.update(VesselEffectFrame(
             time: renderTime, dt: frameDelta, vessel: active, vesselRel: pos - eye,
-            stackHeight: activeVisual.stackHeight, partBottoms: activeVisual.partBottoms,
+            stackHeight: activeVisual.stackHeight, halfWidth: activeVisual.halfWidth,
+            nozzlePositions: activeVisual.nozzlePositions,
             airVelocity: active.velocity.d3 - wind, windVelocity: wind, up: radial,
             heightAboveGround: t.heightAboveTerrain, groundRel: radial * (body.radius + max(0, groundUnder)) - eye,
             telemetry: t, daylight: clampd(simd_dot(radial, SkyVisual.sunDirection) * 2.5 + 0.35, 0.03, 1),
@@ -372,10 +377,12 @@ final class SceneRenderer: FlightRenderer {
 
     private func visual(for v: VesselState) -> VesselVisual {
         if let vis = vessels[v.id] {
-            if vis.parts != v.parts { vis.rebuild(v.parts) }
+            if vis.parts != v.parts || vis.sourceLayoutCount != v.layout.count {
+                vis.rebuild(parts: v.parts, layout: v.layout)
+            }
             return vis
         }
-        let vis = VesselVisual(parts: v.parts)
+        let vis = VesselVisual(parts: v.parts, layout: v.layout)
         vessels[v.id] = vis
         flightRoot.addChild(vis.root)
         return vis

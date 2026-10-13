@@ -6,8 +6,13 @@ import SwiftUI
 struct FlightResultPanel: View {
     let result: FlightResult
     let onHangar: () -> Void
+    let onSpaceCenter: () -> Void
+    /// Начисляет науку за вехи полёта; повторный вызов в том же полёте вернёт нули.
+    let onFinish: (MissionRecord) -> (fresh: [Milestone], science: Int)
     let onRetry: () -> Void
     let onContinue: () -> Void
+
+    @State private var award: (fresh: [Milestone], science: Int)?
 
     var body: some View {
         let m = result.mission
@@ -36,8 +41,11 @@ struct FlightResultPanel: View {
                 .frame(width: 150, alignment: .leading)
             }
 
+            awardLine
+
             HStack(spacing: 8) {
                 button("В ангар", systemImage: "wrench.and.screwdriver", action: onHangar)
+                button("В космоцентр", systemImage: "building.2", action: onSpaceCenter)
                 button("Повтор", systemImage: "arrow.counterclockwise", action: onRetry)
                 if result.canContinue {
                     button("Продолжить", systemImage: "play.fill", primary: true, action: onContinue)
@@ -49,6 +57,28 @@ struct FlightResultPanel: View {
         .hudBackground(Color.black.opacity(0.82), corner: 16)
         .padding(.bottom, 4)
         .accessibilityElement(children: .contain)
+        .onAppear {
+            if award == nil { award = onFinish(result.mission) }
+        }
+    }
+
+    /// «+⚛ N» и новые вехи; пусто, если науку не начисляли (урок, сценарий, повтор).
+    @ViewBuilder private var awardLine: some View {
+        if let award, award.science > 0 {
+            VStack(spacing: 2) {
+                Text("+⚛ \(award.science)")
+                    .font(.system(size: 17, weight: .heavy).monospacedDigit())
+                    .foregroundStyle(HUDStyle.accent)
+                if !award.fresh.isEmpty {
+                    Text("Новые вехи: " + award.fresh.map(\.title).joined(separator: ", "))
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(HUDPalette.green)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                }
+            }
+            .accessibilityElement(children: .combine)
+        }
     }
 
     private func stat(_ label: String, _ value: String) -> some View {

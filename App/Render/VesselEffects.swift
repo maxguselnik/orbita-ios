@@ -213,8 +213,7 @@ final class VesselEffects {
         let q = min(2, max(0, f.quality))
         let rot = f.vessel.attitude.quatd
         let axis = rot.act(D3(0, 1, 0))
-        var maxD = 0.5
-        for id in f.vessel.parts { maxD = max(maxD, id.spec.diameter) }
+        let maxD = max(0.5, 2 * f.halfWidth)
         let center = f.vesselRel + axis * (f.stackHeight * 0.5)
 
         updateSmoke(f, dt: dt, vp: vp, cam: cam, rot: rot, maxD: maxD, quality: q)
@@ -251,12 +250,12 @@ final class VesselEffects {
         let burning = tel.thrust > 0 || tel.solidBurning
         let thr = clampd(f.vessel.throttle, 0, 1)
         let back = rot.act(D3(0, -1, 0))
-        let nParts = min(f.partBottoms.count, f.vessel.parts.count)
+        let nParts = f.vessel.parts.count
 
         if dt > 0, burning, rho > 0.01, !engines.isEmpty {
             // Скорость выпуска: растёт с плотностью воздуха и тягой, РДТТ гуще.
             var total = 0.0
-            for i in engines where i >= 0 && i < nParts {
+            for i in engines where i >= 0 && i < nParts && f.nozzlePositions[i] != nil {
                 let solid = f.vessel.parts[i].spec.isSolid
                 total += (solid ? 30 : 16 * (0.3 + 0.7 * thr)) * min(1, rho * 1.4)
             }
@@ -269,10 +268,10 @@ final class VesselEffects {
             if let pp = prevPos, simd_length(pp - vp) < 500 { shift = pp - vp }
             for k in 0..<max(n, 0) {
                 let i = engines[k % engines.count]
-                guard i >= 0, i < nParts else { continue }
+                guard i >= 0, i < nParts, let nozzleLocal = f.nozzlePositions[i] else { continue }
                 let spec = f.vessel.parts[i].spec
                 let t = Double(k + 1) / Double(n)
-                let nozzle = vp + rot.act(D3(0, f.partBottoms[i], 0)) + shift * (1 - t)
+                let nozzle = vp + rot.act(nozzleLocal) + shift * (1 - t)
                 let r = spec.diameter * 0.5
                 let spread = D3(rng.range(-1, 1), rng.range(-1, 1), rng.range(-1, 1)) * (4 + 6 * thr)
                 let vel = back * rng.range(25, 60) * (spec.isSolid ? 1 : max(0.4, thr)) + spread

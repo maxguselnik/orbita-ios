@@ -16,6 +16,10 @@ struct FlightHUDView: View {
     var hintsEnabled = true
     /// Выход в ангар (пауза, панель результата); модель HUD о `GameFlow` не знает.
     var onHangar: () -> Void = {}
+    /// Выход в космоцентр (панель результата).
+    var onSpaceCenter: () -> Void = {}
+    /// Начислить науку за итог полёта (один раз на полёт, `GameFlow.finishFlight`); модель HUD о `GameFlow` не знает.
+    var onFinish: (MissionRecord) -> (fresh: [Milestone], science: Int) = { _ in ([], 0) }
     /// Урок из меню паузы: новый полёт по уроку (модель HUD о `GameFlow` не знает); «Все кнопки» идут поверх полёта.
     var onTutorial: (TutorialID) -> Void = { _ in }
 
@@ -97,7 +101,7 @@ struct FlightHUDView: View {
         }
         .overlay(alignment: .bottom) {
             if let result = model.result, !model.isPaused {
-                FlightResultPanel(result: result, onHangar: onHangar,
+                FlightResultPanel(result: result, onHangar: onHangar, onSpaceCenter: onSpaceCenter, onFinish: onFinish,
                                   onRetry: { model.restart() },
                                   onContinue: { model.dismissResult() })
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -175,6 +179,7 @@ struct FlightLayer: View {
             AltimeterPanel(model: model)
                 .tutorialAnchor(.altimeter)
             FlightStatusView(model: model, ascentEnabled: hintsEnabled && !inLesson)
+            ThermalGauge(model: model)
         }
         .padding(.top, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
