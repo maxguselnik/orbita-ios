@@ -77,18 +77,44 @@ final class CrewAssets {
         options.mipmapsMode = .none
         started += 1
         current = key
-        do {
-            textures[key] = try await TextureResource(image: cg, options: options)
-            current = ""
-        } catch {
+        if let t = await Self.makeTexture(cg, options: options, timeout: .seconds(2)) {
+            textures[key] = t
+        } else {
             failures += 1
-            lastError = "\(key): \(error)"
+            lastError = "\(key): не создалась за 2 с"
+        }
+        current = 
+    }
+
+    /// Флаг «ответ уже отдан» для гонки создания текстуры с таймаутом.
+    @MainActor private final class Once {
+        var done = false
+    }
+
+    /// Создание текстуры с таймаутом: на симуляторе CI отдельные `TextureResource(image:)` не завершаются —
+    /// такая текстура пропускается, остальные идут дальше (материал без неё — запасной цвет).
+    private static func makeTexture(_ cg: CGImage, options: TextureResource.CreateOptions,
+                                    timeout: Duration) async -> TextureResource? {
+        await withCheckedContinuation { (cont: CheckedContinuation<TextureResource?, Never>) in
+            let once = Once()
+            Task { @MainActor in
+                let t = try? await TextureResource(image: cg, options: options)
+                guard !once.done else { return }
+                once.done = true
+                cont.resume(returning: t)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: timeout)
+                guard !once.done else { return }
+                once.done = true
+                cont.resume(returning: nil)
+            }
         }
     }
 
     // MARK: - Ключи
 
-    static let panelLabels = ["ПИТ", "СВЯЗЬ", "O₂", "СТУП", "РСУ", "SAS"]
+    static let panelLabels = ["ПИТ", "СВЯЗЬ", "O2", "СТУП", "РСУ", "SAS"]
     static func irisKey(_ c: CrewColor) -> String { "iris\(c.hex)" }
     static func patchKey(_ c: CrewColor) -> String { "patch\(c.hex)" }
     static func tagKey(_ name: String) -> String { "tag:" + name }
