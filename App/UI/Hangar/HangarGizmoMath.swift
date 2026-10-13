@@ -45,7 +45,8 @@ enum HangarGizmoMath {
     /// Привязка к шагу; `step == nil` — плавно.
     static func snapped(_ value: Double, step: Double?) -> Double {
         guard let step, step > 0 else { return value }
-        return (value / step).rounded() * step
+        // Округление до 1e-9 убирает хвосты двоичной арифметики (0.30000000000000004 → 0.3).
+        return ((value / step).rounded() * step * 1e9).rounded() / 1e9
     }
 
     /// Поворот пальца вокруг центра детали на экране, градусы (по часовой на экране — плюс, ось Y вниз).

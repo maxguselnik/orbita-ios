@@ -133,9 +133,11 @@ struct HangarEditorTests {
         let holder = Holder(stack)
         let scene = FakeHangarScene()
         let model = makeModel(holder, scene: scene)
+        model.viewSize = CGSize(width: 2000, height: 2000)
         model.beginDrag(.catalog(.t100), at: .zero)
         #expect(model.isDragging)
-        guard let position = model.dragCandidatePositions.first else {
+        // Самая нижняя цель: её проекция внутри вида (у верхних y < 0 — палец вне вида, перетаскивание отменяется).
+        guard let position = model.dragCandidatePositions.min(by: { $0.y < $1.y }) else {
             Issue.record("нет целей")
             return
         }
