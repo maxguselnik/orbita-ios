@@ -12,6 +12,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case flight
     /// Урок «Первый полёт» на площадке (первый шаг).
     case tutorial
+    /// Урок «Полёт к Луне» на орбите 80 км (первый шаг).
+    case tutorialLuna
+    /// Урок «Все кнопки» на площадке (первый шаг).
+    case tutorialControls
     /// Подъём на автопилоте, около max Q.
     case ascent
     /// Подъём на автопилоте, около 1 Маха (конденсационный конус, тряска).
@@ -46,7 +50,12 @@ enum DemoScenario: String, CaseIterable, Sendable {
 
     /// Урок обучения, который открывает сцена.
     var tutorial: TutorialID? {
-        self == .tutorial ? .firstFlight : nil
+        switch self {
+        case .tutorial: .firstFlight
+        case .tutorialLuna: .toLuna
+        case .tutorialControls: .controls
+        default: nil
+        }
     }
 
     /// Сцена открывается на карте.
@@ -72,8 +81,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .hangarEmpty, .flight, .tutorial:
+        case .hangar, .hangarEmpty, .flight, .tutorial, .tutorialControls:
             return FlightSim(design: .orbit)
+        case .tutorialLuna:
+            return TutorialID.toLuna.makeSimulation()
         case .ascent:
             return ScenarioFlight(design: .orbit, goal: .orbit, keepAutopilot: true) { sim, _ in sim.time >= 55 }
         case .transonic:
@@ -207,7 +218,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
 }
 
 /// Полёт, прокрученный автопилотом до условия; дальше — по вводу игрока или тем же автопилотом.
-final class ScenarioFlight: FlightSimulation {
+final class ScenarioFlight: FlightSimulation, FlightCheckpointing {
     private let sim: FlightSim
     private let autopilot: Autopilot?
     private var pending = 0.0
@@ -234,6 +245,10 @@ final class ScenarioFlight: FlightSimulation {
     }
 
     var snapshot: WorldSnapshot { sim.snapshot }
+
+    /// Откат (обучение) — только когда автопилот уже не ведёт.
+    func checkpoint() -> SimCheckpoint { sim.checkpoint() }
+    func restore(_ checkpoint: SimCheckpoint) { sim.restore(checkpoint) }
 
     func setInput(_ input: ControlInput) {
         guard autopilot?.isFinished ?? true else { return }

@@ -62,7 +62,7 @@ final class GameFlow {
     /// Фабрика симуляции для текущего полёта (перезапуск — тот же проект или сценарий).
     func makeSimulation() -> any FlightSimulation {
         if let scenario { return scenario.makeSimulation() }
-        if let tutorial { return FlightSim(design: tutorial.design) }
+        if let tutorial { return tutorial.makeSimulation() }
         return FlightSim(design: design)
     }
 }
@@ -89,17 +89,35 @@ enum DesignStore {
 enum TutorialID: String, CaseIterable, Sendable {
     /// «Первый полёт»: от площадки до орбиты 80 км за руку.
     case firstFlight
+    /// «Полёт к Луне»: с орбиты 80 км — карта, узел, прожиг, захват, посадка.
+    case toLuna
+    /// «Все кнопки»: тур по каждому элементу HUD и карты.
+    case controls
 
     var title: String {
         switch self {
         case .firstFlight: "Первый полёт"
+        case .toLuna: "Полёт к Луне"
+        case .controls: "Все кнопки"
         }
     }
 
     /// Корабль урока.
     var design: VesselDesign {
         switch self {
-        case .firstFlight: .orbit
+        case .firstFlight, .controls: .orbit
+        case .toLuna: .luna
+        }
+    }
+
+    /// Симуляция урока: «Первый полёт» и тур — с площадки; «К Луне» — корабль «Луна» на орбите 80 км
+    /// (автопилот выводит за кадром, затем управление у игрока; откат шагов поддерживается).
+    func makeSimulation() -> any FlightSimulation {
+        switch self {
+        case .firstFlight, .controls:
+            return FlightSim(design: design)
+        case .toLuna:
+            return ScenarioFlight(design: design, goal: .orbit, keepAutopilot: false) { _, ap in ap.isFinished }
         }
     }
 }
@@ -113,6 +131,14 @@ enum TutorialProgress {
     static var wasOffered: Bool { UserDefaults.standard.bool(forKey: offeredKey) }
     static func markOffered() { UserDefaults.standard.set(true, forKey: offeredKey) }
 
-    static var isFirstFlightDone: Bool { UserDefaults.standard.bool(forKey: doneKey) }
-    static func markFirstFlightDone() { UserDefaults.standard.set(true, forKey: doneKey) }
+    static var isFirstFlightDone: Bool { isDone(.firstFlight) }
+    static func markFirstFlightDone() { markDone(.firstFlight) }
+
+    /// Урок пройден до итога.
+    static func isDone(_ id: TutorialID) -> Bool { UserDefaults.standard.bool(forKey: key(id)) }
+    static func markDone(_ id: TutorialID) { UserDefaults.standard.set(true, forKey: key(id)) }
+
+    private static func key(_ id: TutorialID) -> String {
+        id == .firstFlight ? doneKey : "tutorialDone." + id.rawValue
+    }
 }
