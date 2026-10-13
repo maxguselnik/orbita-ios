@@ -145,7 +145,7 @@ struct HangarDragModel {
         for item in candidates {
             let d = hypot(item.screen.x - point.x, item.screen.y - point.y)
             if item.target == snap?.target { currentDistance = d }
-            if d <= bestDistance {
+            if d < bestDistance {
                 best = item
                 bestDistance = d
             }

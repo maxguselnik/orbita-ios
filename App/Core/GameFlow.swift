@@ -13,7 +13,7 @@ final class GameFlow {
     /// Прогресс игры (режим, наука, технологии, вехи) — Documents/progress.json.
     /// nil — игра не начата: космоцентр предлагает выбрать режим (`startNewGame`).
     private(set) var progress: GameProgress? {
-        didSet { if let progress { ProgressStore.save(progress) } }
+        didSet { if let progress, !isScenarioRun { ProgressStore.save(progress) } }
     }
     /// id проекта в Documents/ships, к которому относится `design` (nil — не сохранён).
     var shipID: String?
@@ -23,7 +23,7 @@ final class GameFlow {
     private(set) var screen: Screen
     /// Проект в ангаре; каждое изменение сохраняется в Documents.
     var design: VesselDesign {
-        didSet { DesignStore.save(design) }
+        didSet { scheduleDesignSave() }
     }
     /// Растёт при каждом старте: RootView создаёт новый полёт по этому ключу.
     private(set) var flightID = 0
@@ -61,6 +61,27 @@ final class GameFlow {
             }
         }
         if scenario != nil && progress == nil { progress = GameProgress(mode: .sandbox) }
+    }
+
+    /// Запуск с `-screen` (CI, отладка): прогресс игрока на диске не трогаем.
+    private var isScenarioRun: Bool { DemoScenario.fromArguments != nil }
+    @ObservationIgnored private var designSaveTask: Task<Void, Never>?
+
+    /// Сохранение рабочего проекта с задержкой 0.4 с: плавные правки (гизмо, перетаскивание) не пишут файл каждый кадр.
+    private func scheduleDesignSave() {
+        designSaveTask?.cancel()
+        designSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(400))
+            guard !Task.isCancelled, let self else { return }
+            DesignStore.save(self.design)
+        }
+    }
+
+    /// Сохранить рабочий проект немедленно (уход в фон, старт полёта).
+    func flushDesignSave() {
+        designSaveTask?.cancel()
+        designSaveTask = nil
+        DesignStore.save(design)
     }
 
     /// Новая игра в режиме `mode` (наука и технологии с нуля).
@@ -119,6 +140,7 @@ final class GameFlow {
     /// Новый полёт из текущего проекта.
     func launch() {
         guard lockedParts.isEmpty else { return }
+        flushDesignSave()
         scenario = nil
         tutorial = nil
         flightID += 1
