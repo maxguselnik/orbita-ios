@@ -34,6 +34,13 @@ final class FlightFeedback {
         haptics.update(snapshot: snapshot, events: events)
     }
 
+    /// Реакции экипажа (5.4): вошёл в настроение — звук и вибрация (D).
+    func crew(_ cues: [CrewCue]) {
+        guard !cues.isEmpty else { return }
+        audio.crew(cues)
+        haptics.crew(cues)
+    }
+
     /// Жесты камеры за кадр (C → B).
     func camera(_ input: CameraInput) {
         renderer?.apply(input)

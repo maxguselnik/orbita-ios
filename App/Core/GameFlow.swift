@@ -27,6 +27,12 @@ final class GameFlow {
     }
     /// Растёт при каждом старте: RootView создаёт новый полёт по этому ключу.
     private(set) var flightID = 0
+    /// Экипаж полёта (5.4): рассадка проекта или корабля урока; nil — по местам кабин корабля сцены.
+    var flightCrew: [CrewMember]? {
+        if let scenario { return scenario.crew }
+        if let tutorial { return tutorial.design.crew() }
+        return design.crew()
+    }
     /// Сценарий отладки/CI (`-screen`), для обычного старта — nil.
     private(set) var scenario: DemoScenario?
     /// Текущий урок обучения (полёт идёт по уроку), nil — обычный полёт.

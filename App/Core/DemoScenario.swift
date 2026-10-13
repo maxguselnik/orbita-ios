@@ -53,6 +53,11 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case mapManeuver
     /// Карта при входе в сферу влияния Луны, фокус на Луне.
     case mapLuna
+    /// Экипаж (5.4): все персонажи × все настроения крупно поверх полёта на площадке.
+    case crewGallery
+    /// Экипаж из трёх в HUD с принудительным настроением: площадка, подъём у max Q, орбита, вход в атмосферу,
+    /// Луна после посадки, падение без купола.
+    case crewCalm, crewStrain, crewAwe, crewPanic, crewJoy, crewCrash
 
     /// Урок обучения, который открывает сцена.
     var tutorial: TutorialID? {
@@ -77,6 +82,24 @@ enum DemoScenario: String, CaseIterable, Sendable {
         self == .mapLuna ? .luna : .vessel
     }
 
+    /// Экипаж сцены; nil — по местам кабин корабля.
+    var crew: [CrewMember]? {
+        crewOverride == nil && self != .crewGallery ? nil : Array(CrewRoster.standard.prefix(3))
+    }
+
+    /// Принудительное настроение экипажа (сцены экипажа).
+    var crewOverride: CrewMood? {
+        switch self {
+        case .crewCalm: .calm
+        case .crewStrain: .strain
+        case .crewAwe: .awe
+        case .crewPanic: .panic
+        case .crewJoy: .joy
+        case .crewCrash: .crash
+        default: nil
+        }
+    }
+
     /// Сценарий из аргумента `-screen`, nil — обычный запуск.
     static var fromArguments: DemoScenario? {
         let args = ProcessInfo.processInfo.arguments
@@ -90,8 +113,14 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial, .tutorialControls:
+        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial, .tutorialControls,
+             .crewGallery, .crewCalm:
             return FlightSim(design: .orbit)
+        case .crewStrain: return DemoScenario.ascent.makeSimulation()
+        case .crewAwe: return DemoScenario.orbit.makeSimulation()
+        case .crewPanic: return DemoScenario.reentry.makeSimulation()
+        case .crewJoy: return DemoScenario.lunaSurface.makeSimulation()
+        case .crewCrash: return DemoScenario.crash.makeSimulation()
         case .tutorialLuna:
             return TutorialID.toLuna.makeSimulation()
         case .ascent:

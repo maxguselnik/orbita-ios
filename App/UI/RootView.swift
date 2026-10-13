@@ -52,7 +52,8 @@ struct RootView: View {
     private func startFlight() {
         let feedback = feedback ?? makeFeedback()
         renderer.reset()
-        let model = FlightHUDModel(makeSimulation: { [flow] in flow.makeSimulation() }, scenario: flow.scenario, tutorial: flow.tutorial)
+        let model = FlightHUDModel(makeSimulation: { [flow] in flow.makeSimulation() }, scenario: flow.scenario, tutorial: flow.tutorial,
+                                   crew: flow.flightCrew)
         model.feedback = feedback
         feedback.recalibrate()
         feedback.setPaused(false)

@@ -158,6 +158,8 @@ final class FlightHUDModel {
 
     @ObservationIgnored private var sim: any FlightSimulation
     private let makeSimulation: () -> any FlightSimulation
+    /// Экипаж полёта (5.4): портреты HUD и реакции.
+    let crew: CrewModel
     @ObservationIgnored private var lastTick: TimeInterval?
     @ObservationIgnored private var advisor = FlightAdvisor()
     @ObservationIgnored private var toastExpiry: TimeInterval = 0
@@ -167,8 +169,9 @@ final class FlightHUDModel {
     @ObservationIgnored private var cameraPending = false
 
     /// `scenario` — сцена отладки/CI: сцены карты открывают карту сразу.
+    /// `crew` — экипаж полёта; nil — по местам кабин корабля.
     init(makeSimulation: @escaping () -> any FlightSimulation = { MockFlight() }, scenario: DemoScenario? = nil,
-         tutorial: TutorialID? = nil) {
+         tutorial: TutorialID? = nil, crew: [CrewMember]? = nil) {
         self.makeSimulation = makeSimulation
         self.tutorial = tutorial.map { TutorialController(id: $0) }
         self.map = MapModel()
@@ -188,6 +191,8 @@ final class FlightHUDModel {
         self.missionActive = t.body == .terra && t.situation == .prelaunch
         self.altimeterOverTerrain = AltimeterMode.overTerrain(previous: false, t)
         self.parts = Self.activeParts(snapshot)
+        self.crew = CrewModel(crew: crew ?? CrewModel.crew(forParts: Self.activeParts(snapshot)),
+                              override: scenario?.crewOverride)
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
         self.throttle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? 0
@@ -231,6 +236,7 @@ final class FlightHUDModel {
         noteTouchdown(events)
         publish(sim.snapshot)
         feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
+        feedback?.crew(crew.update(telemetry: snapshot.telemetry, events: events, dt: delta))
         map.update(sim: sim, now: now)
         advise(events: events, now: now)
         if let message = events.compactMap(Self.message(for:)).last {
@@ -408,6 +414,7 @@ final class FlightHUDModel {
         let fresh = sim.snapshot.telemetry
         missionActive = fresh.body == .terra && fresh.situation == .prelaunch
         missionProgress = 0
+        crew.reset()
         publish(sim.snapshot)
         resetAttitudeInput()
         fineControl = false
