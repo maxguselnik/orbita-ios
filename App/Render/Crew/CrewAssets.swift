@@ -83,7 +83,7 @@ final class CrewAssets {
             failures += 1
             lastError = "\(key): не создалась за 2 с"
         }
-        current = 
+        current = ""
     }
 
     /// Флаг «ответ уже отдан» для гонки создания текстуры с таймаутом.
