@@ -24,18 +24,22 @@ struct Vessel {
     /// Команда на сопла РСУ в последнем шаге (оси корабля, −1…1); нули — молчат.
     var rcsTranslation: Vec3 = .zero
     var rcsRotation: Vec3 = .zero
+    /// Поток в последнем шаге встречал теплозащитный экран.
+    var shieldFacing = false
 
     var isOnSurface: Bool { situation == .prelaunch || situation == .landed || situation == .splashed }
     /// Неподвижен относительно грунта: на поверхности или разбит (обломки вращаются вместе с телом).
     var isGrounded: Bool { isOnSurface || situation == .crashed }
 
     var state: VesselState {
-        VesselState(id: id, body: body, position: r, velocity: v, attitude: q, angularVelocity: w,
+        var st = VesselState(id: id, body: body, position: r, velocity: v, attitude: q, angularVelocity: w,
                     mass: ship.mass, throttle: throttle, situation: situation, isActive: isActive,
                     parts: ship.parts.map(\.id), firingEngines: ship.firingEngines(throttle: throttle),
                     chute: chute, chuteDeploy: chuteDeploy,
                     rcsTranslation: rcsTranslation, rcsRotation: rcsRotation,
                     layout: ship.parts.map(\.placement))
+        st.partHeat = ship.partHeat
+        return st
     }
 }
 
@@ -65,6 +69,10 @@ public final class FlightSim: FlightSimulation {
     /// Предельная перегрузка от сопротивления, при которой купол ещё наполняется, g:
     /// при большем скоростном напоре наполнение ждёт (как рифовочный шнур/слайдер).
     static let chuteMaxLoad = 7.0
+    /// Тепловой поток набегающего воздуха на открытую площадь: k·√ρ·v³, Вт/м² (ρ — кг/м³, v — м/с).
+    static let heatFluxCoefficient = 1.2e-2
+    /// Скорость начала нагрева потоком, м/с (полный — от удвоенной).
+    static let heatingOnsetSpeed = 900.0
 
     public private(set) var snapshot = WorldSnapshot.empty
     public private(set) var time: Double
@@ -536,6 +544,7 @@ public final class FlightSim: FlightSimulation {
                 s.rcsTranslation = .zero
                 rcsUse = 0
                 lastProperAccel = g
+                s.ship.cool(dt: h)
                 vessels[ai] = s
                 return
             }
@@ -621,6 +630,22 @@ public final class FlightSim: FlightSimulation {
         }
         attitude(&s, h, mass: m, firing: tr.thrust > 0, aero: external)
 
+        // Нагрев деталей потоком (∝ √ρ·v³) и остывание; перегретые детали разрушаются.
+        // Как у `heating`: медленнее ~900 м/с конвективный нагрев не растёт (взлёт в плотном воздухе не греет).
+        let fast: Double = clamp((va - Self.heatingOnsetSpeed) / Self.heatingOnsetSpeed, 0, 1)
+        let flux: Double = rho > 0 && fast > 0 ? Self.heatFluxCoefficient * rho.squareRoot() * va * va * va * fast : 0
+        let thermal = s.ship.thermalStep(flow: s.q.conjugate.rotate(vh), flux: flux, dt: h)
+        s.shieldFacing = thermal.shieldFacing
+        if !thermal.destroyed.isEmpty && burnUp(&s, thermal.destroyed) {
+            // Сгорела командная деталь — авария.
+            s.situation = .crashed
+            events.append(.crash(speed: va))
+            warpIndex = 0
+            vessels[ai] = s
+            landVessel(ai, situation: .crashed)
+            return
+        }
+
         // Контакт с поверхностью.
         let tNext = time + h
         let rm2 = s.r.length
@@ -658,6 +683,27 @@ public final class FlightSim: FlightSimulation {
         }
         s.situation = classify(s)
         vessels[ai] = s
+    }
+
+    /// Разрушить перегретые детали `uids`: событие, деталь исчезает, отрезанные поддеревья — обломки.
+    /// true — сгорела командная деталь (или последняя): авария.
+    private func burnUp(_ s: inout Vessel, _ uids: [Int]) -> Bool {
+        for uid in uids {
+            guard let idx = s.ship.index(of: uid) else { continue }
+            let p = s.ship.parts[idx]
+            events.append(.partDestroyed(p.id))
+            if p.spec.kind == .pod || p.spec.kind == .probe || s.ship.parts.count == 1 { return true }
+            let res = s.ship.destroy(uid)
+            for cut in res.pieces {
+                vessels.append(makeDebris(&s, (cut.debris, cut.debrisOrigin, .zero), push: nil))
+            }
+            let sh = res.shift
+            if sh != .zero { s.r += sh.x == 0 && sh.z == 0 ? s.q.nose * sh.y : s.q.rotate(sh) }
+            if !s.ship.hasChute && s.chute != .none {
+                s.chute = s.chute == .deploying || s.chute == .open ? .cut : .none
+            }
+        }
+        return false
     }
 
     /// Наполнение купола: две фазы (рифлёный → полный) и ограничение по нагрузке.
@@ -882,6 +928,11 @@ public final class FlightSim: FlightSimulation {
             vessels[k].rcsRotation = .zero
         }
         lastRailsKeplerCalls = 0
+        // На рельсах — только остывание.
+        for k in vessels.indices where vessels[k].isActive {
+            vessels[k].ship.cool(dt: total)
+            vessels[k].shieldFacing = false
+        }
         // Отделённые ступени в атмосфере на рельсах не моделируются — удаляются.
         vessels.removeAll { d in
             guard !d.isActive, !d.isOnSurface else { return false }
@@ -1203,6 +1254,17 @@ public final class FlightSim: FlightSimulation {
         t.maneuver = maneuverStatus(pressure: p)
         t.mission = mission
         let rcsFiring = !onRails && (s.rcsTranslation != .zero || s.rcsRotation != .zero)
+        let heat = s.ship.partHeat
+        var thermal = ThermalStatus()
+        if let k = heat.indices.max(by: { heat[$0] < heat[$1] }) {
+            thermal.hottest = heat[k]
+            thermal.hottestPart = s.ship.parts[k].id
+        }
+        let abl = s.ship.ablator
+        thermal.ablator = abl.mass
+        thermal.ablatorCapacity = abl.capacity
+        thermal.shieldFacingFlow = s.shieldFacing && !onRails && rho > 0
+        t.thermal = thermal
         t.rcs = RCSStatus(available: s.ship.rcsBlocks > 0, enabled: rcsEnabled, monoMass: s.ship.monoMass,
                           monoCapacity: s.ship.monoCapacity, firing: rcsFiring)
         snapshot = WorldSnapshot(time: time, activeVessel: activeID, vessels: vessels.map(\.state),
