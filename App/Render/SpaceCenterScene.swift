@@ -51,7 +51,6 @@ final class SpaceCenterScene: SpaceCenterPreview {
         camera.camera.far = 8000
         root.addChild(camera)
         layoutCamera()
-        startLoop()
     }
 
     // MARK: - SpaceCenterPreview
@@ -135,7 +134,9 @@ final class SpaceCenterScene: SpaceCenterPreview {
         camera.look(at: Self.focus, from: Self.focus + dir * dist, relativeTo: nil)
     }
 
-    private func startLoop() {
+    /// Запустить облёт: вызывать, пока сцена на экране (`SpaceCenterSceneView.onAppear`).
+    func start() {
+        guard loop == nil else { return }
         loop = Task { @MainActor [weak self] in
             var last = ContinuousClock.now
             while !Task.isCancelled {
@@ -150,6 +151,12 @@ final class SpaceCenterScene: SpaceCenterPreview {
                 self.layoutCamera()
             }
         }
+    }
+
+    /// Остановить облёт (сцена скрыта): цикл не крутится в полёте и других экранах.
+    func stop() {
+        loop?.cancel()
+        loop = nil
     }
 
     private func project(_ point: F3, viewSize: CGSize) -> CGPoint? {
@@ -449,6 +456,8 @@ struct SpaceCenterSceneView: View {
             scene.root.removeFromParent()
             content.add(scene.root)
         }
+        .onAppear { scene.start() }
+        .onDisappear { scene.stop() }
         .background(Color(red: 0.55, green: 0.72, blue: 0.9))
     }
 }
