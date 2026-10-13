@@ -24,6 +24,11 @@ struct CrewPortraitView: View {
                 content.add(stage.root)
             }
             .aspectRatio(CGFloat(states.count) * 40 / 46, contentMode: .fit)
+            .overlay(alignment: .bottomLeading) {
+                if CrewStage.showsDiagnostics {
+                    Text(stage.info).font(.system(size: 7, design: .monospaced)).foregroundStyle(.yellow)
+                }
+            }
             .onAppear { stage.start() }
             .onDisappear { stage.stop() }
             .onChange(of: states, initial: true) { _, new in stage.apply(new) }
@@ -34,21 +39,26 @@ struct CrewPortraitView: View {
 /// Сцена ряда портретов: камера, свет, места (слоты по индексу — один член экипажа может стоять в ряду
 /// несколько раз, как в галерее), цикл анимации не чаще 30 Гц.
 @MainActor
+@Observable
 final class CrewStage {
+    /// Строка состояния поверх портретов (только сцена CI `-screen crewGallery`).
+    static let showsDiagnostics = DemoScenario.fromArguments == .crewGallery
+    /// Диагностика: места, загруженные текстуры, кадры цикла.
+    private(set) var info = "—"
     let root = Entity()
     private let camera = PerspectiveCamera()
-    private var ready = false
-    private var slots: [CrewCharacter?] = []
-    private var states: [CrewModel.State] = []
-    private var generation = 0
-    private var loop: Task<Void, Never>?
+    @ObservationIgnored private var ready = false
+    @ObservationIgnored private var slots: [CrewCharacter?] = []
+    @ObservationIgnored private var states: [CrewModel.State] = []
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var loop: Task<Void, Never>?
     private let clock = ContinuousClock()
     private let epoch = ContinuousClock.now
 
     /// Полувысота кадра в плоскости головы (как у камеры макета: fov 30° с 9 единиц).
     static let halfHeight: Float = 2.45
     /// Камера далеко и с узким углом — проекция почти параллельная, ячейки не перекашиваются.
-    static let distance: Float = 400
+    static let distance: Float = 60
     static let cellWidth: Float = 2 * halfHeight * 40 / 46
 
     private var time: Double {
@@ -60,8 +70,8 @@ final class CrewStage {
         guard !ready else { return }
         ready = true
         camera.camera.fieldOfViewInDegrees = 2 * atan(Self.halfHeight / Self.distance) * 180 / .pi
-        camera.camera.near = Self.distance - 12
-        camera.camera.far = Self.distance + 12
+        camera.camera.near = 1
+        camera.camera.far = Self.distance + 100
         root.addChild(camera)
         // Свет макета: тёплый ключевой, холодный заполняющий, контровой, небо (вместо полусферического).
         let lights: [(F3, UInt32, Float)] = [
@@ -86,11 +96,20 @@ final class CrewStage {
         generation += 1
         let gen = generation
         let members = next.map(\.member)
+        // Сразу — без текстур (материалы терпят их отсутствие), после загрузки — пересборка с текстурами.
+        sync()
         Task { [weak self] in
             for m in members { await CrewAssets.shared.prepare(id: m.id, name: m.name) }
             guard let self, self.generation == gen else { return }
-            self.sync()
+            self.rebuild()
         }
+    }
+
+    /// Пересобрать все места (после загрузки текстур).
+    private func rebuild() {
+        for case let c? in slots { c.root.removeFromParent() }
+        slots.removeAll()
+        sync()
     }
 
     /// Места по индексу: новый член экипажа на месте — новая сущность, иначе только настроение.
@@ -114,6 +133,8 @@ final class CrewStage {
             if i < slots.count { slots[i] = c } else { slots.append(c) }
             if fresh { c.update(time: t) }
         }
+        info = "места \(slots.count) · текстуры \(CrewAssets.shared.textureCount) · сущности \(root.children.count)"
+
     }
 
     func start() {

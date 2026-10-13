@@ -32,6 +32,7 @@ final class CrewAssets {
     private var common: Task<Void, Never>?
 
     func texture(_ key: String) -> TextureResource? { textures[key] }
+    var textureCount: Int { textures.count }
 
     /// Общие текстуры + текстуры персонажа (радужка, нашивка, бирка, голова).
     func prepare(id: String, name: String) async {
