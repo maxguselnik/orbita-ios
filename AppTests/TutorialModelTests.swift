@@ -65,5 +65,9 @@ struct TutorialModelTests {
         #expect(model.snapshot.time == time)
         model.tick(now: 1.25)
         #expect(model.map.snapshot.maneuver != nil)
+        // «К Луне» сам доводит прогрейд: Пе у Луны по прогнозу карты сразу в диапазоне шага «Ручки Δv».
+        let peri = try #require(model.lessonInput().lunaPeriapsis)
+        #expect((25_000...35_000).contains(peri))
+        #expect(LunaStep.periapsisRange.contains(peri))
     }
 }

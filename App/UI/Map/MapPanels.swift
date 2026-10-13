@@ -318,7 +318,8 @@ struct ManeuverPanel: View {
 
     @State private var axis: ManeuverAxis = .prograde
 
-    private static let steps: [Double] = [-10, -1, 1, 10]
+    /// Шаги подстройки, м/с: грубо ±10, ±1 и тонко ±0.1.
+    private static let steps: [Double] = [-10, -1, -0.1, 0.1, 1, 10]
 
     var body: some View {
         let node = model.maneuverNode
@@ -380,12 +381,14 @@ struct ManeuverPanel: View {
                     Button {
                         model.adjustManeuver(axis, by: step)
                     } label: {
-                        Text(Self.signed(step))
+                        Text(Self.signedStep(step))
                             .font(.system(size: 13, weight: .bold).monospacedDigit())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(HUDButtonStyle())
-                    .accessibilityLabel("\(Self.signed(step)) м/с \(axis.fullName)")
+                    .accessibilityLabel("\(Self.signedStep(step)) м/с \(axis.fullName)")
                 }
             }
 
@@ -424,6 +427,12 @@ struct ManeuverPanel: View {
 
     static func signed(_ value: Double) -> String {
         (value < 0 ? HUDFormat.minus : "+") + HUDFormat.grouped(abs(value))
+    }
+
+    /// Подпись кнопки шага: целые без дроби («+1», «−10»), дробные с одним знаком («+0.1»).
+    static func signedStep(_ value: Double) -> String {
+        guard value != value.rounded() else { return signed(value) }
+        return (value < 0 ? HUDFormat.minus : "+") + HUDFormat.fixed(abs(value), digits: 1)
     }
 }
 

@@ -326,3 +326,32 @@ struct ManeuverTests {
         }
     }
 }
+
+@Suite("Подбор узла перелёта к Луне")
+struct LunaTransferTuneTests {
+    /// С орбиты 80 км у гомановской фазы (±3°): Гоман даёт Пе у Луны далеко от 30 км, подбор — 25–35 км.
+    @Test(arguments: [-3.0, 0, 3])
+    func tunedPeriapsisNearThirtyKilometers(phaseOffset: Double) throws {
+        let r = Bodies.terra.radius + 80_000
+        let phase = TrajectoryPredictor.hohmannLunaPhase(radius: r) + phaseOffset * Double.pi / 180
+        let s = circularOrbit(altitude: 80_000, phase: World.lunaInitialPhase - phase)
+        let node = ManeuverNode(time: 0, prograde: TrajectoryPredictor.hohmannLunaDeltaV(radius: r))
+        let start = Date()
+        let tuned = try #require(TrajectoryPredictor.tuneLunaPeriapsis(node: node, body: .terra, state: s, time: 0))
+        #expect(Date().timeIntervalSince(start) < 0.5)
+        #expect(abs(tuned.prograde - node.prograde) < 10)
+        let p = try #require(TrajectoryPredictor.predict(node: tuned, body: .terra, state: s, time: 0,
+                                                         mass: 1, thrust: 0, isp: 1,
+                                                         maxPatches: TrajectoryPredictor.defaultMapPatches))
+        let enc = try #require(p.trajectory.encounter)
+        #expect(enc.body == .luna)
+        #expect((25_000...35_000).contains(enc.periapsisAltitude), "Пе \(enc.periapsisAltitude)")
+    }
+
+    /// Встречи нет (импульс мал) — nil, вызывающий оставляет прежний узел.
+    @Test func noEncounterReturnsNil() {
+        let s = circularOrbit(altitude: 80_000)
+        #expect(TrajectoryPredictor.tuneLunaPeriapsis(node: ManeuverNode(time: 0, prograde: 100),
+                                                      body: .terra, state: s, time: 0) == nil)
+    }
+}

@@ -183,7 +183,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
                          attitude: Quat(basisX: side, y: nose, z: side.cross(nose)))
     }
 
-    /// Узел перелёта к Луне: ближайшая точка орбиты с гомановской фазой, прогрейд на гомановский импульс.
+    /// Узел перелёта к Луне: ближайшая точка орбиты с гомановской фазой, прогрейд — гомановский,
+    /// доведённый до Пе у Луны ≈ 30 км (`TrajectoryPredictor.tuneLunaPeriapsis`).
     static func lunaTransferNode(_ world: WorldSnapshot) -> ManeuverNode {
         guard let v = world.vessels.first(where: { $0.id == world.activeVessel }) else {
             return ManeuverNode(time: world.time + 600)
@@ -204,7 +205,11 @@ enum DemoScenario: String, CaseIterable, Sendable {
             dt += 5
         }
         let radius = v.position.length
-        return ManeuverNode(time: world.time + best.dt, prograde: TrajectoryPredictor.hohmannLunaDeltaV(radius: radius))
+        let hohmann = ManeuverNode(time: world.time + best.dt, prograde: TrajectoryPredictor.hohmannLunaDeltaV(radius: radius))
+        // Гоман целит почти в центр Луны: доводим прогрейд до Пе у Луны ≈ 30 км (не вышло — как есть).
+        return TrajectoryPredictor.tuneLunaPeriapsis(node: hohmann, body: v.body,
+                                                     state: StateVector(position: v.position, velocity: v.velocity),
+                                                     time: world.time) ?? hohmann
     }
 
     /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
