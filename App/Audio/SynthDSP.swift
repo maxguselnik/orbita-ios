@@ -75,7 +75,7 @@ private struct CrewVoice {
 }
 
 /// Форма голоса по доле времени p (0…1): множитель тона, форманты, огибающая, доля «дыхания».
-private struct CrewShape {
+private struct CrewVoiceShape {
     var pitch = 1.0, f1 = 500.0, f2 = 1500.0, env = 1.0, breath = 0.0
 
     @inline(__always)
@@ -84,8 +84,8 @@ private struct CrewShape {
         return u * u * (3 - 2 * u)
     }
 
-    static func make(_ kind: CrewVoiceKind, _ p: Double) -> CrewShape {
-        var s = CrewShape()
+    static func make(_ kind: CrewVoiceKind, _ p: Double) -> CrewVoiceShape {
+        var s = CrewVoiceShape()
         switch kind {
         case .none:
             s.env = 0
@@ -356,7 +356,7 @@ final class SynthDSP: @unchecked Sendable {
         for i in crewVoices.indices where crewVoices[i].active {
             if crewVoices[i].delay > 0 { continue }
             let v = crewVoices[i]
-            let shape = CrewShape.make(v.kind, min(v.t / v.duration, 1))
+            let shape = CrewVoiceShape.make(v.kind, min(v.t / v.duration, 1))
             let vib = 1 + v.vibDepth * sin(2 * Double.pi * v.vibPhase)
             crewVoices[i].vibPhase = (v.vibPhase + v.vibRate * Double(SynthDSP.controlInterval) / sampleRate)
                 .truncatingRemainder(dividingBy: 1)
@@ -560,7 +560,7 @@ final class SynthDSP: @unchecked Sendable {
         case .panic: v.duration = 0.4; v.level = 0.34; v.vibRate = 11; v.vibDepth = 0.06
         case .crash: v.duration = 0.5; v.level = 0.32; v.vibRate = 5.5; v.vibDepth = 0.03
         }
-        let shape = CrewShape.make(cue.kind, 0)
+        let shape = CrewVoiceShape.make(cue.kind, 0)
         v.envTarget = shape.env
         v.increment = v.base * shape.pitch / sampleRate
         v.f1.set(frequency: shape.f1 * v.scale, q: 6, sampleRate: sampleRate)
