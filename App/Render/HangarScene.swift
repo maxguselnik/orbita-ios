@@ -163,20 +163,30 @@ final class HangarScene: HangarPreview {
             let q = PartModels.placementRotation(p).inverse
             let o = q.act(origin - c)
             let d = q.act(ray)
-            let h = halfExtents(i)
-            var enter: Float = 0
-            var exit = Float.infinity
-            for axis in 0..<3 {
-                if abs(d[axis]) < 1e-6 {
-                    if o[axis] < -h[axis] || o[axis] > h[axis] { exit = -1 }
-                } else {
-                    let a = (-h[axis] - o[axis]) / d[axis]
-                    let b = (h[axis] - o[axis]) / d[axis]
-                    enter = max(enter, min(a, b))
-                    exit = min(exit, max(a, b))
-                }
+            // Габариты: сама деталь и (у разделителя) переходный кожух над ней.
+            var boxes: [(dy: Float, half: F3)] = [(0, halfExtents(i))]
+            if let sh = p.shroud {
+                let rs = Float(max(sh.bottomDiameter, sh.topDiameter) / 2)
+                let hs = Float(sh.height / 2)
+                boxes.append((Float(p.height / 2) + hs, F3(rs, hs, rs)))
             }
-            if exit >= enter, enter < nearest { nearest = enter; result = design.nodes[i].id }
+            for box in boxes {
+                let h = box.half
+                let oo = o - F3(0, box.dy, 0)
+                var enter: Float = 0
+                var exit = Float.infinity
+                for axis in 0..<3 {
+                    if abs(d[axis]) < 1e-6 {
+                        if oo[axis] < -h[axis] || oo[axis] > h[axis] { exit = -1 }
+                    } else {
+                        let a = (-h[axis] - oo[axis]) / d[axis]
+                        let b = (h[axis] - oo[axis]) / d[axis]
+                        enter = max(enter, min(a, b))
+                        exit = min(exit, max(a, b))
+                    }
+                }
+                if exit >= enter, enter < nearest { nearest = enter; result = design.nodes[i].id }
+            }
         }
         return result
     }

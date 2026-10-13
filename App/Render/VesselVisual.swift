@@ -108,13 +108,13 @@ final class VesselVisual {
         canopy = nil
 
         let low = lay.map(\.lowest).min() ?? 0
-        let high = lay.map(\.top).max() ?? 0
+        let high = lay.map { $0.top + ($0.shroud?.height ?? 0) }.max() ?? 0
         stackHeight = max(0, high)
         centerY = (high + low) / 2
         var minX = Double.infinity, maxX = -Double.infinity, minZ = Double.infinity, maxZ = -Double.infinity
         var reach = 0.25
         for p in lay {
-            let r = p.diameter / 2
+            let r = max(p.diameter, p.shroud.map { max($0.bottomDiameter, $0.topDiameter) } ?? 0) / 2
             minX = min(minX, p.center.x - r); maxX = max(maxX, p.center.x + r)
             minZ = min(minZ, p.center.z - r); maxZ = max(maxZ, p.center.z + r)
             reach = max(reach, hypot(p.center.x, p.center.z) + r)
@@ -146,7 +146,13 @@ final class VesselVisual {
                                                           drop: max(0, pl.bottom))
                 : PartModels.pieces(id)
             var models: [ModelEntity] = []
-            for p in pieces {
+            // Переходный кожух разделителя: часть держателя, улетает вместе с ним.
+            var shroudPieces: [PartModels.Piece] = []
+            if let sh = pl.shroud {
+                shroudPieces = PartModels.shroud(base: spec.height, height: sh.height,
+                                                 bottomDiameter: sh.bottomDiameter, topDiameter: sh.topDiameter)
+            }
+            for p in pieces + shroudPieces {
                 let m = ModelEntity(mesh: p.mesh, materials: [p.material])
                 inner.addChild(m)
                 models.append(m)

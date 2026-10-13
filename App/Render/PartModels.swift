@@ -63,6 +63,30 @@ enum PartModels {
 
     private static let seg = 32
 
+    private static var shroudCache: [String: [Piece]] = [:]
+
+    /// Переходный кожух разделителя: полый усечённый конус от `base` (верх разделителя) вверх на `height`;
+    /// диаметр снизу/сверху — `bottomDiameter`/`topDiameter`. Двусторонний (сопло внутри не просвечивает),
+    /// торцы открыты, по низу тёмная полоса. Оси — детали, низ детали — y = 0.
+    static func shroud(base: Double, height: Double, bottomDiameter: Double, topDiameter: Double) -> [Piece] {
+        let key = "\(base)|\(height)|\(bottomDiameter)|\(topDiameter)"
+        if let c = shroudCache[key] { return c }
+        let mats = RenderMaterials.shared
+        let y0 = Float(base), y1 = Float(base + height)
+        let r0 = Float(bottomDiameter / 2), r1 = Float(topDiameter / 2)
+        var cone = MeshBuilder()
+        cone.lathe([SIMD2(r0, y0), SIMD2(r1, y1)], segments: seg, twoSided: true)
+        let bandH = min(Float(height) * 0.12, 0.15)
+        let rb = r0 + (r1 - r0) * (bandH / max(Float(height), 1e-3))
+        var band = MeshBuilder()
+        band.lathe([SIMD2(r0 * 1.01, y0), SIMD2(rb * 1.01, y0 + bandH)], segments: seg, twoSided: true)
+        var out: [Piece] = []
+        if let m = cone.makeMesh(name: "shroud") { out.append((m, mats.darkGray)) }
+        if let m = band.makeMesh(name: "shroudBand") { out.append((m, mats.black)) }
+        shroudCache[key] = out
+        return out
+    }
+
     /// Ширина (по касательной) плиты бокового разделителя, м.
     static let radialPlateWidth: Float = 0.45
 
