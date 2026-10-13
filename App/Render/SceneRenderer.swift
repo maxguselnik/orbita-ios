@@ -181,6 +181,10 @@ final class SceneRenderer: FlightRenderer {
         let quality = governor.update(dt: frameDelta, target: 1 / max(30, targetFrameRate))
         let frame = active.body
         let luna = snapshot.lunaPosition.d3
+        // Разрушение детали: вспышка на её месте — до пересборки модели по новым parts/layout.
+        for e in events {
+            if case .partDestroyed(let id) = e { vessels[active.id]?.flash(part: id) }
+        }
         let activeVisual = visual(for: active)
 
         // Камера: цель — середина стека.

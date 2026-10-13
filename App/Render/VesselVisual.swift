@@ -36,6 +36,21 @@ final class VesselVisual {
     private var rcsPuffs: [(partIndex: Int, jets: [ModelEntity])] = []
     private var rcsLit = false
     private var maxDiameter: Double = 1
+
+    // Нагрев деталей: ступенчатый уровень свечения (0 — холодная) и кэш материалов по уровням.
+    private static let heatSteps = 8
+    private static let heatStart = 0.4
+    private var heatLevels: [Int] = []
+    private static var heatMaterials: [UnlitMaterial] = []
+    /// Последний известный нагрев деталей (по нему при разрушении ищется самая горячая из одноимённых).
+    private var lastHeat: [Double] = []
+    // Вспышки разрушения деталей: общий корень (переживает пересборку), ожидающие и идущие.
+    private let flashRoot = Entity()
+    private var pendingFlashes: [(position: F3, size: Float)] = []
+    private var flashes: [(entity: ModelEntity, start: Double, size: Float)] = []
+    private static var flashMesh: MeshResource?
+    private static var flashMaterial: UnlitMaterial?
+    private static let flashLife = 0.6
     /// Меши каждой детали (для призрака) и применённый к детали призрак: nil — обычный вид.
     private var holders: [[ModelEntity]] = []
     private var ghostApplied: [Int: Bool] = [:]
@@ -55,6 +70,92 @@ final class VesselVisual {
         }
         guard let g = ghostMaterials else { return UnlitMaterial() }
         return valid ? g.valid : g.invalid
+    }
+
+    /// Цвет свечения для уровня 1…8: тёмно-красный → оранжевый → бело-жёлтый.
+    private static func heatMaterial(level: Int) -> UnlitMaterial {
+        if heatMaterials.isEmpty {
+            for l in 1...heatSteps {
+                let t = Float(l - 1) / Float(heatSteps - 1)
+                let c: (Float, Float, Float)
+                if t < 0.5 {
+                    let k = t / 0.5
+                    c = (0.35 + 0.65 * k, 0.04 + 0.41 * k, 0.02 + 0.06 * k)
+                } else {
+                    let k = (t - 0.5) / 0.5
+                    c = (1.0, 0.45 + 0.5 * k, 0.08 + 0.62 * k)
+                }
+                heatMaterials.append(UnlitMaterial(color: UIColor(red: CGFloat(c.0), green: CGFloat(c.1),
+                                                                  blue: CGFloat(c.2), alpha: 1)))
+            }
+        }
+        return heatMaterials[min(max(level, 1), heatSteps) - 1]
+    }
+
+    /// Свечение деталей по `partHeat`: материал меняется только при смене уровня-ступеньки.
+    private func updateHeat(_ heat: [Double]) {
+        lastHeat = heat
+        let usable = heat.count == holders.count
+        if heatLevels.count != holders.count { heatLevels = Array(repeating: 0, count: holders.count) }
+        for i in holders.indices {
+            var level = 0
+            if usable, heat[i] > Self.heatStart {
+                let t = min(1, (heat[i] - Self.heatStart) / (1 - Self.heatStart))
+                level = max(1, Int((t * Double(Self.heatSteps)).rounded(.up)))
+            }
+            guard heatLevels[i] != level, ghostApplied[i] == nil else { continue }
+            heatLevels[i] = level
+            for m in holders[i] {
+                let key = ObjectIdentifier(m)
+                if level > 0 {
+                    if originalMaterials[key] == nil { originalMaterials[key] = m.model?.materials ?? [] }
+                    m.model?.materials = [Self.heatMaterial(level: level)]
+                } else if let orig = originalMaterials[key] {
+                    m.model?.materials = orig
+                }
+            }
+        }
+    }
+
+    /// Деталь `id` разрушена: вспышка на месте самой горячей из одноимённых (вызывать до пересборки).
+    func flash(part id: PartID) {
+        func heat(_ i: Int) -> Double { i < lastHeat.count ? lastHeat[i] : 0 }
+        let best = parts.indices.filter { parts[$0] == id }.max { heat($0) < heat($1) }
+        guard let i = best, layout.indices.contains(i) else { return }
+        let p = layout[i]
+        pendingFlashes.append((F3(Float(p.center.x), Float(p.center.y), Float(p.center.z)),
+                               Float(max(p.diameter, p.height) * 0.9)))
+    }
+
+    private func updateFlashes(time: Double) {
+        if !pendingFlashes.isEmpty {
+            if Self.flashMesh == nil { Self.flashMesh = MeshResource.generateSphere(radius: 1) }
+            if Self.flashMaterial == nil { Self.flashMaterial = UnlitMaterial(color: UIColor(red: 1, green: 0.8, blue: 0.4, alpha: 1)) }
+            if let mesh = Self.flashMesh, let mat = Self.flashMaterial {
+                for f in pendingFlashes {
+                    let e = ModelEntity(mesh: mesh, materials: [mat])
+                    e.position = f.position
+                    e.scale = .zero
+                    flashRoot.addChild(e)
+                    flashes.append((e, time, f.size))
+                }
+            }
+            pendingFlashes.removeAll()
+        }
+        guard !flashes.isEmpty else { return }
+        var alive: [(entity: ModelEntity, start: Double, size: Float)] = []
+        for f in flashes {
+            let t = (time - f.start) / Self.flashLife
+            if t >= 1 || t < 0 {
+                f.entity.removeFromParent()
+                continue
+            }
+            // Быстро вспыхивает и сжимается до нуля.
+            let k = Float(t < 0.25 ? t / 0.25 : 1 - (t - 0.25) / 0.75)
+            f.entity.scale = F3(repeating: f.size * (0.4 + 0.9 * Float(t)) * max(k, 0))
+            alive.append(f)
+        }
+        flashes = alive
     }
 
     /// Детали с индексами `indices` рисуются призраком (`valid` — цвет); остальные — обычно. Меняются только отличия.
@@ -80,6 +181,7 @@ final class VesselVisual {
 
     init(parts: [PartID], layout: [PartPlacement] = []) {
         SoftTextures.shared.start()
+        root.addChild(flashRoot)
         rebuild(parts: parts, layout: layout)
     }
 
@@ -99,7 +201,8 @@ final class VesselVisual {
         sourceLayoutCount = newLayout.count
         let lay = newLayout.count == newParts.count ? newLayout : Self.stackLayout(newParts)
         layout = lay
-        for c in Array(root.children) { c.removeFromParent() }
+        for c in Array(root.children) where c !== flashRoot { c.removeFromParent() }
+        heatLevels.removeAll()
         plumes.removeAll()
         rcsPuffs.removeAll()
         nozzlePositions.removeAll()
@@ -352,6 +455,8 @@ final class VesselVisual {
         if Self.softPlume != plumesSoft, !plumes.isEmpty, Self.softPlumeKit() != nil || plumesSoft {
             rebuild(parts: parts, layout: sourceLayoutCount == parts.count ? layout : [])
         }
+        updateHeat(v.partHeat)
+        updateFlashes(time: time)
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
             let on = v.firingEngines.contains(i)

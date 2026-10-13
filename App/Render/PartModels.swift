@@ -222,6 +222,18 @@ enum PartModels {
                 }
             }
             return [(ring, mats.darkGray), (band, mats.yellow), (pods, mats.white), (nozzles, mats.darkMetal)]
+        case .heatShield:
+            // Низкая выпуклая чаша днищем вниз: абляционное покрытие, кромка-кольцо по краю.
+            var prof: [SIMD2<Float>] = []
+            for i in 0...8 {
+                let rho = Float(i) / 8 * 0.97
+                prof.append(SIMD2(r * rho, 0.55 * h * pow(rho, 2.2)))
+            }
+            prof += [SIMD2(r, 0.55 * h), SIMD2(r, h), SIMD2(0, h)]
+            let dish = lathe(prof)
+            let rim = lathe(cyl(r * 1.012, 0.58 * h, 0.9 * h, caps: false))
+            let edge = lathe(cyl(r * 1.006, 0.9 * h, h, caps: false))
+            return [(dish, mats.shield), (rim, mats.orange), (edge, mats.darkGray)]
         case .fairing:
             // Оживальный нос: цилиндрический поясок у основания и выпуклый контур к острой вершине.
             var prof: [SIMD2<Float>] = [SIMD2(0, 0), SIMD2(r, 0), SIMD2(r, 0.18 * h)]
