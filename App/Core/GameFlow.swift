@@ -33,9 +33,10 @@ final class GameFlow {
     private(set) var tutorial: TutorialID?
 
     init() {
-        design = DesignStore.load() ?? VesselAssembly.empty
+        let saved = DesignStore.load() ?? VesselAssembly.empty
+        ShipStore.migrateIfNeeded(saved)
+        design = saved
         progress = ProgressStore.load()
-        ShipStore.migrateIfNeeded(design)
         let scenario = DemoScenario.fromArguments
         switch scenario {
         case .hangar: design = .orbit
