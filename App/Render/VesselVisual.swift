@@ -107,7 +107,7 @@ final class VesselVisual {
         rcsLit = false
         canopy = nil
 
-        let low = lay.map(\.bottom).min() ?? 0
+        let low = lay.map(\.lowest).min() ?? 0
         let high = lay.map(\.top).max() ?? 0
         stackHeight = max(0, high)
         centerY = (high + low) / 2
