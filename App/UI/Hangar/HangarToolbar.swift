@@ -4,6 +4,8 @@ import SwiftUI
 /// Нижняя полоса цеха: инструменты, симметрия, шаг, маркеры, «⋯».
 struct HangarToolbar: View {
     let model: HangarModel
+    let crewOpen: Bool
+    let onCrew: () -> Void
     let onLessons: () -> Void
     let onClear: () -> Void
 
@@ -17,6 +19,7 @@ struct HangarToolbar: View {
             divider
             markers
             Spacer(minLength: 0)
+            crewButton
             more
         }
         .padding(.horizontal, 6)
@@ -101,6 +104,18 @@ struct HangarToolbar: View {
         }
         .buttonStyle(HangarChipStyle(isActive: isOn.wrappedValue))
         .accessibilityLabel("Маркер \(title)")
+    }
+
+    private var crewButton: some View {
+        Button(action: onCrew) {
+            VStack(spacing: 1) {
+                Image(systemName: "person.2.fill").font(.system(size: 14, weight: .semibold))
+                Text("Экипаж").font(.system(size: 9, weight: .bold)).lineLimit(1)
+            }
+            .frame(width: 60, height: 40)
+        }
+        .buttonStyle(HangarChipStyle(isActive: crewOpen))
+        .accessibilityLabel("Экипаж")
     }
 
     private var more: some View {

@@ -187,8 +187,8 @@ struct FlightLayer: View {
 
     private var topRight: some View {
         HStack(alignment: .top, spacing: 2) {
-            if CrewPlaceholder.hasCabin(model.parts) {
-                CrewPlaceholder()
+            if !model.crew.isEmpty {
+                CrewStrip(crew: model.crew)
                     .tutorialAnchor(.crew)
                     .padding(.top, 2)
                     .padding(.trailing, 2)

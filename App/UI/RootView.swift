@@ -35,6 +35,11 @@ struct RootView: View {
                                   onTutorial: { flow.startTutorial($0) })
                         .id(flow.flightID)
                 }
+
+                if flow.scenario == .crewGallery {
+                    CrewGallery()
+                        .ignoresSafeArea()
+                }
             }
         }
         .background(.black)

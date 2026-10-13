@@ -284,7 +284,7 @@ final class FlightHUDModel {
     /// Элементы, которых сейчас нет на экране: шаги тура про них пропускаются.
     private func lessonUnavailable() -> Set<LessonElement> {
         var out: Set<LessonElement> = []
-        if !CrewPlaceholder.hasCabin(parts) { out.insert(.crew) }
+        if crew.isEmpty { out.insert(.crew) }
         if !rcs.available { out.insert(.rcs) }
         if !missionActive { out.insert(.mission) }
         if telemetry.stages.isEmpty { out.insert(.stageStack) }
