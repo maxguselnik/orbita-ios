@@ -1,13 +1,14 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Корень приложения: ангар ↔ полёт (`GameFlow`). Рендер полёта — один на всё приложение.
+/// Корень приложения: космоцентр ↔ цех / исследования ↔ полёт (`GameFlow`). Рендер полёта — один на всё приложение.
 @MainActor
 struct RootView: View {
     @Environment(GameSettings.self) private var settings
     @State private var flow = GameFlow()
     @State private var renderer = SceneRenderer()
     @State private var hangarScene = HangarScene()
+    @State private var spaceCenterScene = SpaceCenterScene()
     @State private var feedback: FlightFeedback?
     /// Модель текущего полёта; создаётся при каждом старте (`flow.flightID`), вне полёта — nil.
     @State private var flight: FlightHUDModel?
@@ -15,8 +16,12 @@ struct RootView: View {
     var body: some View {
         ZStack {
             switch flow.screen {
+            case .spaceCenter:
+                SpaceCenterView(flow: flow, scene: spaceCenterScene, settings: settings)
             case .hangar:
-                HangarView(flow: flow, scene: hangarScene)
+                HangarView(flow: flow, scene: hangarScene, settings: settings)
+            case .research:
+                ResearchView(flow: flow)
             case .flight:
                 FlightSceneView(renderer: renderer)
                     .ignoresSafeArea()
@@ -25,6 +30,8 @@ struct RootView: View {
                     FlightHUDView(model: flight, frameRate: settings.frameRate,
                                   hintsEnabled: settings.hintsEnabled,
                                   onHangar: exitToHangar,
+                                  onSpaceCenter: exitToSpaceCenter,
+                                  onFinish: { flow.finishFlight($0) },
                                   onTutorial: { flow.startTutorial($0) })
                         .id(flow.flightID)
                 }
@@ -63,5 +70,12 @@ struct RootView: View {
         feedback?.stop()
         flight = nil
         flow.returnToHangar()
+    }
+
+    private func exitToSpaceCenter() {
+        feedback?.stop()
+        flight = nil
+        flow.returnToHangar()
+        flow.open(.spaceCenter)
     }
 }
