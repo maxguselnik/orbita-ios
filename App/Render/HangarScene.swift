@@ -12,16 +12,22 @@ final class HangarScene: HangarPreview {
     let root = Entity()
 
     private let camera = PerspectiveCamera()
-    private let ship = VesselVisual(parts: [])
+    private let ship = VesselVisual(parts: [], layout: [])
     private let markers = Entity()
     private let highlight = Entity()
-    private let attachmentMarker = Entity()
-    private var attachmentIndex = 0
 
-    private var parts: [PartID] = []
-    private var selected: Int?
-    private var bottoms: [Double] = []
-    private var stackHeight = 0.0
+    private var design = VesselDesign(name: "", nodes: [])
+    private var layout: [PartPlacement] = []
+    private var selected: Set<Int> = []
+    private var ghost: HangarGhost?
+
+    // Деталь «в руке» и гизмо: сущности переиспользуются между кадрами.
+    private let floating = Entity()
+    private var floatingPart: PartID?
+    private let gizmoRoot = Entity()
+    private var gizmo: HangarGizmo?
+    private var gizmoBuilt: HangarGizmo?
+    private var gizmoRadius: Float = 1
 
     // Камера: цель (t…) и текущее сглаженное значение (c…).
     private static let defaultAzimuth = 0.6
@@ -33,11 +39,11 @@ final class HangarScene: HangarPreview {
     private var tEl = HangarScene.defaultElevation
     private var tZoom = 1.0
     private var tFit = 20.0
-    private var tCenter = 1.0
+    private var tCenter = F3(0, 1.3, 0)
     private var cAz = HangarScene.defaultAzimuth
     private var cEl = HangarScene.defaultElevation
     private var cDist = 20.0
-    private var cCenter = 1.0
+    private var cCenter = F3(0, 1.3, 0)
     private var animTask: Task<Void, Never>?
 
     init() {
@@ -47,7 +53,8 @@ final class HangarScene: HangarPreview {
         ship.root.position = F3(0, Self.baseY, 0)
         root.addChild(markers)
         root.addChild(highlight)
-        root.addChild(attachmentMarker)
+        root.addChild(floating)
+        root.addChild(gizmoRoot)
         camera.camera.fieldOfViewInDegrees = Self.fovDegrees
         camera.camera.near = 0.3
         camera.camera.far = 600
@@ -57,27 +64,40 @@ final class HangarScene: HangarPreview {
 
     // MARK: - HangarPreview
 
-    func show(parts newParts: [PartID], selected newSelected: Int?) {
-        let sel = newSelected.flatMap { newParts.indices.contains($0) ? $0 : nil }
-        let compositionChanged = newParts != parts
-        guard compositionChanged || sel != selected else { return }
-        if compositionChanged {
-            parts = newParts
-            ship.rebuild(newParts)
-            stackHeight = ship.stackHeight
-            bottoms = []
-            var top = stackHeight
-            for id in newParts {
-                top -= id.spec.height
-                bottoms.append(top)
+    func show(design newDesign: VesselDesign, selected newSelected: Set<Int>, ghost newGhost: HangarGhost?) {
+        // Выбор распространяется на копии симметрии.
+        var sel = Set<Int>()
+        for n in newDesign.nodes where newSelected.contains(n.id) {
+            sel.insert(n.id)
+            if let g = n.symmetryGroup {
+                for m in newDesign.nodes where m.symmetryGroup == g { sel.insert(m.id) }
             }
-            tFit = fitDistance(height: stackHeight)
-            tCenter = Double(Self.baseY) + max(stackHeight, 1) / 2
-            rebuildMarkers()
-            startAnimating()
+        }
+        let designChanged = newDesign != design
+        let ghostChanged = newGhost != ghost
+        guard designChanged || ghostChanged || sel != selected else { return }
+        ghost = newGhost
+        if designChanged {
+            design = newDesign
+            let lay = newDesign.layout()
+            let parts = newDesign.parts
+            if parts != ship.parts || lay != layout {
+                layout = lay
+                ship.rebuild(parts: parts, layout: lay)
+                // Во время перетаскивания камера стоит на месте.
+                if newGhost == nil { fitCamera() }
+                rebuildMarkers()
+                startAnimating()
+            }
+        }
+        if designChanged || ghostChanged {
+            var idx = Set<Int>()
+            if let g = newGhost { for id in g.ids { if let i = design.index(of: id) { idx.insert(i) } } }
+            ship.setGhost(idx, valid: newGhost?.valid ?? true)
         }
         selected = sel
         rebuildHighlight()
+        if designChanged { refreshGizmo() }
     }
 
     func apply(_ input: CameraInput) {
@@ -95,19 +115,9 @@ final class HangarScene: HangarPreview {
         startAnimating()
     }
 
-    /// Выбранное крепление подсвечено кольцом, независимо от выделения детали.
-    func markAttachment(_ index: Int) {
-        attachmentIndex = min(max(0, index), parts.count)
-        let radius = Float(parts.isEmpty ? 0.65 : parts[min(attachmentIndex, parts.count - 1)].spec.diameter / 2 + 0.12)
-        var mesh = MeshBuilder()
-        mesh.lathe(ringProfile(inner: radius, outer: radius + 0.08, thickness: 0.06),
-                   segments: 32, y0: Float(attachmentHeight(attachmentIndex)))
-        replaceChildren(of: attachmentMarker, with: mesh.makeMesh(name: "attachment"),
-                        material: UnlitMaterial(color: .cyan))
-    }
-
-    private func attachmentHeight(_ index: Int) -> Double {
-        Double(Self.baseY) + (index == 0 ? stackHeight : bottoms[index - 1])
+    /// Точка в осях раскладки (м) → точка экрана; nil — за камерой.
+    func project(_ point: Vec3, viewSize: CGSize) -> CGPoint? {
+        project(F3(Float(point.x), Self.baseY + Float(point.y), Float(point.z)), viewSize: viewSize)
     }
 
     private func project(_ point: F3, viewSize: CGSize) -> CGPoint? {
@@ -120,21 +130,23 @@ final class HangarScene: HangarPreview {
                        y: Double(viewSize.height) / 2 - Double(local.y) * scale)
     }
 
-    /// Снап к ближайшему креплению при перетаскивании на 3D-превью.
-    func nearestAttachment(at point: CGPoint, viewSize: CGSize) -> Int {
-        var nearest = parts.count
-        var shortest = CGFloat.infinity
-        for index in 0...parts.count {
-            guard let projected = project(F3(0, Float(attachmentHeight(index)), 0), viewSize: viewSize) else { continue }
-            let distance = hypot(projected.x - point.x, projected.y - point.y)
-            if distance < shortest { shortest = distance; nearest = index }
+    /// Полуразмеры габарита детали в её осях (X — наружу, Y — вдоль оси, Z — по касательной), м.
+    private func halfExtents(_ i: Int) -> F3 {
+        let p = layout[i]
+        let id = design.nodes[i].part
+        let along = Float(p.diameter / 2)
+        var tangent = along
+        switch id {
+        case .decouplerRadial: tangent = PartModels.radialPlateWidth / 2
+        case .fin: tangent = 0.05
+        default: break
         }
-        return nearest
+        return F3(max(along, 0.08), max(Float(p.height / 2), 0.08), max(tangent, 0.08))
     }
 
-    /// Луч из камеры пересекает габариты деталей. Возвращается ближайшая к камере.
+    /// Луч из камеры пересекает габариты деталей. Возвращается id ближайшей к камере.
     func pickPart(at point: CGPoint, viewSize: CGSize) -> Int? {
-        guard viewSize.width > 1, viewSize.height > 1 else { return nil }
+        guard viewSize.width > 1, viewSize.height > 1, layout.count == design.nodes.count else { return nil }
         let t = Float(tan(Double(Self.fovDegrees) * .pi / 360))
         let x = Float(2 * point.x / viewSize.width - 1) * t * Float(viewSize.width / viewSize.height)
         let y = Float(1 - 2 * point.y / viewSize.height) * t
@@ -142,43 +154,205 @@ final class HangarScene: HangarPreview {
         let origin = camera.position
         var nearest = Float.infinity
         var result: Int?
-        for i in parts.indices {
-            let spec = parts[i].spec
-            let radius = Float(spec.diameter / 2)
-            let y0 = Self.baseY + Float(bottoms[i])
-            let lo = F3(-radius, y0, -radius)
-            let hi = F3(radius, y0 + Float(spec.height), radius)
+        for i in layout.indices {
+            if let g = ghost, g.ids.contains(design.nodes[i].id) { continue }
+            let p = layout[i]
+            let c = F3(Float(p.center.x), Self.baseY + Float(p.center.y), Float(p.center.z))
+            // Луч в осях детали.
+            let q = PartModels.placementRotation(p).inverse
+            let o = q.act(origin - c)
+            let d = q.act(ray)
+            let h = halfExtents(i)
             var enter: Float = 0
             var exit = Float.infinity
             for axis in 0..<3 {
-                if abs(ray[axis]) < 1e-6 {
-                    if origin[axis] < lo[axis] || origin[axis] > hi[axis] { exit = -1 }
+                if abs(d[axis]) < 1e-6 {
+                    if o[axis] < -h[axis] || o[axis] > h[axis] { exit = -1 }
                 } else {
-                    let a = (lo[axis] - origin[axis]) / ray[axis]
-                    let b = (hi[axis] - origin[axis]) / ray[axis]
+                    let a = (-h[axis] - o[axis]) / d[axis]
+                    let b = (h[axis] - o[axis]) / d[axis]
                     enter = max(enter, min(a, b))
                     exit = min(exit, max(a, b))
                 }
             }
-            if exit >= enter, enter < nearest { nearest = enter; result = i }
+            if exit >= enter, enter < nearest { nearest = enter; result = design.nodes[i].id }
         }
         return result
     }
 
+    // MARK: - Деталь в руке, гизмо
+
+    /// Луч из камеры через точку экрана.
+    private func ray(at point: CGPoint, viewSize: CGSize) -> (origin: F3, dir: F3) {
+        let t = Float(tan(Double(Self.fovDegrees) * .pi / 360))
+        let x = Float(2 * point.x / viewSize.width - 1) * t * Float(viewSize.width / viewSize.height)
+        let y = Float(1 - 2 * point.y / viewSize.height) * t
+        return (camera.position, simd_normalize(camera.orientation.act(F3(x, y, -1))))
+    }
+
+    func showFloating(_ part: PartID?, at point: CGPoint, viewSize: CGSize) {
+        guard let part, viewSize.width > 1, viewSize.height > 1 else {
+            if floating.isEnabled { floating.isEnabled = false }
+            return
+        }
+        if part != floatingPart {
+            floatingPart = part
+            for c in Array(floating.children) { c.removeFromParent() }
+            let spec = part.spec
+            // Модель центрирована по высоте: деталь «висит» центром под пальцем.
+            let inner = Entity()
+            inner.position = F3(0, -Float(spec.height / 2), 0)
+            for p in PartModels.pieces(part) {
+                inner.addChild(ModelEntity(mesh: p.mesh, materials: [VesselVisual.ghostMaterial(valid: true)]))
+            }
+            floating.addChild(inner)
+        }
+        // Плоскость через центр корабля лицом к камере.
+        let r = ray(at: point, viewSize: viewSize)
+        let n = camera.orientation.act(F3(0, 0, 1))
+        let denom = simd_dot(r.dir, n)
+        guard abs(denom) > 1e-4 else { return }
+        let dist = simd_dot(tCenter - r.origin, n) / denom
+        guard dist > 0 else { return }
+        floating.position = r.origin + r.dir * dist
+        if !floating.isEnabled { floating.isEnabled = true }
+    }
+
+    func showGizmo(_ newGizmo: HangarGizmo?) {
+        gizmo = newGizmo
+        refreshGizmo()
+    }
+
+    private func gizmoIndex() -> Int? {
+        guard let g = gizmo else { return nil }
+        let id: Int
+        switch g {
+        case .rotate(let i), .offset(let i): id = i
+        }
+        guard let i = design.index(of: id), layout.indices.contains(i) else { return nil }
+        return i
+    }
+
+    private func gizmoCenter() -> F3? {
+        guard let i = gizmoIndex() else { return nil }
+        let c = layout[i].center
+        return F3(Float(c.x), Self.baseY + Float(c.y), Float(c.z))
+    }
+
+    /// Оси корабля X, Y, Z и цвета гизмо: красный, синий, зелёный.
+    private static let axes: [F3] = [F3(1, 0, 0), F3(0, 1, 0), F3(0, 0, 1)]
+    private static let axisColors: [UIColor] = [
+        UIColor(red: 0.95, green: 0.25, blue: 0.22, alpha: 1),
+        UIColor(red: 0.25, green: 0.5, blue: 1.0, alpha: 1),
+        UIColor(red: 0.25, green: 0.85, blue: 0.35, alpha: 1),
+    ]
+
+    private func refreshGizmo() {
+        guard let g = gizmo, let i = gizmoIndex(), let c = gizmoCenter() else {
+            if gizmoRoot.isEnabled { gizmoRoot.isEnabled = false }
+            gizmoBuilt = nil
+            return
+        }
+        gizmoRoot.position = c
+        gizmoRoot.isEnabled = true
+        let p = layout[i]
+        let radius = Float(max(0.6, max(p.diameter, p.height) / 2 * 1.3 + 0.2))
+        guard gizmoBuilt != g || abs(radius - gizmoRadius) > 1e-4 else { return }
+        gizmoBuilt = g
+        gizmoRadius = radius
+        for ch in Array(gizmoRoot.children) { ch.removeFromParent() }
+        let t = max(0.03, radius * 0.035)
+        for k in 0..<3 {
+            var b = MeshBuilder()
+            let axis = Self.axes[k]
+            switch g {
+            case .rotate:
+                // Кольцо вокруг оси k: строим вокруг Y и поворачиваем Y в ось.
+                b.lathe(ringProfile(inner: radius - t, outer: radius + t, thickness: t * 2), segments: 48)
+                b = rotated(b, from: F3(0, 1, 0), to: axis)
+            case .offset:
+                let len = radius * 1.35
+                var arrow = MeshBuilder()
+                arrow.beam(F3(0, 0, 0), F3(0, len, 0), thickness: t * 1.6)
+                arrow.lathe([SIMD2(t * 4, len), SIMD2(0, len + radius * 0.3)], segments: 16)
+                b = rotated(arrow, from: F3(0, 1, 0), to: axis)
+            }
+            if let mesh = b.makeMesh(name: "gizmo\(k)") {
+                gizmoRoot.addChild(ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: Self.axisColors[k])]))
+            }
+        }
+    }
+
+    private func rotated(_ src: MeshBuilder, from a: F3, to b: F3) -> MeshBuilder {
+        if simd_dot(a, b) > 0.999 { return src }
+        let q = simd_quatf(from: a, to: b)
+        var out = src
+        out.positions = src.positions.map { q.act($0) }
+        out.normals = src.normals.map { q.act($0) }
+        return out
+    }
+
+    /// Расстояние от точки до отрезка на экране, pt.
+    private func distance(_ p: CGPoint, toSegment a: CGPoint, _ b: CGPoint) -> CGFloat {
+        let dx = b.x - a.x, dy = b.y - a.y
+        let l2 = dx * dx + dy * dy
+        let t = l2 > 1e-9 ? min(1, max(0, ((p.x - a.x) * dx + (p.y - a.y) * dy) / l2)) : 0
+        return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy))
+    }
+
+    func pickGizmoAxis(at point: CGPoint, viewSize: CGSize) -> Int? {
+        guard let g = gizmo, gizmoRoot.isEnabled, let c = gizmoCenter() else { return nil }
+        var best: Int?
+        var bestDist: CGFloat = 22
+        for k in 0..<3 {
+            let axis = Self.axes[k]
+            var pts: [CGPoint?] = []
+            switch g {
+            case .rotate:
+                let u = abs(axis.y) < 0.9 ? simd_normalize(simd_cross(axis, F3(0, 1, 0))) : F3(1, 0, 0)
+                let v = simd_cross(axis, u)
+                for s in 0...48 {
+                    let a = Float(s) / 48 * 2 * .pi
+                    pts.append(project(c + (u * cos(a) + v * sin(a)) * gizmoRadius, viewSize: viewSize))
+                }
+            case .offset:
+                pts = [project(c, viewSize: viewSize), project(c + axis * (gizmoRadius * 1.6), viewSize: viewSize)]
+            }
+            for j in 0..<(pts.count - 1) {
+                guard let a = pts[j], let b = pts[j + 1] else { continue }
+                let d = distance(point, toSegment: a, b)
+                if d < bestDist { bestDist = d; best = k }
+            }
+        }
+        return best
+    }
+
+    func screenDirection(of axis: Vec3, at point: Vec3, viewSize: CGSize) -> CGVector {
+        let far = Vec3(point.x + axis.x * 0.5, point.y + axis.y * 0.5, point.z + axis.z * 0.5)
+        guard let a = project(point, viewSize: viewSize), let b = project(far, viewSize: viewSize) else {
+            return CGVector(dx: 0, dy: 0)
+        }
+        let dx = b.x - a.x, dy = b.y - a.y
+        let l = hypot(dx, dy)
+        return l > 1e-6 ? CGVector(dx: dx / l, dy: dy / l) : CGVector(dx: 0, dy: 0)
+    }
+
     // MARK: - Камера
 
-    /// Расстояние, при котором стек высотой `height` целиком в кадре (с запасом).
-    private func fitDistance(height: Double) -> Double {
-        let half = max(height, 3) / 2 * 1.35 + 0.6
+    /// Вписать габарит дерева (высоту и ширину с боковыми ускорителями); фокус — центр габарита.
+    private func fitCamera() {
+        let height = ship.stackHeight
+        let half = max(max(height, 3) / 2, ship.halfWidth * 0.8) * 1.35 + 0.6
         let t = tan(Double(Self.fovDegrees) * .pi / 360)
-        return clampd(half / t, 6, 120)
+        tFit = clampd(half / t, 6, 120)
+        tCenter = F3(Float(ship.centerXZ.x), Self.baseY + Float(max(ship.centerY, 0.5)), Float(ship.centerXZ.y))
     }
 
     private var targetDistance: Double { clampd(tFit * tZoom, 3, 125) }
 
     private func layoutCamera() {
         let dir = F3(Float(cos(cEl) * sin(cAz)), Float(sin(cEl)), Float(cos(cEl) * cos(cAz)))
-        let c = F3(0, Float(cCenter), 0)
+        let c = cCenter
         camera.look(at: c, from: c + dir * Float(cDist), relativeTo: nil)
     }
 
@@ -207,10 +381,10 @@ final class HangarScene: HangarPreview {
         let dist = targetDistance
         cAz += (tAz - cAz) * k
         cEl += (tEl - cEl) * k
-        cCenter += (tCenter - cCenter) * k
+        cCenter += (tCenter - cCenter) * Float(k)
         cDist *= pow(dist / cDist, k)
         layoutCamera()
-        let done = abs(tAz - cAz) < 1e-3 && abs(tEl - cEl) < 1e-3 && abs(tCenter - cCenter) < 1e-3
+        let done = abs(tAz - cAz) < 1e-3 && abs(tEl - cEl) < 1e-3 && simd_length(tCenter - cCenter) < 1e-3
             && abs(dist / cDist - 1) < 1e-3
         if done {
             cAz = tAz
@@ -224,7 +398,7 @@ final class HangarScene: HangarPreview {
 
     // MARK: - Корабль: маркеры и подсветка
 
-    private var lineThickness: Float { max(0.05, Float(stackHeight) * 0.004) }
+    private var lineThickness: Float { max(0.05, Float(ship.stackHeight) * 0.004) }
 
     private func ringProfile(inner: Float, outer: Float, thickness t: Float) -> [SIMD2<Float>] {
         [SIMD2(outer, -t / 2), SIMD2(outer, t / 2), SIMD2(inner, t / 2), SIMD2(inner, -t / 2), SIMD2(outer, -t / 2)]
@@ -235,37 +409,47 @@ final class HangarScene: HangarPreview {
         if let mesh { entity.addChild(ModelEntity(mesh: mesh, materials: [material])) }
     }
 
-    /// Тонкие цветные кольца на разделителях ступеней.
+    /// Тонкие цветные кольца на осевых разделителях ступеней.
     private func rebuildMarkers() {
         var b = MeshBuilder()
         let t = lineThickness
-        for (i, id) in parts.enumerated() where id.spec.kind == .decoupler {
-            let r = Float(id.spec.diameter / 2)
-            let y = Self.baseY + Float(bottoms[i] + id.spec.height / 2)
-            b.lathe(ringProfile(inner: r * 0.98, outer: r + t * 1.4, thickness: t * 1.2), segments: 48, y0: y)
+        for (i, n) in design.nodes.enumerated() where layout.indices.contains(i) {
+            let spec = n.part.spec
+            guard spec.kind == .decoupler, n.part != .decouplerRadial else { continue }
+            let p = layout[i]
+            let r = Float(spec.diameter / 2)
+            let ring = ringProfile(inner: r * 0.98, outer: r + t * 1.4, thickness: t * 1.2)
+            var one = MeshBuilder()
+            one.lathe(ring, segments: 48, y0: Self.baseY + Float(p.center.y))
+            one.positions = one.positions.map { $0 + F3(Float(p.center.x), 0, Float(p.center.z)) }
+            b.append(one)
         }
         replaceChildren(of: markers, with: b.makeMesh(name: "stageMarkers"),
                         material: UnlitMaterial(color: UIColor(red: 1.0, green: 0.78, blue: 0.12, alpha: 1)))
     }
 
-    /// Контур выбранной детали: два кольца по краям и четыре стойки.
+    /// Контур выбранных деталей: рамка по габариту (12 рёбер).
     private func rebuildHighlight() {
-        guard let i = selected, parts.indices.contains(i) else {
+        guard !selected.isEmpty, layout.count == design.nodes.count else {
             replaceChildren(of: highlight, with: nil, material: RenderMaterials.shared.white)
             return
         }
-        let spec = parts[i].spec
         let t = lineThickness
-        let r = Float(spec.diameter / 2) * 1.05 + t
-        let y0 = Self.baseY + Float(bottoms[i]), y1 = y0 + Float(spec.height)
         var b = MeshBuilder()
-        for y in [y0, y1] {
-            b.lathe(ringProfile(inner: r - t, outer: r + t, thickness: t * 1.6), segments: 48, y0: y)
-        }
-        for k in 0..<4 {
-            let a = Float(k) * .pi / 2 + .pi / 4
-            let x = r * cos(a), z = r * sin(a)
-            b.beam(F3(x, y0, z), F3(x, y1, z), thickness: t * 1.4)
+        for (i, n) in design.nodes.enumerated() where selected.contains(n.id) {
+            let p = layout[i]
+            let h = halfExtents(i) * 1.05 + F3(repeating: t)
+            let c = F3(Float(p.center.x), Self.baseY + Float(p.center.y), Float(p.center.z))
+            let q = PartModels.placementRotation(p)
+            func corner(_ sx: Float, _ sy: Float, _ sz: Float) -> F3 { c + q.act(F3(sx * h.x, sy * h.y, sz * h.z)) }
+            let signs: [Float] = [-1, 1]
+            for sa in signs {
+                for sb in signs {
+                    b.beam(corner(-1, sa, sb), corner(1, sa, sb), thickness: t * 1.4)
+                    b.beam(corner(sa, -1, sb), corner(sa, 1, sb), thickness: t * 1.4)
+                    b.beam(corner(sa, sb, -1), corner(sa, sb, 1), thickness: t * 1.4)
+                }
+            }
         }
         replaceChildren(of: highlight, with: b.makeMesh(name: "partHighlight"),
                         material: UnlitMaterial(color: UIColor(red: 0.2, green: 0.9, blue: 1.0, alpha: 1)))
