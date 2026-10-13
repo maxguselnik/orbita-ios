@@ -160,12 +160,6 @@ extension VesselDesign {
         return (f * local * f.conjugate).normalized
     }
 
-    /// Самая низкая точка детали (цилиндр с учётом поворота).
-    static func lowestPoint(_ p: PartPlacement) -> Double {
-        let ay = p.orientation.rotate(.unitY).y
-        return p.center.y - abs(ay) * p.height / 2 - max(0, 1 - ay * ay).squareRoot() * p.diameter / 2
-    }
-
     func computeLayout() -> [PartPlacement] {
         guard !nodes.isEmpty else { return [] }
         var byID: [Int: PartPlacement] = [:]
@@ -203,7 +197,7 @@ extension VesselDesign {
             byID[n.id] = p
             out.append(p)
         }
-        let minBottom = out.map(Self.lowestPoint).min() ?? 0
+        let minBottom = out.map(\.lowest).min() ?? 0
         let rootCenter = root.flatMap { byID[$0.id] }?.center ?? .zero
         let origin = Vec3(rootCenter.x, minBottom, rootCenter.z)
         for i in out.indices { out[i].center -= origin }
@@ -258,7 +252,7 @@ extension VesselDesign {
     func remainingIDs(afterStage stage: Int) -> Set<Int> {
         var present = Set(nodes.map(\.id))
         let groups = stageGroups
-        guard stage >= 0 else { return present }
+        guard stage >= 0, !groups.isEmpty else { return present }
         for k in 0...min(stage, groups.count - 1) where k < groups.count {
             for id in groups[k] {
                 guard present.contains(id), let n = node(id) else { continue }
@@ -345,6 +339,11 @@ extension VesselEditing {
             return ps.acceptsRadial
         case .top, .bottom:
             guard mount != .radial, ps.acceptsAxial else { return false }
+            // Узел, которым деталь сама смотрит на родителя, занят родителем (у корня свободны оба).
+            if parent.parent != nil {
+                if parent.node == .bottom && target.node == .top { return false }
+                if parent.node == .top && target.node == .bottom { return false }
+            }
             return true
         }
     }
@@ -518,6 +517,13 @@ extension VesselEditing {
         d.nodes[i].parent = pid
         d.nodes[i].node = target.node
         d.nodes[i].symmetryGroup = nil
+        // Группы симметрии потомков, связанные с деталями вне поддерева, снимаются.
+        for k in d.nodes.indices where sub.contains(d.nodes[k].id) {
+            guard let g = d.nodes[k].symmetryGroup else { continue }
+            if d.nodes.contains(where: { $0.symmetryGroup == g && !sub.contains($0.id) }) {
+                d.nodes[k].symmetryGroup = nil
+            }
+        }
         if target.node == .radial {
             d.nodes[i].angle = parent.part == .decouplerRadial ? normalizedAngle(parent.angle) : normalizedAngle(target.angle)
             d.nodes[i].height = clamp(target.height, 0, 1)
@@ -598,6 +604,8 @@ extension VesselEditing {
         var path: [DesignPart] = [start]
         while let p = path.last?.parent, let n = design.node(p) { path.append(n) }
         for c in path.dropLast() where c.node == .radial || c.rotation != .zero || c.offset != .zero { return false }
+        // Разделитель на пути поменял бы, что он уносит (отделение — поддерево разделителя).
+        if path.dropLast().contains(where: { $0.part.spec.kind == .decoupler }) { return false }
         var d = design
         for k in path.indices {
             guard let i = d.index(of: path[k].id) else { return false }
