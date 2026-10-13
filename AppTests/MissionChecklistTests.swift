@@ -9,7 +9,7 @@ struct MissionChecklistTests {
     }
 
     private func flying(altitude: Double, apo: Double? = nil, peri: Double = -300_000) -> FlightTelemetry {
-        var t = FlightTelemetry(altitude: altitude, situation: .suborbital)
+        var t = FlightTelemetry(altitude: altitude, heightAboveTerrain: altitude, situation: .suborbital)
         t.mission.launched = true
         t.thrust = 1_000
         if let apo {
@@ -33,6 +33,16 @@ struct MissionChecklistTests {
 
     @Test func turnStepAtFiveKilometers() {
         let t = flying(altitude: 5_000)
+        #expect(states(t) == [.done, .done, .current, .pending, .pending])
+    }
+
+    @Test func verticalStepCountsFromTerrainOnHighPad() {
+        // Площадка на 1787 м: 2,5 км над уровнем моря — ещё не 1 км над рельефом.
+        var t = flying(altitude: 2_500)
+        t.heightAboveTerrain = 2_500 - 1_787
+        #expect(states(t) == [.done, .current, .pending, .pending, .pending])
+        t.altitude = 2_900
+        t.heightAboveTerrain = 2_900 - 1_787
         #expect(states(t) == [.done, .done, .current, .pending, .pending])
     }
 

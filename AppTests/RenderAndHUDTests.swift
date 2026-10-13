@@ -123,12 +123,39 @@ struct RenderAndHUDTests {
         #expect(mid > 45 && mid < 90)
     }
 
+    @Test func ascentTargetPitchStartsOneKilometerAboveHighPad() {
+        // Площадка на 1787 м: вертикально до 2787 м над уровнем моря, пороги 10/45/60 км — прежние.
+        let ground = 1_787.0
+        func pitch(_ alt: Double) -> Double {
+            AscentGuide.targetPitchDegrees(altitude: alt, heightAboveTerrain: alt - ground)
+        }
+        #expect(pitch(2_500) == 90)
+        #expect(pitch(ground + 1_000) == 90)
+        #expect(abs(pitch(10_000) - 45) < 1e-9)
+        #expect(abs(pitch(45_000) - 10) < 1e-9)
+        #expect(pitch(80_000) == 0)
+        let mid = pitch(6_000)
+        #expect(mid > 45 && mid < 90)
+        // Без рельефа — как раньше.
+        #expect(AscentGuide.targetPitchDegrees(altitude: 5_500, heightAboveTerrain: 5_500)
+                == AscentGuide.targetPitchDegrees(altitude: 5_500))
+    }
+
+    @Test func ascentAdviceStaysVerticalOverHighPad() {
+        var t = FlightTelemetry(altitude: 2_500, heightAboveTerrain: 713, situation: .flying, pitch: .pi / 2)
+        t.mission.launched = true
+        t.thrust = 1_000
+        let advice = AscentGuide.advice(t)
+        #expect(advice?.text == "Вертикально до 1 км")
+        #expect(advice?.targetPitch == .pi / 2)
+    }
+
     @Test func ascentAdviceFollowsFlightPhases() {
         var t = FlightTelemetry(situation: .prelaunch)
         t.nextStageAction = .ignite
         #expect(AscentGuide.advice(t)?.text == "Пуск → Тяга MAX")
 
-        t = FlightTelemetry(altitude: 20_000, situation: .suborbital, pitch: 1.0, heading: .pi / 2)
+        t = FlightTelemetry(altitude: 20_000, heightAboveTerrain: 20_000, situation: .suborbital, pitch: 1.0, heading: .pi / 2)
         t.mission.launched = true
         t.thrust = 1_000
         let turning = AscentGuide.advice(t)

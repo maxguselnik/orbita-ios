@@ -26,11 +26,15 @@ enum AscentGuide {
     /// Оценка времени прожига скругления, если посчитать нельзя, с.
     static let defaultBurn = 30.0
 
-    /// Целевой тангаж, град: 90° до 1 км, 45° на 10 км, 10° на 45 км, 0° с 60 км (линейно по высоте).
-    static func targetPitchDegrees(altitude: Double) -> Double {
-        let points: [(alt: Double, pitch: Double)] = [
-            (verticalLimit, 90), (10_000, 45), (45_000, 10), (60_000, 0),
-        ]
+    /// Целевой тангаж, град: 90° до 1 км над рельефом, 45° на 10 км, 10° на 45 км, 0° с 60 км (линейно по высоте).
+    /// `heightAboveTerrain` — высота над рельефом; по умолчанию равна высоте (старт с уровня моря).
+    static func targetPitchDegrees(altitude: Double, heightAboveTerrain: Double? = nil) -> Double {
+        let h = heightAboveTerrain ?? altitude
+        guard h > verticalLimit else { return 90 }
+        // Конец вертикального участка — 1 км над рельефом (площадка в горах выше уровня моря).
+        let start = max(altitude - h, 0) + verticalLimit
+        let turn: [(alt: Double, pitch: Double)] = [(10_000, 45), (45_000, 10), (60_000, 0)]
+        let points = [(alt: start, pitch: 90.0)] + turn.filter { $0.alt > start }
         guard altitude > points[0].alt else { return 90 }
         for (a, b) in zip(points, points.dropFirst()) where altitude <= b.alt {
             return a.pitch + (b.pitch - a.pitch) * (altitude - a.alt) / (b.alt - a.alt)
@@ -58,7 +62,7 @@ enum AscentGuide {
                 return AscentAdvice(text: circularization(t), targetPitch: 0, action: burnNow ? .fullThrottle : nil)
             }
             if t.verticalSpeed < -5, t.thrust < 1 { return nil }
-            let target = targetPitchDegrees(altitude: t.altitude)
+            let target = targetPitchDegrees(altitude: t.altitude, heightAboveTerrain: t.heightAboveTerrain)
             let targetRad = target * .pi / 180
             if let apo = t.orbit?.apoapsisAltitude, apo >= cutoffApoapsis {
                 let text = t.thrust >= 1 ? "Ап 80 км — тяга 0" : "Ап 80 км — инерция до космоса"
@@ -76,7 +80,7 @@ enum AscentGuide {
         if abs(dp) >= tolerance {
             parts.append("\(dp > 0 ? "выше" : "ниже") на \(Int(abs(dp).rounded()))°")
         }
-        if t.altitude <= verticalLimit {
+        if t.heightAboveTerrain <= verticalLimit {
             let head = "Вертикально до 1 км"
             return parts.isEmpty ? head : head + " · нос " + parts.joined(separator: ", ")
         }

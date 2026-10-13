@@ -24,7 +24,7 @@ enum MissionChecklist {
         guard t.body == .terra else { return 0 }
         let flags: [Bool] = [
             t.situation != .prelaunch || t.mission.launched || t.thrust > 0,
-            t.mission.launched && t.altitude > AscentGuide.verticalLimit,
+            t.mission.launched && t.heightAboveTerrain > AscentGuide.verticalLimit,
             (t.orbit?.apoapsisAltitude ?? 0) >= AscentGuide.cutoffApoapsis,
             t.altitude > AscentGuide.spaceAltitude,
             (t.orbit?.periapsisAltitude ?? -.infinity) > AscentGuide.spaceAltitude,

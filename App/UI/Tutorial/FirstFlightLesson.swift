@@ -196,7 +196,7 @@ struct FirstFlightLesson: Equatable {
         guard phase == .running || phase == .waiting else { return }
         let t = i.telemetry
         if step.watchesPitch {
-            let target = AscentGuide.targetPitchDegrees(altitude: t.altitude)
+            let target = AscentGuide.targetPitchDegrees(altitude: t.altitude, heightAboveTerrain: t.heightAboveTerrain)
             let error = abs(LessonStep.pitchDegrees(t) - target)
             if error > LessonStep.pitchLimit {
                 pitchErrorTime += max(delta, 0)
@@ -257,7 +257,7 @@ extension LessonStep {
     /// Живая плашка для шага в полёте (nil — плашки нет).
     func plate(_ t: FlightTelemetry, phase: LessonPhase) -> LivePlate? {
         let pitch = Int(Self.pitchDegrees(t).rounded())
-        let target = Int(AscentGuide.targetPitchDegrees(altitude: t.altitude).rounded())
+        let target = Int(AscentGuide.targetPitchDegrees(altitude: t.altitude, heightAboveTerrain: t.heightAboveTerrain).rounded())
         switch self {
         case .vertical:
             return LivePlate(head: "Держите нос вверх · высота ", value: HUDFormat.distance(t.heightAboveTerrain),
