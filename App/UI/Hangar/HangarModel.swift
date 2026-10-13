@@ -69,10 +69,10 @@ final class HangarModel {
 
     static let undoLimit = 40
 
-    @ObservationIgnored private let readDesign: () -> VesselDesign
-    @ObservationIgnored private let writeDesign: (VesselDesign) -> Void
-    @ObservationIgnored private let unlocked: (PartID) -> Bool
-    @ObservationIgnored private let feedback: (Feedback) -> Void
+    @ObservationIgnored private let readDesign: @MainActor () -> VesselDesign
+    @ObservationIgnored private let writeDesign: @MainActor (VesselDesign) -> Void
+    @ObservationIgnored private let unlocked: @MainActor (PartID) -> Bool
+    @ObservationIgnored private let feedback: @MainActor (Feedback) -> Void
     @ObservationIgnored let scene: any HangarPreview
     @ObservationIgnored private var drag: HangarDragModel?
     @ObservationIgnored private var gizmo: GizmoSession?
@@ -102,8 +102,10 @@ final class HangarModel {
     private(set) var undoStack: [VesselDesign] = []
     private(set) var redoStack: [VesselDesign] = []
 
-    init(scene: any HangarPreview, design: @escaping () -> VesselDesign, setDesign: @escaping (VesselDesign) -> Void,
-         isUnlocked: @escaping (PartID) -> Bool = { _ in true }, feedback: @escaping (Feedback) -> Void = { _ in }) {
+    init(scene: any HangarPreview, design: @escaping @MainActor () -> VesselDesign,
+         setDesign: @escaping @MainActor (VesselDesign) -> Void,
+         isUnlocked: @escaping @MainActor (PartID) -> Bool = { _ in true },
+         feedback: @escaping @MainActor (Feedback) -> Void = { _ in }) {
         self.scene = scene
         readDesign = design
         writeDesign = setDesign
@@ -133,6 +135,10 @@ final class HangarModel {
     var effectiveMirror: Bool { symmetryKind == .mirror }
 
     var isDragging: Bool { drag != nil }
+
+    /// Точки крепления, к которым сейчас можно притянуть деталь «в руке» (для оверлея), и выбранная.
+    var dragCandidatePositions: [Vec3] { drag?.candidateTargets.map(\.position) ?? [] }
+    var dragSnapPosition: Vec3? { drag?.snap?.target.position }
 
     func isUnlocked(_ part: PartID) -> Bool { unlocked(part) }
 
@@ -324,6 +330,19 @@ final class HangarModel {
         feedback(.tap)
         refreshScene()
         return true
+    }
+
+    func rename(_ name: String) {
+        var d = design
+        d.name = name
+        commit(d)
+    }
+
+    /// Заменить проект целиком (очистка) с шагом отмены.
+    func replaceDesign(_ new: VesselDesign) {
+        selectedID = nil
+        commit(new)
+        refreshScene()
     }
 
     func deleteSelected() {
