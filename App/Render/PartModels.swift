@@ -70,11 +70,14 @@ enum PartModels {
     static func rotatesWithOutward(_ id: PartID) -> Bool { id == .fin || id == .decouplerRadial }
 
     /// Поворот детали: оси детали → оси корабля. Единственное место, где читается ориентация детали.
-    // TODO orientation: когда в `PartPlacement` появится `orientation: Quat`, вернуть из него
-    // (simd_quatf(ix: o.x, iy: o.y, iz: o.z, r: o.w)); сейчас — только азимут боковых деталей по `outward`.
+    /// Поворот модели детали: `orientation` из физики (оси детали → оси корабля) и, у боковых, азимут вокруг
+    /// собственной оси, чтобы локальный +X модели смотрел по `outward`.
     static func placementRotation(_ p: PartPlacement) -> simd_quatf {
-        guard p.outward.x * p.outward.x + p.outward.z * p.outward.z > 1e-9 else { return simd_quatf(angle: 0, axis: F3(0, 1, 0)) }
-        return simd_quatf(angle: yaw(outward: p.outward), axis: F3(0, 1, 0))
+        let o = p.orientation
+        let q = simd_quatf(ix: Float(o.x), iy: Float(o.y), iz: Float(o.z), r: Float(o.w))
+        guard p.outward.x * p.outward.x + p.outward.y * p.outward.y + p.outward.z * p.outward.z > 1e-9 else { return q }
+        let local = o.conjugate.rotate(p.outward)
+        return q * simd_quatf(angle: yaw(outward: local), axis: F3(0, 1, 0))
     }
 
     /// Угол поворота вокруг +Y, переводящий +X в `outward` (в RealityKit поворот на θ уводит +X в (cosθ, 0, −sinθ)).
