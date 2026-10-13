@@ -5,8 +5,8 @@ import Testing
 @Suite("Нагрев в HUD")
 struct ThermalHUDTests {
     @Test func gaugeHiddenBelowThreshold() {
-        #expect(ThermalDisplay.make(ThermalStatus(hottest: 0.3)) == nil)
-        #expect(ThermalDisplay.make(ThermalStatus(hottest: 0.31)) != nil)
+        #expect(ThermalDisplay.make(ThermalStatus(hottest: 0.45)) == nil)
+        #expect(ThermalDisplay.make(ThermalStatus(hottest: 0.46)) != nil)
     }
 
     @Test func gaugeColorLevels() {

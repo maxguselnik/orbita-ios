@@ -339,6 +339,8 @@ struct Ship: Sendable, Hashable {
     /// Шаг нагрева: поток `flux` (Вт/м² на открытую площадь) по направлению `d`, излучение, обмен с соседями.
     /// Возвращает id перегретых деталей и встречает ли поток экран.
     mutating func thermalStep(flow d: Vec3, flux: Double, dt: Double) -> (destroyed: [Int], shieldFacing: Bool) {
+        // Холодный корабль без потока: считать нечего.
+        guard flux > 0 || parts.contains(where: { $0.temperature > Self.ambientTemperature + 1 }) else { return ([], false) }
         var dq = Array(repeating: 0.0, count: parts.count)
         var facing = false
         if flux > 0 && d.lengthSquared > 0.5 {

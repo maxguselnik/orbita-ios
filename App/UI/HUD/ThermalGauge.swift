@@ -8,7 +8,7 @@ struct ThermalDisplay: Equatable {
     }
 
     /// Порог появления шкалы.
-    static let showThreshold = 0.3
+    static let showThreshold = 0.45
     /// Жёлтый выше, красный выше.
     static let warningThreshold = 0.7
     static let dangerThreshold = 0.9
