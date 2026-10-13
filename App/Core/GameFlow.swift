@@ -2,13 +2,23 @@ import Foundation
 import Observation
 import OrbitPhysics
 
-/// Экраны игры и текущий проект корабля: ангар ↔ полёт.
+/// Экраны игры, прогресс и текущий проект корабля: космоцентр ↔ цех/исследования ↔ полёт.
 @MainActor
 @Observable
 final class GameFlow {
     enum Screen: Equatable {
-        case hangar, flight
+        case spaceCenter, hangar, research, flight
     }
+
+    /// Прогресс игры (режим, наука, технологии, вехи) — Documents/progress.json.
+    /// nil — игра не начата: космоцентр предлагает выбрать режим (`startNewGame`).
+    private(set) var progress: GameProgress? {
+        didSet { if let progress { ProgressStore.save(progress) } }
+    }
+    /// id проекта в Documents/ships, к которому относится `design` (nil — не сохранён).
+    var shipID: String?
+    /// Итог последнего полёта начислен (по `flightID`), чтобы не начислять дважды.
+    private var awardedFlight = -1
 
     private(set) var screen: Screen
     /// Проект в ангаре; каждое изменение сохраняется в Documents.
@@ -24,20 +34,90 @@ final class GameFlow {
 
     init() {
         design = DesignStore.load() ?? VesselAssembly.empty
+        progress = ProgressStore.load()
+        ShipStore.migrateIfNeeded(design)
         let scenario = DemoScenario.fromArguments
-        if scenario == .hangar { design = .orbit }
-        if scenario == .hangarEmpty { design = VesselAssembly.empty }
-        if let scenario, scenario != .hangar, scenario != .hangarEmpty {
+        switch scenario {
+        case .hangar: design = .orbit
+        case .hangarEmpty: design = VesselAssembly.empty
+        case .hangarBoosters: design = .boosters
+        case .spaceCenter: progress = GameProgress(mode: .science, science: 12, milestones: [.launch, .above10km])
+        case .research:
+            progress = GameProgress(mode: .science, science: 37, researched: [.basics, .rocketry, .stability],
+                                    milestones: [.launch, .above10km, .space, .orbit])
+        default: break
+        }
+        if let scenario, !scenario.opensBase {
             self.scenario = scenario
             tutorial = scenario.tutorial
             screen = .flight
         } else {
-            screen = .hangar
+            switch scenario {
+            case .spaceCenter: screen = .spaceCenter
+            case .research: screen = .research
+            case .some: screen = .hangar
+            case .none: screen = .spaceCenter
+            }
         }
+        if scenario != nil && progress == nil { progress = GameProgress(mode: .sandbox) }
+    }
+
+    /// Новая игра в режиме `mode` (наука и технологии с нуля).
+    func startNewGame(_ mode: GameMode) {
+        progress = GameProgress(mode: mode)
+    }
+
+    /// Открыть здание космоцентра / вернуться в космоцентр.
+    func open(_ screen: Screen) {
+        guard screen != .flight else { return launch() }
+        self.screen = screen
+    }
+
+    /// Открыть технологию за науку (исследовательский центр).
+    @discardableResult
+    func research(_ tech: TechID) -> Bool {
+        guard var p = progress, p.research(tech) else { return false }
+        progress = p
+        return true
+    }
+
+    /// Закрытые в текущем режиме детали проекта; не пусто — «Старт» запрещён.
+    var lockedParts: [PartID] { progress?.lockedParts(in: design) ?? [] }
+
+    /// Деталь доступна в каталоге (песочница, открытая технология, сценарии CI).
+    func isUnlocked(_ part: PartID) -> Bool { progress?.isUnlocked(part) ?? true }
+
+    /// Итог полёта: наука за вехи (один раз на полёт; уроки и сценарии CI — без науки).
+    @discardableResult
+    func finishFlight(_ mission: MissionRecord) -> (fresh: [Milestone], science: Int) {
+        guard scenario == nil, tutorial == nil, awardedFlight != flightID, var p = progress else { return ([], 0) }
+        awardedFlight = flightID
+        let result = p.award(mission)
+        progress = p
+        return result
+    }
+
+    /// Сохранить текущий проект в список проектов (новый id, если ещё не сохранён).
+    func saveShip() {
+        shipID = ShipStore.save(design, id: shipID)
+    }
+
+    /// Открыть проект из списка.
+    func openShip(_ id: String) {
+        guard let d = ShipStore.load(id) else { return }
+        design = d
+        shipID = id
+    }
+
+    /// Новый пустой проект.
+    func newShip() {
+        design = VesselAssembly.empty
+        shipID = nil
     }
 
     /// Новый полёт из текущего проекта.
     func launch() {
+        guard lockedParts.isEmpty else { return }
         scenario = nil
         tutorial = nil
         flightID += 1
@@ -67,7 +147,82 @@ final class GameFlow {
     }
 }
 
-/// Последний проект ангара — JSON в Documents.
+/// Прогресс игры — Documents/progress.json.
+enum ProgressStore {
+    private static var url: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("progress.json")
+    }
+
+    static func load() -> GameProgress? {
+        guard let url, let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(GameProgress.self, from: data)
+    }
+
+    static func save(_ progress: GameProgress) {
+        guard let url, let data = try? JSONEncoder().encode(progress) else { return }
+        try? data.write(to: url, options: .atomic)
+    }
+}
+
+/// Сохранённые проекты кораблей — Documents/ships/<id>.json.
+enum ShipStore {
+    struct Entry: Identifiable, Hashable {
+        let id: String
+        let name: String
+        let partCount: Int
+        let modified: Date
+    }
+
+    private static var dir: URL? {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        let d = docs.appendingPathComponent("ships", isDirectory: true)
+        try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
+        return d
+    }
+
+    /// Проекты, новые сверху.
+    static func list() -> [Entry] {
+        guard let dir, let files = try? FileManager.default.contentsOfDirectory(
+            at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
+        return files.filter { $0.pathExtension == "json" }.compactMap { url in
+            guard let data = try? Data(contentsOf: url),
+                  let d = try? JSONDecoder().decode(VesselDesign.self, from: data) else { return nil }
+            let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            return Entry(id: url.deletingPathExtension().lastPathComponent, name: d.name, partCount: d.nodes.count, modified: date)
+        }.sorted { $0.modified > $1.modified }
+    }
+
+    static func load(_ id: String) -> VesselDesign? {
+        guard let url = dir?.appendingPathComponent(id + ".json"), let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(VesselDesign.self, from: data)
+    }
+
+    /// Сохранить (перезаписать `id` или новый); возвращает id.
+    @discardableResult
+    static func save(_ design: VesselDesign, id: String? = nil) -> String? {
+        let id = id ?? UUID().uuidString
+        guard let url = dir?.appendingPathComponent(id + ".json"),
+              let data = try? JSONEncoder().encode(design) else { return nil }
+        try? data.write(to: url, options: .atomic)
+        return id
+    }
+
+    static func delete(_ id: String) {
+        guard let url = dir?.appendingPathComponent(id + ".json") else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    /// Первый запуск 5.2: непустой старый проект ангара становится первым сохранённым проектом.
+    static func migrateIfNeeded(_ design: VesselDesign) {
+        let key = "shipsMigrated52"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        if !design.nodes.isEmpty && list().isEmpty { save(design) }
+    }
+}
+
+/// Текущий (рабочий) проект ангара — JSON в Documents (переживает перезапуск, даже если не сохранён в список).
 enum DesignStore {
     private static var url: URL? {
         FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?

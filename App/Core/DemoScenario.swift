@@ -2,12 +2,18 @@ import Foundation
 import OrbitPhysics
 
 /// Стартовый сценарий. Аргумент запуска `-screen <имя>` (CI-скриншоты, отладка);
-/// без аргумента игра открывается в ангаре (`GameFlow`).
+/// без аргумента игра открывается в космоцентре (`GameFlow`).
 enum DemoScenario: String, CaseIterable, Sendable {
     /// Ангар с проектом «Орбита».
     case hangar
     /// Ангар без деталей: проверка начала сборки с нуля.
     case hangarEmpty
+    /// Ангар с проектом «Ускорители» (боковые блоки, симметрия, стабилизаторы, обтекатели).
+    case hangarBoosters
+    /// Космоцентр (режим «Наука», немного науки).
+    case spaceCenter
+    /// Исследовательский центр (режим «Наука», 37 науки, открыты первые технологии).
+    case research
     /// На площадке, «Орбита».
     case flight
     /// Урок «Первый полёт» на площадке (первый шаг).
@@ -78,10 +84,13 @@ enum DemoScenario: String, CaseIterable, Sendable {
         return DemoScenario(rawValue: args[i + 1])
     }
 
+    /// Сценарий открывает не полёт, а экран космоцентра.
+    var opensBase: Bool { [.hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research].contains(self) }
+
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .hangarEmpty, .flight, .tutorial, .tutorialControls:
+        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial, .tutorialControls:
             return FlightSim(design: .orbit)
         case .tutorialLuna:
             return TutorialID.toLuna.makeSimulation()
