@@ -111,6 +111,30 @@ struct MeshBuilder: Sendable {
         }
     }
 
+    /// Выпуклый многоугольник `poly` (в плоскости XY) с толщиной ±`halfThickness` по Z.
+    mutating func prism(_ poly: [SIMD2<Float>], halfThickness t: Float) {
+        let n = poly.count
+        guard n >= 3 else { return }
+        var c = SIMD2<Float>.zero
+        for p in poly { c += p }
+        c /= Float(n)
+        for sgn: Float in [1, -1] {
+            let nz = F3(0, 0, sgn)
+            let ids = poly.map { vertex(F3($0.x, $0.y, sgn * t), nz) }
+            for k in 1..<(n - 1) { tri(ids[0], ids[k], ids[k + 1], facing: nz) }
+        }
+        for k in 0..<n {
+            let a = poly[k], b = poly[(k + 1) % n]
+            let e = b - a
+            var nrm = SIMD2<Float>(e.y, -e.x)
+            if simd_dot(nrm, (a + b) / 2 - c) < 0 { nrm = -nrm }
+            let nn = simd_normalize(F3(nrm.x, nrm.y, 0))
+            let i0 = vertex(F3(a.x, a.y, -t), nn), i1 = vertex(F3(b.x, b.y, -t), nn)
+            let i2 = vertex(F3(b.x, b.y, t), nn), i3 = vertex(F3(a.x, a.y, t), nn)
+            quad(i0, i1, i2, i3, facing: nn)
+        }
+    }
+
     /// Плоский диск в плоскости XY (нормаль +Z).
     mutating func disc(radius: Float, segments: Int, uv: SIMD2<Float> = .zero) {
         let n = F3(0, 0, 1)

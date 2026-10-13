@@ -63,6 +63,18 @@ enum PartModels {
 
     private static let seg = 32
 
+    /// Ширина (по касательной) плиты бокового разделителя, м.
+    static let radialPlateWidth: Float = 0.45
+
+    /// Модель строится в осях «наружу — +X» и поворачивается вокруг Y: только у деталей с направлением.
+    static func rotatesWithOutward(_ id: PartID) -> Bool { id == .fin || id == .decouplerRadial }
+
+    /// Угол поворота вокруг +Y, переводящий +X в `outward` (в RealityKit поворот на θ уводит +X в (cosθ, 0, −sinθ)).
+    static func yaw(outward o: Vec3) -> Float {
+        guard o.x * o.x + o.z * o.z > 1e-9 else { return 0 }
+        return Float(-atan2(o.z, o.x))
+    }
+
     private static func cyl(_ r: Float, _ y0: Float, _ y1: Float, caps: Bool = true) -> [SIMD2<Float>] {
         caps ? [SIMD2(0, y0), SIMD2(r, y0), SIMD2(r, y1), SIMD2(0, y1)] : [SIMD2(r, y0), SIMD2(r, y1)]
     }
@@ -109,6 +121,18 @@ enum PartModels {
             let base = lathe(cyl(r, 0, 0.3 * h))
             let cap = lathe([SIMD2(r, 0.3 * h), SIMD2(r, 0.55 * h), SIMD2(r * 0.75, h), SIMD2(0, h)])
             return [(base, mats.darkGray), (cap, mats.red)]
+        case .decoupler where id == .decouplerRadial:
+            // Плита-кронштейн: модель в осях «наружу — +X», центр по X в середине плиты, низ по Y — 0.
+            let w = radialPlateWidth
+            var plate = MeshBuilder()
+            plate.box(center: F3(0, h / 2, 0), x: F3(d / 2, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, w / 2))
+            var band = MeshBuilder()
+            band.box(center: F3(0, h / 2, 0), x: F3(d / 2 * 1.04, 0, 0), y: F3(0, 0.14 * h, 0), z: F3(0, 0, w / 2 * 1.04))
+            var bolts = MeshBuilder()
+            for sy: Float in [0.18, 0.82] {
+                bolts.box(center: F3(0, sy * h, 0), x: F3(d / 2 * 1.06, 0, 0), y: F3(0, 0.05 * h, 0), z: F3(0, 0, 0.05 * w))
+            }
+            return [(plate, mats.darkGray), (band, mats.orange), (bolts, mats.metal)]
         case .decoupler:
             let ring = lathe(cyl(r, 0, h))
             let band = lathe(cyl(r * 1.01, 0.35 * h, 0.65 * h, caps: false))
@@ -163,6 +187,23 @@ enum PartModels {
                 }
             }
             return [(ring, mats.darkGray), (band, mats.yellow), (pods, mats.white), (nozzles, mats.darkMetal)]
+        case .fairing:
+            // Оживальный нос: цилиндрический поясок у основания и выпуклый контур к острой вершине.
+            var prof: [SIMD2<Float>] = [SIMD2(0, 0), SIMD2(r, 0), SIMD2(r, 0.18 * h)]
+            for i in 1...10 {
+                let t = Float(i) / 10
+                prof.append(SIMD2(r * (1 - t) * (1 + 0.9 * t), 0.18 * h + 0.82 * h * t))
+            }
+            let shell = lathe(prof)
+            let band = lathe(cyl(r * 1.012, 0.02 * h, 0.09 * h, caps: false))
+            let seam = lathe(cyl(r * 1.006, 0.17 * h, 0.2 * h, caps: false))
+            return [(shell, mats.white), (band, mats.orange), (seam, mats.darkGray)]
+        case .fin:
+            // Трапециевидное перо: корень (x = −d/2) на всю хорду h, кромка (x = +d/2) короче и сдвинута вниз.
+            let poly: [SIMD2<Float>] = [SIMD2(-r, 0), SIMD2(-r, h), SIMD2(r, 0.42 * h), SIMD2(r, 0)]
+            var fin = MeshBuilder()
+            fin.prism(poly, halfThickness: 0.025)
+            return [(fin, mats.orange)]
         case .monoTank:
             let body = lathe([SIMD2(0, 0), SIMD2(r * 0.88, 0), SIMD2(r, 0.13 * h), SIMD2(r, 0.87 * h),
                               SIMD2(r * 0.88, h), SIMD2(0, h)])

@@ -3,17 +3,26 @@ import RealityKit
 import simd
 import UIKit
 
-/// 3D-модель корабля: стек деталей сверху вниз, факелы двигателей, купол парашюта.
-/// Корень — нижняя точка стека (`VesselState.position`), ось +Y — нос.
+/// 3D-модель корабля: детали по раскладке (`VesselState.layout`), факелы двигателей, купол парашюта.
+/// Корень — нижняя точка корабля на оси корня (`VesselState.position`), ось +Y — нос.
 @MainActor
 final class VesselVisual {
     let root = Entity()
     private(set) var parts: [PartID] = []
-    /// Высота стека и низ каждой детали над низом стека, м.
+    /// Раскладка деталей, по которой построена модель (для старого стека — собранная из `parts`).
+    private(set) var layout: [PartPlacement] = []
+    /// Размер раскладки, пришедшей снаружи (0 — не было; по нему SceneRenderer узнаёт о пересборке).
+    private(set) var sourceLayoutCount = 0
+    /// Высота корабля (верх самой высокой детали над самой нижней точкой), м.
     private(set) var stackHeight: Double = 0
-    private var bottoms: [Double] = []
-    /// Низ каждой детали над низом стека, м (для эффектов: сопла двигателей).
-    var partBottoms: [Double] { bottoms }
+    /// Середина габарита по высоте над самой нижней точкой, м.
+    private(set) var centerY: Double = 0
+    /// Наибольший вынос деталей от оси корня с учётом их размера, м (ширина корабля = 2 ×).
+    private(set) var halfWidth: Double = 0.5
+    /// Центр габарита в плоскости XZ (оси корабля), м.
+    private(set) var centerXZ = SIMD2<Double>(0, 0)
+    /// Срез сопел двигателей в осях корабля, м: индекс детали → точка (для дыма и пыли у сопел).
+    private(set) var nozzlePositions: [Int: D3] = [:]
     /// Полупрозрачный внешний ореол факела поверх непрозрачных слоёв (отключается, если роняет рендер).
     static var transparentPlumeGlow = false
     /// Мягкий факел: конус с градиентной прозрачностью по длине и светлым ядром. При `false` (или пока
@@ -28,48 +37,79 @@ final class VesselVisual {
     private var rcsLit = false
     private var maxDiameter: Double = 1
 
-    /// Радиус ограничивающей сферы вокруг середины стека, м (с куполом — больше).
+    /// Радиус ограничивающей сферы вокруг середины габарита, м (с куполом — больше).
     private(set) var boundingRadius: Double = 1
 
-    init(parts: [PartID]) {
+    init(parts: [PartID], layout: [PartPlacement] = []) {
         SoftTextures.shared.start()
-        rebuild(parts)
+        rebuild(parts: parts, layout: layout)
     }
 
-    func rebuild(_ newParts: [PartID]) {
+    /// Раскладка старого стека: детали сверху вниз на оси, вплотную.
+    static func stackLayout(_ parts: [PartID]) -> [PartPlacement] {
+        var top = parts.reduce(0) { $0 + $1.spec.height }
+        return parts.map { id in
+            let spec = id.spec
+            top -= spec.height
+            return PartPlacement(center: Vec3(0, top + spec.height / 2, 0), height: spec.height, diameter: spec.diameter)
+        }
+    }
+
+    /// Пересборка по `parts` и раскладке `newLayout`; если размеры не совпали — прежний стек сверху вниз.
+    func rebuild(parts newParts: [PartID], layout newLayout: [PartPlacement]) {
         parts = newParts
+        sourceLayoutCount = newLayout.count
+        let lay = newLayout.count == newParts.count ? newLayout : Self.stackLayout(newParts)
+        layout = lay
         for c in Array(root.children) { c.removeFromParent() }
         plumes.removeAll()
         rcsPuffs.removeAll()
+        nozzlePositions.removeAll()
         rcsLit = false
         canopy = nil
-        stackHeight = newParts.reduce(0) { $0 + $1.spec.height }
-        maxDiameter = newParts.reduce(0.5) { max($0, $1.spec.diameter) }
-        bottoms = []
-        var top = stackHeight
-        for id in newParts {
-            top -= id.spec.height
-            bottoms.append(top)
+
+        let low = lay.map(\.bottom).min() ?? 0
+        let high = lay.map(\.top).max() ?? 0
+        stackHeight = max(0, high)
+        centerY = (high + low) / 2
+        var minX = Double.infinity, maxX = -Double.infinity, minZ = Double.infinity, maxZ = -Double.infinity
+        var reach = 0.25
+        for p in lay {
+            let r = p.diameter / 2
+            minX = min(minX, p.center.x - r); maxX = max(maxX, p.center.x + r)
+            minZ = min(minZ, p.center.z - r); maxZ = max(maxZ, p.center.z + r)
+            reach = max(reach, hypot(p.center.x, p.center.z) + r)
         }
+        centerXZ = lay.isEmpty ? .zero : SIMD2((minX + maxX) / 2, (minZ + maxZ) / 2)
+        halfWidth = reach
+        maxDiameter = max(0.5, 2 * reach)
+
         for (i, id) in newParts.enumerated() {
             let spec = id.spec
+            let pl = lay[i]
+            let origin = F3(Float(pl.center.x), Float(pl.bottom), Float(pl.center.z))
             let holder = Entity()
-            holder.position = F3(0, Float(bottoms[i]), 0)
+            holder.position = origin
+            if PartModels.rotatesWithOutward(id) {
+                holder.orientation = simd_quatf(angle: PartModels.yaw(outward: pl.outward), axis: F3(0, 1, 0))
+            }
             root.addChild(holder)
             let pieces = spec.kind == .legs
-                ? PartModels.pieces(id) + PartModels.legs(diameter: spec.diameter, height: spec.height, drop: bottoms[i])
+                ? PartModels.pieces(id) + PartModels.legs(diameter: spec.diameter, height: spec.height,
+                                                          drop: max(0, pl.bottom))
                 : PartModels.pieces(id)
             for p in pieces {
                 holder.addChild(ModelEntity(mesh: p.mesh, materials: [p.material]))
             }
             if spec.kind == .engine {
-                makePlume(index: i, spec: spec)
+                nozzlePositions[i] = D3(pl.center.x, pl.bottom, pl.center.z)
+                makePlume(index: i, spec: spec, at: origin)
             }
             if spec.kind == .rcs, Self.rcsPuffsEnabled {
-                makeRCSPuffs(index: i)
+                makeRCSPuffs(index: i, at: origin)
             }
             if spec.kind == .chute {
-                makeCanopy(top: bottoms[i] + spec.height)
+                makeCanopy(at: F3(Float(pl.center.x), Float(pl.top), Float(pl.center.z)))
             }
         }
         boundingRadius = stackHeight / 2 + maxDiameter
@@ -115,12 +155,12 @@ final class VesselVisual {
         return (o, c, m)
     }
 
-    private func makePlume(index: Int, spec: PartSpec) {
+    private func makePlume(index: Int, spec: PartSpec, at origin: F3) {
         let kit = Self.softPlumeKit()
         guard let mesh = kit?.outer ?? Self.sharedPlumeMesh() else { return }
         let mats = RenderMaterials.shared
         let e = Entity()
-        e.position = F3(0, Float(bottoms[index]), 0)
+        e.position = origin
         let outer: ModelEntity
         let core: ModelEntity
         if let kit {
@@ -147,7 +187,7 @@ final class VesselVisual {
     private static var rcsPuffMesh: MeshResource?
     private static var rcsPuffMaterial: UnlitMaterial?
 
-    private func makeRCSPuffs(index: Int) {
+    private func makeRCSPuffs(index: Int, at origin: F3) {
         if Self.rcsPuffMesh == nil {
             var b = MeshBuilder()
             // Единичная струйка: от сопла (y = 0) расширяется к y = 1, радиус до 1.
@@ -161,7 +201,7 @@ final class VesselVisual {
         }
         guard let mesh = Self.rcsPuffMesh, let mat = Self.rcsPuffMaterial else { return }
         let holder = Entity()
-        holder.position = F3(0, Float(bottoms[index]), 0)
+        holder.position = origin
         var jets: [ModelEntity] = []
         for k in 0..<4 {
             for slot in 0..<5 {
@@ -216,7 +256,7 @@ final class VesselVisual {
         }
     }
 
-    private func makeCanopy(top: Double) {
+    private func makeCanopy(at top: F3) {
         if Self.canopyPieces.isEmpty {
             let mats = RenderMaterials.shared
             var prof: [SIMD2<Float>] = []
@@ -238,7 +278,7 @@ final class VesselVisual {
             }
         }
         let e = Entity()
-        e.position = F3(0, Float(top), 0)
+        e.position = top
         for p in Self.canopyPieces { e.addChild(ModelEntity(mesh: p.mesh, materials: [p.material])) }
         e.isEnabled = false
         root.addChild(e)
@@ -251,7 +291,7 @@ final class VesselVisual {
 
         // Текстуры факела дозагрузились (или режим переключили): пересобрать на мягкий вариант.
         if Self.softPlume != plumesSoft, !plumes.isEmpty, Self.softPlumeKit() != nil || plumesSoft {
-            rebuild(parts)
+            rebuild(parts: parts, layout: sourceLayoutCount == parts.count ? layout : [])
         }
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
