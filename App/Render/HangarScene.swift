@@ -28,6 +28,7 @@ final class HangarScene: HangarPreview {
     private var gizmo: HangarGizmo?
     private var gizmoBuilt: HangarGizmo?
     private var gizmoRadius: Float = 1
+    private var gizmoAxes: [F3] = []
 
     // Камера: цель (t…) и текущее сглаженное значение (c…).
     private static let defaultAzimuth = 0.6
@@ -233,10 +234,37 @@ final class HangarScene: HangarPreview {
         return i
     }
 
-    private func gizmoCenter() -> F3? {
-        guard let i = gizmoIndex() else { return nil }
+    /// Точка и оси гизмо в мировых осях сцены. Поворот: точка крепления детали и система узла (X′, Y′, Z′:
+    /// у боковой ветви Z′ — наружу, Y′ — вверх, X′ = (uz, 0, −ux); у осевой — оси узла родителя из раскладки
+    /// детали без её поворота и сдвига). Сдвиг: центр детали и оси корабля.
+    private func gizmoFrame() -> (origin: F3, axes: [F3])? {
+        guard let g = gizmo, let i = gizmoIndex() else { return nil }
         let c = layout[i].center
-        return F3(Float(c.x), Self.baseY + Float(c.y), Float(c.z))
+        let center = F3(Float(c.x), Self.baseY + Float(c.y), Float(c.z))
+        guard case .rotate = g else { return (center, Self.axes) }
+        // Раскладка с обнулёнными поворотом и сдвигом этой детали: положение «по умолчанию» на узле.
+        var plain = design
+        plain.nodes[i].rotation = .zero
+        plain.nodes[i].offset = .zero
+        let lay = plain.layout()
+        guard lay.indices.contains(i) else { return (center, Self.axes) }
+        let p = lay[i]
+        let node = design.nodes[i]
+        let pc = F3(Float(p.center.x), Self.baseY + Float(p.center.y), Float(p.center.z))
+        if node.parent == nil { return (pc, Self.axes) }
+        if node.node == .radial {
+            let u = simd_normalize(F3(Float(p.outward.x), 0, Float(p.outward.z)))
+            guard u.x.isFinite else { return (pc, Self.axes) }
+            // Точка крепления — на поверхности родителя, на половину размера детали внутрь от центра.
+            let attach = pc - u * Float(p.diameter / 2)
+            return (attach, [F3(u.z, 0, -u.x), F3(0, 1, 0), u])
+        }
+        let o = p.orientation
+        let q = simd_quatf(ix: Float(o.x), iy: Float(o.y), iz: Float(o.z), r: Float(o.w))
+        let along = q.act(F3(0, Float(p.height / 2), 0))
+        // Деталь на нижнем узле родителя крепится верхом, на верхнем — низом.
+        let attach = node.node == .bottom ? pc + along : pc - along
+        return (attach, [q.act(F3(1, 0, 0)), q.act(F3(0, 1, 0)), q.act(F3(0, 0, 1))])
     }
 
     /// Оси корабля X, Y, Z и цвета гизмо: красный, синий, зелёный.
@@ -248,23 +276,26 @@ final class HangarScene: HangarPreview {
     ]
 
     private func refreshGizmo() {
-        guard let g = gizmo, let i = gizmoIndex(), let c = gizmoCenter() else {
+        guard let g = gizmo, let i = gizmoIndex(), let frame = gizmoFrame() else {
             if gizmoRoot.isEnabled { gizmoRoot.isEnabled = false }
             gizmoBuilt = nil
             return
         }
-        gizmoRoot.position = c
+        gizmoRoot.position = frame.origin
         gizmoRoot.isEnabled = true
+        var moved = gizmoAxes.count != 3
+        for k in 0..<min(3, gizmoAxes.count) where simd_length(gizmoAxes[k] - frame.axes[k]) > 1e-4 { moved = true }
+        gizmoAxes = frame.axes
         let p = layout[i]
         let radius = Float(max(0.6, max(p.diameter, p.height) / 2 * 1.3 + 0.2))
-        guard gizmoBuilt != g || abs(radius - gizmoRadius) > 1e-4 else { return }
+        guard gizmoBuilt != g || moved || abs(radius - gizmoRadius) > 1e-4 else { return }
         gizmoBuilt = g
         gizmoRadius = radius
         for ch in Array(gizmoRoot.children) { ch.removeFromParent() }
         let t = max(0.03, radius * 0.035)
         for k in 0..<3 {
             var b = MeshBuilder()
-            let axis = Self.axes[k]
+            let axis = frame.axes[k]
             switch g {
             case .rotate:
                 // Кольцо вокруг оси k: строим вокруг Y и поворачиваем Y в ось.
@@ -301,11 +332,12 @@ final class HangarScene: HangarPreview {
     }
 
     func pickGizmoAxis(at point: CGPoint, viewSize: CGSize) -> Int? {
-        guard let g = gizmo, gizmoRoot.isEnabled, let c = gizmoCenter() else { return nil }
+        guard let g = gizmo, gizmoRoot.isEnabled, let frame = gizmoFrame() else { return nil }
+        let c = frame.origin
         var best: Int?
         var bestDist: CGFloat = 22
         for k in 0..<3 {
-            let axis = Self.axes[k]
+            let axis = frame.axes[k]
             var pts: [CGPoint?] = []
             switch g {
             case .rotate:
