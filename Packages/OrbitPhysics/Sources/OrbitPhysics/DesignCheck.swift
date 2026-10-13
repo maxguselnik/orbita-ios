@@ -23,6 +23,8 @@ public enum DesignIssue: Sendable, Hashable {
     case noChute
     /// Есть бак монотоплива, но нет блока РСУ.
     case monoWithoutRCS
+    /// Тяга ступени проходит мимо центра масс (плечо > 0.1 м) — корабль закрутит.
+    case asymmetricThrust(stage: Int)
 
     public var isBlocking: Bool {
         switch self {
@@ -54,6 +56,8 @@ public enum DesignIssue: Sendable, Hashable {
             "Есть экипаж, но нет парашюта"
         case .monoWithoutRCS:
             "Бак монотоплива без блока РСУ"
+        case .asymmetricThrust(let stage):
+            "\(Self.stageWord(stage, capitalized: true)): тяга мимо центра масс — корабль закрутит"
         }
     }
 
@@ -66,47 +70,68 @@ public enum DesignIssue: Sendable, Hashable {
 
 extension VesselDesign {
     /// Предельное число деталей в проекте.
-    public static let maxParts = 30
+    public static let maxParts = 60
 
-    /// Замечания к проекту: блокирующие первыми. Индекс ступени — как в `StageInfo` (0 — нижняя секция).
+    /// Плечо асимметрии тяги, выше которого — предупреждение, м.
+    static let asymmetryLimit = 0.1
+
+    /// Замечания к проекту: блокирующие первыми. Индекс ступени — ступень активации, как в `stageInfos()`.
     public func issues() -> [DesignIssue] {
-        if parts.isEmpty { return [.empty] }
+        if nodes.isEmpty { return [.empty] }
         var blocking: [DesignIssue] = []
         var warnings: [DesignIssue] = []
+        func add(_ i: DesignIssue) { if !warnings.contains(i) { warnings.append(i) } }
 
         let kinds = parts.map { $0.spec.kind }
         if !kinds.contains(where: { $0 == .pod || $0 == .probe }) { blocking.append(.noCommand) }
-        if parts.count > Self.maxParts { blocking.append(.tooManyParts(limit: Self.maxParts)) }
+        if nodes.count > Self.maxParts { blocking.append(.tooManyParts(limit: Self.maxParts)) }
 
         let ship = Ship(design: self)
-        // Секции снизу вверх: индекс = номер ступени.
-        let secs = Array(ship.sections.reversed())
-        func isEngine(_ i: Int) -> Bool { kinds[i] == .engine }
+        let groups = stageGroups
+        let kids = childrenMap()
         let hasEngine = kinds.contains(.engine)
         if !hasEngine { warnings.append(.noEngine) }
 
         if hasEngine {
-            // Топливо: жидкостный двигатель без баков в той же секции.
-            for (k, r) in secs.enumerated() {
-                let hasLiquidEngine = r.contains { isEngine($0) && !parts[$0].spec.isSolid }
-                if hasLiquidEngine && ship.liquidFuel(in: r) <= 1e-9 { warnings.append(.noFuel(stage: k)) }
+            // Топливо: жидкостный двигатель без баков в своей группе.
+            for (i, n) in nodes.enumerated() where n.part.spec.kind == .engine && !n.part.spec.isSolid {
+                if ship.liquidFuel(group: ship.group[i]) <= 1e-9 { add(.noFuel(stage: ship.parts[i].stage ?? 0)) }
             }
             // Тяга первой ступени с двигателем.
-            if let k = secs.firstIndex(where: { $0.contains(where: isEngine) }) {
+            if let k = groups.firstIndex(where: { g in g.contains { node($0)?.part.spec.kind == .engine } }) {
                 let infos = ship.stageInfos(pressure: 1, gravity: Bodies.terra.surfaceGravity)
                 if k < infos.count, infos[k].twr > 0, infos[k].twr < 1 {
-                    warnings.append(.lowTWR(stage: k, twr: infos[k].twr))
+                    add(.lowTWR(stage: k, twr: infos[k].twr))
                 }
             }
-            // Секции ниже командной без двигателей.
-            if let cmd = secs.firstIndex(where: { $0.contains { kinds[$0] == .pod || kinds[$0] == .probe } }) {
-                for k in 0..<cmd where !secs[k].contains(where: isEngine) { warnings.append(.emptyStage(stage: k)) }
+            // Разделитель, который уносит часть без двигателей (и без командного модуля), — лишний.
+            for n in nodes where n.part.spec.kind == .decoupler && n.parent != nil {
+                let sub = subtreeIDs(n.id)
+                if sub.contains(where: { id in node(id).map { $0.part.spec.kind == .pod || $0.part.spec.kind == .probe } ?? false }) {
+                    continue
+                }
+                // Секция разделителя: его поддерево до следующих разделителей.
+                var section: [DesignPart] = []
+                var stack = kids[n.id] ?? []
+                while let x = stack.popLast() {
+                    section.append(x)
+                    if x.part.spec.kind != .decoupler { stack += kids[x.id] ?? [] }
+                }
+                if !section.contains(where: { $0.part.spec.kind == .engine }) {
+                    add(.emptyStage(stage: ship.parts[index(of: n.id) ?? 0].stage ?? 0))
+                }
             }
         }
 
-        if kinds.last == .decoupler { warnings.append(.decouplerAtBottom) }
+        if nodes.contains(where: { n in n.part.spec.kind == .decoupler && kids[n.id] == nil }) {
+            warnings.append(.decouplerAtBottom)
+        }
         if parts.contains(where: { $0.spec.crew > 0 }) && !parts.contains(.chute) { warnings.append(.noChute) }
         if kinds.contains(.monoTank) && !kinds.contains(.rcs) { warnings.append(.monoWithoutRCS) }
+        // Асимметрия тяги по ступеням с двигателями.
+        for (k, g) in groups.enumerated() where g.contains(where: { node($0)?.part.spec.kind == .engine }) {
+            if markers(stage: k).thrustOffset > Self.asymmetryLimit { add(.asymmetricThrust(stage: k)) }
+        }
         return blocking + warnings
     }
 }

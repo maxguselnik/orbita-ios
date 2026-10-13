@@ -52,13 +52,13 @@ public final class Autopilot {
         sim.setInput(ControlInput(throttle: clamp(t, 0, 1)))
     }
 
-    /// Ступень, если нижняя ступень пуста или двигатели не зажжены.
+    /// Ступень, если следующая только зажигает двигатели или отделяет отработавшие.
     private func autoStage(_ sim: FlightSim) {
         guard sim.time - lastStageTime > 0.5 else { return }
         if sim.currentStageHasUnlitEngines {
             sim.send(.stage)
             lastStageTime = sim.time
-        } else if !sim.currentStageHasFuel && sim.stageCount > 1 {
+        } else if sim.spentSeparationReady {
             sim.send(.stage)
             lastStageTime = sim.time
         }
@@ -135,7 +135,7 @@ public final class Autopilot {
                 break
             }
             setThrottle(sim, 0)
-            if !sim.currentStageHasFuel && sim.stageCount > 1 { autoStage(sim) }
+            if sim.spentSeparationReady { autoStage(sim) }
             let vAp = el.angularMomentum.length / el.apoapsisRadius
             let dv = (body.mu / el.apoapsisRadius).squareRoot() - vAp
             let bt = burnTime(sim, dv)

@@ -34,14 +34,15 @@ struct Vessel {
                     mass: ship.mass, throttle: throttle, situation: situation, isActive: isActive,
                     parts: ship.parts.map(\.id), firingEngines: ship.firingEngines(throttle: throttle),
                     chute: chute, chuteDeploy: chuteDeploy,
-                    rcsTranslation: rcsTranslation, rcsRotation: rcsRotation)
+                    rcsTranslation: rcsTranslation, rcsRotation: rcsRotation,
+                    layout: ship.parts.map(\.placement))
     }
 }
 
 /// Физика полёта: активный корабль численно (шаг ≤ 0.02 с), остальные — проще или «на рельсах».
 ///
 /// Соглашения:
-/// - `VesselState.position` — нижняя точка стека деталей (то, что касается грунта).
+/// - `VesselState.position` — точка на оси корня на уровне самой нижней точки корабля (то, что касается грунта).
 /// - `VesselState.angularVelocity` — в инерциальной системе.
 /// - Оси корабля (правая тройка): нос = +Y, «верх» (спина) = +Z, правый борт = +X.
 ///   pitch > 0 — нос к +Z (вверх), yaw > 0 — нос к +X (вправо), roll > 0 — правый борт вниз
@@ -205,20 +206,23 @@ public final class FlightSim: FlightSimulation {
     public var activeElements: OrbitElements {
         OrbitElements(position: active.r, velocity: active.v, mu: Bodies.body(active.body).mu)
     }
-    /// Детали активного корабля сверху вниз.
+    /// Детали активного корабля в порядке дерева (для линейного стека — сверху вниз).
     public var activeParts: [PartID] { active.ship.parts.map(\.id) }
-    /// Тяга (Н) и Isp текущей ступени при текущем давлении.
+    /// Тяга (Н) и Isp зажжённых двигателей (и следующей ступени, если она только зажигает) при текущем давлении.
     public var currentStagePerformance: (thrust: Double, isp: Double) {
         active.ship.currentStagePerformance(pressure: pressure(of: active))
     }
-    /// Есть ли у зажжённых двигателей нижней ступени топливо.
+    /// Есть ли у зажжённых двигателей топливо.
     public var currentStageHasFuel: Bool { active.ship.ignitedEnginesHaveFuel().any }
-    /// Есть ли в нижней ступени незажжённые двигатели.
+    /// Следующая ступень только зажигает двигатели (ничего не отделяет).
     public var currentStageHasUnlitEngines: Bool {
         let s = active.ship
-        return s.bottomSection.contains { s.parts[$0].spec.kind == .engine && !s.parts[$0].ignited }
+        return s.nextStage.map { s.isPureIgnition($0) } ?? false
     }
-    public var stageCount: Int { active.ship.sections.count }
+    /// Ступени активации в телеметрии: последняя сработавшая и оставшиеся (= `telemetry.stages.count`).
+    public var stageCount: Int { active.ship.telemetryStages.count }
+    /// Следующая ступень отделяет отработавшие двигатели (для автопилота).
+    var spentSeparationReady: Bool { active.ship.spentSeparationReady }
 
     // MARK: FlightSimulation
 
@@ -346,63 +350,92 @@ public final class FlightSim: FlightSimulation {
     private func doStage() {
         let i = activeIndex
         guard vessels[i].situation != .crashed else { return }
-        var ship = vessels[i].ship
-        let secs = ship.sections
-        let bottom = ship.bottomSection
-        let stageNo = secs.count - 1
-        let unlit = bottom.filter { ship.parts[$0].spec.kind == .engine && !ship.parts[$0].ignited }
-        if !unlit.isEmpty {
-            for k in unlit { ship.parts[k].ignited = true }
-            vessels[i].ship = ship
-            events.append(.ignition(stage: stageNo, solid: unlit.contains { ship.parts[$0].spec.isSolid }))
+        guard let k = vessels[i].ship.nextStage else {
+            armChute()
             return
         }
-        if secs.count > 1 {
-            separate(i)
-            return
-        }
-        armChute()
+        activateStage(i, k)
     }
 
-    private func separate(_ i: Int) {
+    /// Срабатывание ступени активации `k`: разделители (каждый уносит своё поддерево), обтекатели,
+    /// зажигание двигателей, парашют.
+    private func activateStage(_ i: Int, _ k: Int) {
         var v = vessels[i]
-        let stageNo = v.ship.sections.count - 1
-        let bottom = v.ship.bottomSection
-        let removed = Array(v.ship.parts[bottom])
-        v.ship.parts.removeSubrange(bottom)
+        v.ship.lastStage = k
+        let stageNo = v.ship.decouplerCount
+        let stageParts = v.ship.partsOfStage(k).map { v.ship.parts[$0] }
+        var debris: [Vessel] = []
+        var axial = false
+        // Разделители: в порядке дерева, внешние раньше вложенных.
+        for p in stageParts where p.spec.kind == .decoupler && p.parent != nil {
+            guard let idx = v.ship.index(of: p.uid) else { continue }
+            let outward = v.ship.parts[idx].placement.outward
+            let sub = v.ship.subtree(p.uid)
+            let cut = v.ship.split(removing: sub)
+            debris.append(makeDebris(&v, cut, push: outward == .zero ? nil : outward))
+            if outward == .zero { axial = true }
+        }
+        for p in stageParts where p.spec.kind == .fairing {
+            guard let cut = v.ship.eject(p.uid) else { continue }
+            debris.append(makeDebris(&v, cut, push: Vec3(1, 0.3, 0)))
+        }
+        if !debris.isEmpty {
+            if axial { v.v += v.q.nose * 0.5 }
+            if v.isOnSurface {
+                v.situation = .flying
+                v.fixedPos = nil
+                v.fixedAtt = nil
+                if launchTime == nil { launchTime = time }
+            }
+            events.append(.separation(stage: stageNo))
+        }
+        var ignitedSolid: Bool?
+        for idx in v.ship.partsOfStage(k) where v.ship.parts[idx].spec.kind == .engine && !v.ship.parts[idx].ignited {
+            v.ship.parts[idx].ignited = true
+            ignitedSolid = (ignitedSolid ?? false) || v.ship.parts[idx].spec.isSolid
+        }
+        if v.chute == .stowed && v.ship.partsOfStage(k).contains(where: { v.ship.parts[$0].spec.kind == .chute }) {
+            v.chute = .armed
+        }
+        vessels[i] = v
+        for d in debris {
+            vessels.append(d)
+            if d.isOnSurface && d.fixedPos == nil { landVessel(vessels.count - 1, situation: d.situation) }
+        }
+        if let solid = ignitedSolid { events.append(.ignition(stage: v.ship.decouplerCount, solid: solid)) }
+    }
+
+    /// Обломок из отделённых деталей; активный корабль сдвигает начало координат так, чтобы не сдвинуться
+    /// в пространстве. `push` — направление отталкивания в осях корабля (nil — осевое: обломок назад).
+    private func makeDebris(_ v: inout Vessel, _ cut: (debris: Ship, debrisOrigin: Vec3, shift: Vec3),
+                            push: Vec3?) -> Vessel {
         let nose = v.q.nose
-        let height = Ship(parts: removed).length
-        // Отделённая ступень.
-        var d = Vessel(id: nextID, body: v.body, r: v.r, v: v.v - nose * 2.5, q: v.q,
-                       w: v.w + v.q.rotate(Vec3(0.04, 0, 0.03)), ship: Ship(parts: removed),
+        let offset = cut.debrisOrigin
+        var d = Vessel(id: nextID, body: v.body, r: offset == .zero ? v.r : v.r + v.q.rotate(offset),
+                       v: v.v - nose * 2.5, q: v.q, w: v.w + v.q.rotate(Vec3(0.04, 0, 0.03)), ship: cut.debris,
                        situation: .flying, chute: .none, isActive: false)
+        if let u = push {
+            d.v = v.v + v.q.rotate(u) * 2
+            // Нос обломка уходит наружу: ось Y × u.
+            d.w = v.w + v.q.rotate(Vec3(u.z, 0, -u.x) * 0.15)
+        }
         nextID += 1
         if v.isOnSurface {
             // Ступень остаётся на площадке.
             d.v = v.v
             d.situation = v.situation
-            d.fixedPos = v.fixedPos
-            d.fixedAtt = v.fixedAtt
+            if offset == .zero {
+                d.fixedPos = v.fixedPos
+                d.fixedAtt = v.fixedAtt
+            }
         } else {
             d.situation = classify(d)
         }
-        v.r += nose * height
-        v.v += nose * 0.5
-        if v.isOnSurface {
-            v.situation = .flying
-            v.fixedPos = nil
-            v.fixedAtt = nil
-            if launchTime == nil { launchTime = time }
+        let sh = cut.shift
+        if sh != .zero {
+            v.r += sh.x == 0 && sh.z == 0 ? nose * sh.y : v.q.rotate(sh)
         }
-        var ignitedSolid: Bool?
-        for k in v.ship.bottomSection where v.ship.parts[k].spec.kind == .engine {
-            v.ship.parts[k].ignited = true
-            ignitedSolid = (ignitedSolid ?? false) || v.ship.parts[k].spec.isSolid
-        }
-        vessels[i] = v
-        vessels.append(d)
-        events.append(.separation(stage: stageNo))
-        if let solid = ignitedSolid { events.append(.ignition(stage: stageNo - 1, solid: solid)) }
+        return d
     }
 
     private func armChute() {
@@ -462,7 +495,7 @@ public final class FlightSim: FlightSimulation {
         let rho = b.density(altitude: alt)
         let p = rho / Bodies.terra.seaLevelDensity
         let m = s.ship.mass
-        let stageNo = s.ship.sections.count - 1
+        let stageNo = s.ship.decouplerCount
 
         let before = s.ship.ignitedEnginesHaveFuel()
         let tr = s.ship.burn(throttle: s.throttle, pressure: p, dt: h)
@@ -488,7 +521,7 @@ public final class FlightSim: FlightSimulation {
             s.rcsTranslation = cmd * frac
             rcsAcc = s.q.rotate(cmd * (blocks * spec.thrust(pressure: p) * frac)) / m
         }
-        let thrustAcc = nose * (tr.thrust / m) + rcsAcc
+        let thrustAcc = (tr.force.map { s.q.rotate($0) / m } ?? nose * (tr.thrust / m)) + rcsAcc
         let g = b.mu / (rm * rm)
 
         if s.isOnSurface {
@@ -519,6 +552,7 @@ public final class FlightSim: FlightSimulation {
         let cosA = nose.dot(vh)
         let sin2 = max(0, 1 - cosA * cosA)
         let bodyCdA = s.ship.dragArea * (1 + 2.5 * sin2)
+        let finsBelow = s.ship.finsBelowCenterOfMass
 
         // Парашют.
         if s.chute == .armed && rho > 0 && alt < Self.chuteMaxAltitude && va < Self.chuteMaxSpeed {
@@ -540,12 +574,14 @@ public final class FlightSim: FlightSimulation {
             let dAcc = min(qd * cda / m, va * 0.9 / h)
             dragAcc = vh * -dAcc
             let target = (chuteOut || s.ship.retroStable) ? -vh : vh
+            // Стабилизаторы ниже ЦМ усиливают восстанавливающий момент.
+            let bodyAero: Double = finsBelow > 0 ? qd * 4e-5 * (1 + 0.5 * Double(finsBelow)) : qd * 4e-5
             let cr = nose.cross(target)
             let sinE = cr.length
             let ang = atan2(sinE, nose.dot(target))
             let axis = sinE > 1e-9 ? cr / sinE : s.q.rotate(.unitX)
             let mt = m / 1000
-            let mag = clamp((qd * 4e-5 + qd * chA * 1e-4) * sin(ang) / (mt / 2 + 0.5).squareRoot(), -3, 3)
+            let mag = clamp((bodyAero + qd * chA * 1e-4) * sin(ang) / (mt / 2 + 0.5).squareRoot(), -3, 3)
             aeroAlpha = axis * mag
             let relW = s.w - spin
             s.w = spin + relW / (1 + h * (qd * 1e-4 + (chuteOut ? 2 : 0)))
@@ -575,7 +611,15 @@ public final class FlightSim: FlightSimulation {
         s.v += (proper - up * g) * h
         s.r += s.v * h
 
-        attitude(&s, h, mass: m, firing: tr.thrust > 0, aero: aeroAlpha)
+        // Асимметричная тяга: угловое ускорение τ / I⊥ (у соосного корабля момента нет).
+        var external = aeroAlpha
+        if tr.torque != .zero {
+            let cm = s.ship.centerOfMass
+            let it = s.ship.transverseInertia(about: cm)
+            let ia = s.ship.axialInertia(about: cm)
+            external = external + s.q.rotate(Vec3(tr.torque.x / it, tr.torque.y / ia, tr.torque.z / it))
+        }
+        attitude(&s, h, mass: m, firing: tr.thrust > 0, aero: external)
 
         // Контакт с поверхностью.
         let tNext = time + h
@@ -1108,22 +1152,10 @@ public final class FlightSim: FlightSimulation {
         t.stages = s.ship.stageInfos(pressure: p, gravity: b.surfaceGravity)
         t.thrust = onRails ? 0 : lastThrust
         var maxT = 0.0
-        let r = s.ship.bottomSection
-        let liq = s.ship.liquidFuel(in: r)
-        for k in r {
-            let pi = s.ship.parts[k]
-            guard pi.spec.kind == .engine, pi.ignited else { continue }
-            if pi.spec.isSolid ? pi.fuel > 0 : liq > 1e-9 { maxT += pi.spec.thrust(pressure: p) }
+        for k in s.ship.ignitedEngines where s.ship.engineHasFuel(k) {
+            maxT += s.ship.parts[k].spec.thrust(pressure: p)
         }
-        if s.situation == .crashed {
-            t.nextStageAction = .none
-        } else if r.contains(where: { s.ship.parts[$0].spec.kind == .engine && !s.ship.parts[$0].ignited }) {
-            t.nextStageAction = .ignite
-        } else if s.ship.sections.count > 1 {
-            t.nextStageAction = .separate
-        } else {
-            t.nextStageAction = s.chute == .stowed ? .armChute : .none
-        }
+        t.nextStageAction = nextStageAction(s)
         t.maxThrust = maxT
         t.solidBurning = !onRails && lastSolidThrust > 0
         t.atmosphereDensity = rho
@@ -1176,6 +1208,17 @@ public final class FlightSim: FlightSimulation {
         snapshot = WorldSnapshot(time: time, activeVessel: activeID, vessels: vessels.map(\.state),
                                  lunaPosition: World.lunaPosition(at: time), lunaVelocity: World.lunaVelocity(at: time),
                                  terraRotation: World.terraRotation(at: time), telemetry: t)
+    }
+
+    /// Действие следующего нажатия «Ступень»: отделение (разделитель/обтекатель), иначе зажигание, иначе парашют.
+    private func nextStageAction(_ s: Vessel) -> StageAction {
+        if s.situation == .crashed { return .none }
+        guard let k = s.ship.nextStage else { return s.chute == .stowed ? .armChute : .none }
+        let ps = s.ship.partsOfStage(k)
+        if ps.contains(where: { s.ship.separates($0) }) { return .separate }
+        if ps.contains(where: { s.ship.parts[$0].spec.kind == .engine }) { return .ignite }
+        if ps.contains(where: { s.ship.parts[$0].spec.kind == .chute }) { return s.chute == .stowed ? .armChute : .none }
+        return .none
     }
 
     // MARK: Узел манёвра

@@ -41,9 +41,17 @@ public struct DesignPart: Sendable, Hashable, Codable, Identifiable {
     /// Ступень активации (0 — первая, по кнопке «Ступень» на старте) для двигателей, разделителей,
     /// парашюта, обтекателя. nil — деталь не активируется.
     public var stage: Int?
+    /// Поворот, градусы: x — тангаж, y — крен вокруг оси детали, z — рыскание; относительно положения
+    /// по умолчанию на узле (у боковой — в системе узла: +Z — наружу). Поворот — вокруг точки крепления.
+    public var rotation: Vec3
+    /// Сдвиг от точки крепления в осях корабля, м.
+    public var offset: Vec3
+    /// Копия зеркальной симметрии (отражение относительно плоскости YZ корабля).
+    public var mirrored: Bool = false
 
     public init(id: Int, part: PartID, parent: Int?, node: AttachNode = .bottom, angle: Double = 0,
-                height: Double = 0.5, symmetryGroup: Int? = nil, stage: Int? = nil) {
+                height: Double = 0.5, symmetryGroup: Int? = nil, stage: Int? = nil,
+                rotation: Vec3 = .zero, offset: Vec3 = .zero) {
         self.id = id
         self.part = part
         self.parent = parent
@@ -52,6 +60,28 @@ public struct DesignPart: Sendable, Hashable, Codable, Identifiable {
         self.height = height
         self.symmetryGroup = symmetryGroup
         self.stage = stage
+        self.rotation = rotation
+        self.offset = offset
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, part, parent, node, angle, height, symmetryGroup, stage, rotation, offset, mirrored
+    }
+
+    /// Поля 5.2 (`rotation`, `offset`, `mirrored`) необязательны: ранние файлы v2 читаются.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        part = try c.decode(PartID.self, forKey: .part)
+        parent = try c.decodeIfPresent(Int.self, forKey: .parent)
+        node = try c.decodeIfPresent(AttachNode.self, forKey: .node) ?? .bottom
+        angle = try c.decodeIfPresent(Double.self, forKey: .angle) ?? 0
+        height = try c.decodeIfPresent(Double.self, forKey: .height) ?? 0.5
+        symmetryGroup = try c.decodeIfPresent(Int.self, forKey: .symmetryGroup)
+        stage = try c.decodeIfPresent(Int.self, forKey: .stage)
+        rotation = try c.decodeIfPresent(Vec3.self, forKey: .rotation) ?? .zero
+        offset = try c.decodeIfPresent(Vec3.self, forKey: .offset) ?? .zero
+        mirrored = try c.decodeIfPresent(Bool.self, forKey: .mirrored) ?? false
     }
 }
 
@@ -132,15 +162,19 @@ public struct PartPlacement: Sendable, Hashable {
     public var outward: Vec3
     public var height: Double
     public var diameter: Double
+    /// Поворот из осей детали в оси корабля (осевая без поворота — identity).
+    public var orientation: Quat
 
     public var bottom: Double { center.y - height / 2 }
     public var top: Double { center.y + height / 2 }
 
-    public init(center: Vec3, outward: Vec3 = .zero, height: Double, diameter: Double) {
+    public init(center: Vec3, outward: Vec3 = .zero, height: Double, diameter: Double,
+                orientation: Quat = .identity) {
         self.center = center
         self.outward = outward
         self.height = height
         self.diameter = diameter
+        self.orientation = orientation
     }
 }
 
@@ -194,7 +228,7 @@ public enum VesselEditing {
     /// только `.radial`-ребёнка наружу, стабилизатор детей не принимает. Занятый осевой узел допустим:
     /// новая деталь встаёт между (прежний ребёнок переходит на её узел с той же стороны).
     public static func canAttach(_ part: PartID, to target: AttachTarget, in design: VesselDesign) -> Bool {
-        fatalError("A")
+        canAttachImpl(part, target, design)
     }
 
     /// Точки крепления для детали `part`: осевые (верх/низ каждой подходящей детали, включая занятые —
@@ -202,17 +236,37 @@ public enum VesselEditing {
     /// разделителя — одна наружу). Для пустого проекта — одна точка с `parent == nil`.
     /// При `symmetry` > 1 радиальные точки — те, для которых все n копий помещаются.
     public static func attachTargets(for part: PartID, symmetry: Int, in design: VesselDesign) -> [AttachTarget] {
-        fatalError("A")
+        attachTargetsImpl(part, symmetry, design)
     }
 
     /// Прикрепить деталь. Радиальное крепление при `symmetry` n = 2…4 ставит n копий через 360°/n в одну
     /// группу симметрии; если родитель сам в группе симметрии из m копий — деталь ставится к каждой из m
-    /// (с тем же относительным азимутом), группа — общая. Возвращает id новых деталей (первая — у `target`);
+    /// (с тем же относительным азимутом), группа — общая. `mirror` при n = 2 — копия зеркально относительно
+    /// плоскости YZ корабля (азимут 180° − a, `mirrored`). Возвращает id новых деталей (первая — у `target`);
     /// пусто — нельзя (правило, лимит).
     @discardableResult
-    public static func attach(_ part: PartID, to target: AttachTarget, symmetry: Int,
+    public static func attach(_ part: PartID, to target: AttachTarget, symmetry: Int, mirror: Bool = false,
                               in design: inout VesselDesign) -> [Int] {
-        fatalError("A")
+        attachImpl(part, target, symmetry, mirror, &design)
+    }
+
+    /// Поворот детали (градусы, см. `DesignPart.rotation`); копии симметрии — согласованно (боковые — тот же
+    /// поворот в своей системе узла, зеркальные — отражённый), так что симметричная группа не даёт момента.
+    public static func setRotation(_ id: Int, _ rotation: Vec3, in design: inout VesselDesign) {
+        setRotationImpl(id, rotation, &design)
+    }
+
+    /// Сдвиг детали от точки крепления (оси корабля, м), ограничен габаритом родителя: по оси — не больше
+    /// половины высоты родителя, вбок — не больше его радиуса. Копии — согласованно.
+    public static func setOffset(_ id: Int, _ offset: Vec3, in design: inout VesselDesign) {
+        setOffsetImpl(id, offset, &design)
+    }
+
+    /// Переподвесить дерево на новый корень: рёбра пути к прежнему корню разворачиваются, узлы top↔bottom
+    /// меняются так, что раскладка не меняется. false — на пути боковое крепление (или поворот/сдвиг).
+    @discardableResult
+    public static func setRoot(_ id: Int, in design: inout VesselDesign) -> Bool {
+        setRootImpl(id, &design)
     }
 
     /// Убрать деталь вместе с копиями симметрии. Осевой ребёнок на противоположном узле (продолжение стека)
@@ -220,44 +274,44 @@ public enum VesselEditing {
     /// ребёнок — тот становится корнем, иначе проект пустеет. Возвращает id всех убранных.
     @discardableResult
     public static func remove(_ id: Int, in design: inout VesselDesign) -> [Int] {
-        fatalError("A")
+        removeImpl(id, &design)
     }
 
     /// Перенести деталь с её поддеревом к другой точке (id сохраняются; группа симметрии детали снимается).
     /// Нельзя к себе или своему потомку. false — без изменений.
     @discardableResult
     public static func move(_ id: Int, to target: AttachTarget, in design: inout VesselDesign) -> Bool {
-        fatalError("A")
+        moveImpl(id, target, &design)
     }
 
     /// Редактор ступеней: перенести деталь (и копии симметрии) в ступень `stage`; `stage == stageCount` —
     /// новая ступень в конце, `stage < 0` — новая ступень в начале (остальные сдвигаются).
     /// Пустые ступени схлопываются. Включает `customStaging`. Неактивируемые детали — без изменений.
     public static func setStage(_ id: Int, to stage: Int, in design: inout VesselDesign) {
-        fatalError("A")
+        setStageImpl(id, stage, &design)
     }
 
     /// Поменять ступени местами (перетаскивание строки ступени). Включает `customStaging`.
     public static func swapStages(_ a: Int, _ b: Int, in design: inout VesselDesign) {
-        fatalError("A")
+        swapStagesImpl(a, b, &design)
     }
 
     /// Вернуть авто-ступени (`customStaging = false`).
     public static func resetStaging(in design: inout VesselDesign) {
-        fatalError("A")
+        design = design.autoStaged()
     }
 }
 
 extension VesselDesign {
     /// Раскладка деталей в порядке `nodes` (A).
     public func layout() -> [PartPlacement] {
-        fatalError("A")
+        computeLayout()
     }
 
     /// Ступени активации по возрастанию (0 — первая), в каждой — id деталей; пустых нет (A).
     /// `stageInfos()` возвращает столько же элементов, в том же порядке.
     public var stageGroups: [[Int]] {
-        fatalError("A")
+        computeStageGroups()
     }
 
     /// Ступени по авто-правилу (A): двигатель — в ступень срабатывания ближайшего разделителя ниже него по
@@ -266,12 +320,12 @@ extension VesselDesign {
     /// разделителей — после двигателей); парашют — последняя ступень. Для старых линейных стеков даёт
     /// прежнюю последовательность: зажигание → разделение + зажигание следующей → … → парашют.
     public func autoStaged() -> VesselDesign {
-        fatalError("A")
+        computeAutoStaged()
     }
 
     /// Маркеры для ступени активации `stage` (тяга — двигатели, зажжённые к этой ступени и ещё не отделённые);
     /// nil — первая ступень с двигателями (A).
     public func markers(stage: Int? = nil) -> DesignMarkers {
-        fatalError("A")
+        computeMarkers(stage: stage)
     }
 }
