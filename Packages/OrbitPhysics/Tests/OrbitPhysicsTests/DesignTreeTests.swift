@@ -377,3 +377,85 @@ struct DesignTreePhysicsTests {
         #expect(fall(stack([.chute, .podK1])) < 0)
     }
 }
+
+@Suite("Дерево деталей: правки после ревью")
+struct DesignReviewFixTests {
+    @Test func noTargetOnNodeFacingParent() {
+        // Т-400 висит на нижнем узле капсулы: его верхний узел занят капсулой.
+        let d = stack([.podK1, .t400, .vikhr])
+        #expect(!VesselEditing.canAttach(.t100, to: axial(1, .top), in: d))
+        #expect(VesselEditing.canAttach(.t100, to: axial(1, .bottom), in: d))
+        let targets = VesselEditing.attachTargets(for: .t100, symmetry: 1, in: d)
+        #expect(!targets.contains { $0.parent == 1 && $0.node == .top })
+        #expect(!targets.contains { $0.parent == 2 && $0.node == .top })
+        // У корня свободны оба узла.
+        #expect(targets.contains { $0.parent == 0 && $0.node == .top })
+        #expect(targets.contains { $0.parent == 0 && $0.node == .bottom })
+        // Деталь на верхнем узле — без нижнего.
+        var up = stack([.podK1])
+        let chute = VesselEditing.attach(.chute, to: axial(0, .top), symmetry: 1, in: &up)[0]
+        #expect(!VesselEditing.canAttach(.t100, to: axial(chute, .bottom), in: up))
+        #expect(VesselEditing.canAttach(.t100, to: axial(chute, .top), in: up))
+        // Вставка между на нижний узел капсулы по-прежнему работает и не перекрывает детали.
+        var e = d
+        VesselEditing.attach(.t100, to: axial(0, .bottom), symmetry: 1, in: &e)
+        let lay = e.layout()
+        for k in 1..<lay.count { #expect(lay[k].top <= lay[k - 1].bottom + 1e-9) }
+    }
+
+    @Test func setRootRefusesAcrossDecouplers() {
+        var d = VesselDesign.orbit
+        // «Вихрь» (8) и Т-400 (3): на пути к парашюту — разделители.
+        #expect(!VesselEditing.setRoot(8, in: &d))
+        #expect(!VesselEditing.setRoot(3, in: &d))
+        #expect(d == VesselDesign.orbit)
+        // Капсула — можно, ступени те же.
+        #expect(VesselEditing.setRoot(1, in: &d))
+        #expect(d.stageGroups.map { $0.sorted() } == VesselDesign.orbit.stageGroups.map { $0.sorted() })
+    }
+
+    @Test func decouplerDroppingCommandIsFlagged() {
+        // Корень сверху — бак: разделитель уносит капсулу.
+        let i = stack([.t100, .decoupler, .chute, .podK1, .t200, .vikhr]).issues()
+        #expect(i.contains(.decouplerDropsCommand))
+        #expect(!DesignIssue.decouplerDropsCommand.isBlocking)
+        #expect(DesignIssue.decouplerDropsCommand.text == "Разделитель отделяет капсулу или модуль управления")
+        for p in VesselDesign.presets { #expect(!p.issues().contains(.decouplerDropsCommand)) }
+    }
+
+    @Test func moveClearsForeignSymmetryInSubtree() {
+        var d = VesselDesign.boosters
+        // Боковой разделитель 6 (с «Молотом» 8 и обтекателем 10) — на другой бак.
+        #expect(VesselEditing.move(6, to: radial(3, 90), in: &d))
+        for id in [6, 8, 10] { #expect(d.node(id)?.symmetryGroup == nil) }
+        #expect(d.node(11)?.symmetryGroup == nil && d.node(9)?.symmetryGroup == nil)
+        let removed = VesselEditing.remove(10, in: &d)
+        #expect(removed == [10])
+        #expect(d.node(11) != nil)
+    }
+
+    @Test func remainingAndMarkersOnEmptyStaging() {
+        let d = stack([.probe, .t400])
+        #expect(d.stageGroups.isEmpty)
+        #expect(d.remainingIDs(afterStage: 0).count == 2)
+        #expect(d.markers(stage: 0).centerOfThrust == nil)
+    }
+
+    @Test func lowestAccountsForRotation() {
+        var d = stack([.probe, .t400, .shtil])
+        VesselEditing.setRotation(2, Vec3(90, 0, 0), in: &d)
+        let lay = d.layout()
+        #expect(abs(lay.map(\.lowest).min()!) < 1e-9)
+        // «Штиль» лёг набок: шире, чем высота, — низшая точка ниже `bottom` по оси детали.
+        #expect(lay[2].lowest < lay[2].bottom - 0.05)
+        #expect(lay[0].lowest == lay[0].bottom)
+    }
+
+    @Test func decodeNormalizesOrder() throws {
+        // Ребёнок раньше родителя и сирота.
+        let json = #"{"name":"x","version":2,"customStaging":false,"nodes":[{"id":1,"part":"vikhr","parent":0,"node":"bottom"},{"id":0,"part":"probe","node":"bottom"},{"id":5,"part":"t100","parent":42,"node":"bottom"}]}"#
+        let d = try JSONDecoder().decode(VesselDesign.self, from: Data(json.utf8))
+        #expect(d.nodes.map(\.id) == [0, 1])
+        #expect(d.layout().count == 2)
+    }
+}

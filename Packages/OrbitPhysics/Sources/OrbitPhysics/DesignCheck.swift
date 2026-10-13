@@ -25,6 +25,8 @@ public enum DesignIssue: Sendable, Hashable {
     case monoWithoutRCS
     /// Тяга ступени проходит мимо центра масс (плечо > 0.1 м) — корабль закрутит.
     case asymmetricThrust(stage: Int)
+    /// После срабатывания разделителя у корабля (часть с корнем) не остаётся капсулы или модуля управления.
+    case decouplerDropsCommand
 
     public var isBlocking: Bool {
         switch self {
@@ -56,6 +58,8 @@ public enum DesignIssue: Sendable, Hashable {
             "Есть экипаж, но нет парашюта"
         case .monoWithoutRCS:
             "Бак монотоплива без блока РСУ"
+        case .decouplerDropsCommand:
+            "Разделитель отделяет капсулу или модуль управления"
         case .asymmetricThrust(let stage):
             "\(Self.stageWord(stage, capitalized: true)): тяга мимо центра масс — корабль закрутит"
         }
@@ -128,6 +132,17 @@ extension VesselDesign {
         }
         if parts.contains(where: { $0.spec.crew > 0 }) && !parts.contains(.chute) { warnings.append(.noChute) }
         if kinds.contains(.monoTank) && !kinds.contains(.rcs) { warnings.append(.monoWithoutRCS) }
+        // Разделитель уносит командную деталь: в части с корнем её не остаётся.
+        if !blocking.contains(.noCommand) {
+            func isCommand(_ id: Int) -> Bool { node(id).map { $0.part.spec.kind == .pod || $0.part.spec.kind == .probe } ?? false }
+            for n in nodes where n.part.spec.kind == .decoupler && n.parent != nil {
+                let sub = subtreeIDs(n.id)
+                if !nodes.contains(where: { !sub.contains($0.id) && isCommand($0.id) }) {
+                    add(.decouplerDropsCommand)
+                    break
+                }
+            }
+        }
         // Асимметрия тяги по ступеням с двигателями.
         for (k, g) in groups.enumerated() where g.contains(where: { node($0)?.part.spec.kind == .engine }) {
             if markers(stage: k).thrustOffset > Self.asymmetryLimit { add(.asymmetricThrust(stage: k)) }

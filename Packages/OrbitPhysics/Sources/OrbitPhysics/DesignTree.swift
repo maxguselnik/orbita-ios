@@ -135,6 +135,8 @@ extension VesselDesign: Codable {
         if let nodes = try c.decodeIfPresent([DesignPart].self, forKey: .nodes) {
             self.init(name: name, nodes: nodes,
                       customStaging: try c.decodeIfPresent(Bool.self, forKey: .customStaging) ?? false)
+            // Родитель раньше детей, детали без пути к корню отбрасываются.
+            normalizeOrder()
         } else {
             self.init(name: name, parts: try c.decode([PartID].self, forKey: .parts))
         }
@@ -167,6 +169,11 @@ public struct PartPlacement: Sendable, Hashable {
 
     public var bottom: Double { center.y - height / 2 }
     public var top: Double { center.y + height / 2 }
+    /// Самая низкая точка детали (цилиндр с учётом `orientation`); без поворота — `bottom`.
+    public var lowest: Double {
+        let ay = orientation.rotate(.unitY).y
+        return center.y - abs(ay) * height / 2 - max(0, 1 - ay * ay).squareRoot() * diameter / 2
+    }
 
     public init(center: Vec3, outward: Vec3 = .zero, height: Double, diameter: Double,
                 orientation: Quat = .identity) {

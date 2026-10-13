@@ -145,7 +145,7 @@ struct Ship: Sendable, Hashable {
     private static func origin(_ ps: [PartInstance]) -> Vec3 {
         let uids = Set(ps.map(\.uid))
         let root = ps.first { $0.parent.map { !uids.contains($0) } ?? true }
-        let minBottom = ps.map(\.placement.bottom).min() ?? 0
+        let minBottom = ps.map(\.placement.lowest).min() ?? 0
         let c = root?.placement.center ?? .zero
         return Vec3(c.x, minBottom, c.z)
     }
