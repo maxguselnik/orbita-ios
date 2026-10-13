@@ -1,56 +1,28 @@
+import Foundation
 import OrbitPhysics
 
-/// Правки стека деталей: чистые функции без UI. Индексы — сверху вниз, как в `VesselDesign.parts`.
-enum HangarEditing {
-    /// Добавляет деталь под выделенной (или вниз стека); возвращает новый индекс выделения.
-    /// nil — достигнут лимит `VesselDesign.maxParts`.
-    static func add(_ part: PartID, to parts: inout [PartID], selected: Int?) -> Int? {
-        guard parts.count < VesselDesign.maxParts else { return nil }
-        let at = selected.map { min(max($0 + 1, 0), parts.count) } ?? parts.count
-        return VesselAssembly.insert(part, into: &parts, at: at)
-    }
+/// Условия, для которых цех считает Δv и TWR.
+enum HangarEnvironment: CaseIterable, Identifiable {
+    case terra, vacuum, luna
 
-    /// Поднимает деталь на строку выше; nil — некуда.
-    static func moveUp(_ parts: inout [PartID], index: Int) -> Int? {
-        guard parts.indices.contains(index), index > 0 else { return nil }
-        parts.swapAt(index, index - 1)
-        return index - 1
-    }
+    var id: Self { self }
 
-    /// Опускает деталь на строку ниже; nil — некуда.
-    static func moveDown(_ parts: inout [PartID], index: Int) -> Int? {
-        guard parts.indices.contains(index), index < parts.count - 1 else { return nil }
-        parts.swapAt(index, index + 1)
-        return index + 1
-    }
-
-    /// Удаляет деталь; возвращает индекс соседней (та же позиция, у последней — предыдущая), nil — стек пуст.
-    @discardableResult
-    static func remove(_ parts: inout [PartID], index: Int) -> Int? {
-        guard parts.indices.contains(index) else { return nil }
-        parts.remove(at: index)
-        return parts.isEmpty ? nil : min(index, parts.count - 1)
-    }
-
-    /// Секции сверху вниз; разделитель открывает новую секцию (как `Ship.sections`).
-    static func sections(of parts: [PartID]) -> [Range<Int>] {
-        var out: [Range<Int>] = []
-        var start = 0
-        for i in parts.indices where i > 0 && parts[i].spec.kind == .decoupler {
-            out.append(start..<i)
-            start = i
+    var title: String {
+        switch self {
+        case .terra: "Терра · атм"
+        case .vacuum: "Вакуум"
+        case .luna: "Луна"
         }
-        if !parts.isEmpty { out.append(start..<parts.count) }
-        return out
     }
 
-    /// Действительно пустой проект: первую командную деталь выбирает игрок.
-    static var cleared: VesselDesign {
-        VesselAssembly.empty
-    }
+    /// Относительное давление для `stageInfos` (1 — уровень моря Терры).
+    var pressure: Double { self == .terra ? 1 : 0 }
+
+    /// Ускорение свободного падения для TWR.
+    var gravity: Double { self == .luna ? Bodies.luna.surfaceGravity : Bodies.terra.surfaceGravity }
 }
 
-/// Форматирование ангара по-русски.
+/// Форматирование цеха по-русски.
 enum HangarFormat {
     /// «840 кг», «2.25 т», «18.2 т».
     static func mass(_ kg: Double) -> String {
@@ -63,6 +35,11 @@ enum HangarFormat {
     /// Тяга в килоньютонах: «215 кН».
     static func thrust(_ newtons: Double) -> String {
         HUDFormat.grouped(newtons / 1_000) + " кН"
+    }
+
+    /// Размеры: «Ø 1.25 м · 1.2 м».
+    static func size(_ spec: PartSpec) -> String {
+        "Ø " + HUDFormat.fixed(spec.diameter, digits: 2) + " м · " + HUDFormat.fixed(spec.height, digits: 1) + " м"
     }
 
     /// Две строки сведений на карточке каталога: масса; тяга и Isp; топливо.
@@ -80,15 +57,24 @@ enum HangarFormat {
             return ["Монотопливо \(mass(spec.fuelMass)) · сопла \(thrust(spec.thrustVacuum))", mass(spec.wetMass)]
         case .monoTank:
             return ["Монотопливо \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
-        case .chute, .decoupler, .legs:
+        case .chute, .decoupler, .legs, .fairing, .fin:
             return [mass(spec.wetMass)]
+        }
+    }
+
+    /// Короткое пояснение, как деталь крепится.
+    static func mountText(_ spec: PartSpec) -> String {
+        switch spec.mount {
+        case .axial: "по оси"
+        case .radial: "только сбоку"
+        case .any: "по оси или сбоку"
         }
     }
 }
 
 /// Вкладки каталога по типу детали.
 enum CatalogTab: CaseIterable, Identifiable {
-    case pods, tanks, engines, misc
+    case pods, tanks, engines, decouplers, aero, rcs, legs
 
     var id: Self { self }
 
@@ -97,7 +83,10 @@ enum CatalogTab: CaseIterable, Identifiable {
         case .pods: "Капсулы"
         case .tanks: "Баки"
         case .engines: "Двигатели"
-        case .misc: "Прочее"
+        case .decouplers: "Разделители"
+        case .aero: "Аэро"
+        case .rcs: "РСУ"
+        case .legs: "Опоры"
         }
     }
 
@@ -106,18 +95,31 @@ enum CatalogTab: CaseIterable, Identifiable {
         case .pods: "person.fill"
         case .tanks: "cylinder.fill"
         case .engines: "flame.fill"
-        case .misc: "square.grid.2x2.fill"
+        case .decouplers: "arrow.up.and.down.square"
+        case .aero: "wind"
+        case .rcs: "dot.arrowtriangles.up.right.down.left.circle"
+        case .legs: "arrow.down.to.line"
         }
     }
 
     func contains(_ kind: PartKind) -> Bool {
         switch self {
-        case .pods: kind == .pod || kind == .probe
-        case .tanks: kind == .tank
+        case .pods: kind == .pod || kind == .probe || kind == .chute
+        case .tanks: kind == .tank || kind == .monoTank
         case .engines: kind == .engine
-        case .misc: kind == .chute || kind == .decoupler || kind == .legs || kind == .rcs || kind == .monoTank
+        case .decouplers: kind == .decoupler
+        case .aero: kind == .fairing || kind == .fin
+        case .rcs: kind == .rcs
+        case .legs: kind == .legs
         }
     }
 
     var parts: [PartSpec] { PartCatalog.all.filter { contains($0.kind) } }
+
+    /// Детали для списка: при непустом поиске — по всем вкладкам.
+    static func parts(tab: CatalogTab, query: String) -> [PartSpec] {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        guard !q.isEmpty else { return tab.parts }
+        return PartCatalog.all.filter { $0.name.lowercased().contains(q) }
+    }
 }
