@@ -459,3 +459,46 @@ struct DesignReviewFixTests {
         #expect(d.layout().count == 2)
     }
 }
+
+@Suite("Переходный кожух разделителя")
+struct InterstageShroudTests {
+    @Test func orbitAndLunaStacks() {
+        // «Орбита»: верхний разделитель — под капсулой (кожуха нет), нижний — под «Штилем» (0.85 м, Т-400 сверху).
+        let o = VesselDesign.orbit.layout()
+        #expect(o[2].shroud == nil)
+        #expect(o[5].shroud == InterstageShroud(height: 0.85, bottomDiameter: 1.25, topDiameter: 1.25))
+        #expect(o.enumerated().allSatisfy { $0.offset == 5 || $0.element.shroud == nil })
+        // «Луна»: разделитель под «Штилем» (над ним опоры 1.25) и XL под «Вихрем» (над ним Т-800 1.25).
+        let l = VesselDesign.luna.layout()
+        #expect(l[5].shroud == InterstageShroud(height: 0.85, bottomDiameter: 1.25, topDiameter: 1.25))
+        #expect(l[9].shroud == InterstageShroud(height: 1.3, bottomDiameter: 2.5, topDiameter: 1.25))
+        // «Прыжок»: над разделителем капсула — кожуха нет; боковые разделители — без кожуха.
+        #expect(VesselDesign.jump.layout().allSatisfy { $0.shroud == nil })
+        #expect(VesselDesign.boosters.layout().allSatisfy { $0.shroud == nil })
+    }
+
+    @Test func engineOnTopNodeAndFallbackDiameter() {
+        // Корень — разделитель XL, «Вихрь» на его верхнем узле, над двигателем ничего: max(1.25, 2.5).
+        var d = stack([.decouplerXL])
+        VesselEditing.attach(.vikhr, to: axial(0, .top), symmetry: 1, in: &d)
+        #expect(d.layout()[0].shroud == InterstageShroud(height: 1.3, bottomDiameter: 2.5, topDiameter: 2.5))
+        // Повёрнутый двигатель — кожуха нет.
+        var r = VesselDesign.orbit
+        VesselEditing.setRotation(4, Vec3(5, 0, 0), in: &r)
+        #expect(r.layout()[5].shroud == nil)
+    }
+
+    @Test func shroudLeavesWithDebris() {
+        let s = circularOrbit(altitude: 200_000)
+        let sim = FlightSim(design: .orbit, body: .terra, position: s.position, velocity: s.velocity)
+        #expect(sim.snapshot.vessels[0].layout[5].shroud != nil)
+        sim.send(.stage)   // зажечь «Вихрь»
+        sim.send(.stage)   // отделить нижнюю ступень
+        let snap = sim.snapshot
+        let active = snap.vessels.first { $0.isActive }!
+        let debris = snap.vessels.first { !$0.isActive }!
+        #expect(active.layout.allSatisfy { $0.shroud == nil })
+        #expect(debris.parts.first == .decoupler)
+        #expect(debris.layout[0].shroud == InterstageShroud(height: 0.85, bottomDiameter: 1.25, topDiameter: 1.25))
+    }
+}
