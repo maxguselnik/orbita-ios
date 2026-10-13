@@ -69,6 +69,14 @@ enum PartModels {
     /// Модель строится в осях «наружу — +X» и поворачивается вокруг Y: только у деталей с направлением.
     static func rotatesWithOutward(_ id: PartID) -> Bool { id == .fin || id == .decouplerRadial }
 
+    /// Поворот детали: оси детали → оси корабля. Единственное место, где читается ориентация детали.
+    // TODO orientation: когда в `PartPlacement` появится `orientation: Quat`, вернуть из него
+    // (simd_quatf(ix: o.x, iy: o.y, iz: o.z, r: o.w)); сейчас — только азимут боковых деталей по `outward`.
+    static func placementRotation(_ p: PartPlacement) -> simd_quatf {
+        guard p.outward.x * p.outward.x + p.outward.z * p.outward.z > 1e-9 else { return simd_quatf(angle: 0, axis: F3(0, 1, 0)) }
+        return simd_quatf(angle: yaw(outward: p.outward), axis: F3(0, 1, 0))
+    }
+
     /// Угол поворота вокруг +Y, переводящий +X в `outward` (в RealityKit поворот на θ уводит +X в (cosθ, 0, −sinθ)).
     static func yaw(outward o: Vec3) -> Float {
         guard o.x * o.x + o.z * o.z > 1e-9 else { return 0 }

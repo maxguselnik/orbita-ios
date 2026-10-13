@@ -36,6 +36,44 @@ final class VesselVisual {
     private var rcsPuffs: [(partIndex: Int, jets: [ModelEntity])] = []
     private var rcsLit = false
     private var maxDiameter: Double = 1
+    /// Меши каждой детали (для призрака) и применённый к детали призрак: nil — обычный вид.
+    private var holders: [[ModelEntity]] = []
+    private var ghostApplied: [Int: Bool] = [:]
+    private var originalMaterials: [ObjectIdentifier: [any Material]] = [:]
+    private static var ghostMaterials: (valid: UnlitMaterial, invalid: UnlitMaterial)?
+
+    /// Полупрозрачный материал призрака: зелёный (можно) или красный (нельзя).
+    static func ghostMaterial(valid: Bool) -> UnlitMaterial {
+        if ghostMaterials == nil {
+            func make(_ c: UIColor) -> UnlitMaterial {
+                var m = UnlitMaterial(color: c)
+                m.blending = .transparent(opacity: .init(floatLiteral: 0.5))
+                return m
+            }
+            ghostMaterials = (make(UIColor(red: 0.25, green: 0.9, blue: 0.4, alpha: 1)),
+                              make(UIColor(red: 0.95, green: 0.25, blue: 0.2, alpha: 1)))
+        }
+        guard let g = ghostMaterials else { return UnlitMaterial() }
+        return valid ? g.valid : g.invalid
+    }
+
+    /// Детали с индексами `indices` рисуются призраком (`valid` — цвет); остальные — обычно. Меняются только отличия.
+    func setGhost(_ indices: Set<Int>, valid: Bool) {
+        for i in holders.indices {
+            let want: Bool? = indices.contains(i) ? valid : nil
+            guard ghostApplied[i] != want else { continue }
+            ghostApplied[i] = want
+            for m in holders[i] {
+                let key = ObjectIdentifier(m)
+                if let want {
+                    if originalMaterials[key] == nil { originalMaterials[key] = m.model?.materials ?? [] }
+                    m.model?.materials = [Self.ghostMaterial(valid: want)]
+                } else if let orig = originalMaterials[key] {
+                    m.model?.materials = orig
+                }
+            }
+        }
+    }
 
     /// Радиус ограничивающей сферы вокруг середины габарита, м (с куполом — больше).
     private(set) var boundingRadius: Double = 1
@@ -65,6 +103,7 @@ final class VesselVisual {
         plumes.removeAll()
         rcsPuffs.removeAll()
         nozzlePositions.removeAll()
+        originalMaterials.removeAll()
         rcsLit = false
         canopy = nil
 
@@ -84,34 +123,47 @@ final class VesselVisual {
         halfWidth = reach
         maxDiameter = max(0.5, 2 * reach)
 
+        holders = []
         for (i, id) in newParts.enumerated() {
             let spec = id.spec
             let pl = lay[i]
-            let origin = F3(Float(pl.center.x), Float(pl.bottom), Float(pl.center.z))
+            let q = PartModels.placementRotation(pl)
+            let center = F3(Float(pl.center.x), Float(pl.center.y), Float(pl.center.z))
+            let half = Float(pl.height / 2)
+            // Низ и верх детали в осях корабля (вращение вокруг центра детали).
+            let bottomPoint = center + q.act(F3(0, -half, 0))
+            let topPoint = center + q.act(F3(0, half, 0))
+            // Держатель — в центре детали, модель внутри опущена на полвысоты: поворот идёт вокруг центра.
             let holder = Entity()
-            holder.position = origin
-            if PartModels.rotatesWithOutward(id) {
-                holder.orientation = simd_quatf(angle: PartModels.yaw(outward: pl.outward), axis: F3(0, 1, 0))
-            }
+            holder.position = center
+            holder.orientation = q
+            let inner = Entity()
+            inner.position = F3(0, -half, 0)
+            holder.addChild(inner)
             root.addChild(holder)
             let pieces = spec.kind == .legs
                 ? PartModels.pieces(id) + PartModels.legs(diameter: spec.diameter, height: spec.height,
                                                           drop: max(0, pl.bottom))
                 : PartModels.pieces(id)
+            var models: [ModelEntity] = []
             for p in pieces {
-                holder.addChild(ModelEntity(mesh: p.mesh, materials: [p.material]))
+                let m = ModelEntity(mesh: p.mesh, materials: [p.material])
+                inner.addChild(m)
+                models.append(m)
             }
+            holders.append(models)
             if spec.kind == .engine {
-                nozzlePositions[i] = D3(pl.center.x, pl.bottom, pl.center.z)
-                makePlume(index: i, spec: spec, at: origin)
+                nozzlePositions[i] = D3(Double(bottomPoint.x), Double(bottomPoint.y), Double(bottomPoint.z))
+                makePlume(index: i, spec: spec, at: bottomPoint, rotation: q)
             }
             if spec.kind == .rcs, Self.rcsPuffsEnabled {
-                makeRCSPuffs(index: i, at: origin)
+                makeRCSPuffs(index: i, at: bottomPoint)
             }
             if spec.kind == .chute {
-                makeCanopy(at: F3(Float(pl.center.x), Float(pl.top), Float(pl.center.z)))
+                makeCanopy(at: topPoint)
             }
         }
+        ghostApplied.removeAll()
         boundingRadius = stackHeight / 2 + maxDiameter
     }
 
@@ -155,12 +207,13 @@ final class VesselVisual {
         return (o, c, m)
     }
 
-    private func makePlume(index: Int, spec: PartSpec, at origin: F3) {
+    private func makePlume(index: Int, spec: PartSpec, at origin: F3, rotation: simd_quatf) {
         let kit = Self.softPlumeKit()
         guard let mesh = kit?.outer ?? Self.sharedPlumeMesh() else { return }
         let mats = RenderMaterials.shared
         let e = Entity()
         e.position = origin
+        e.orientation = rotation
         let outer: ModelEntity
         let core: ModelEntity
         if let kit {
