@@ -243,6 +243,47 @@ public enum TrajectoryPredictor {
         return Double.pi - World.lunaAngularRate * tTransfer
     }
 
+    /// Узел `node` с прогрейд-импульсом, подобранным так, чтобы Пе у Луны по прогнозу (как у карты) был ≈ `target`.
+    /// Секущие от `node.prograde`, шаг не больше 5 м/с, не больше `maxIterations` прогнозов.
+    /// nil — встречи с Луной нет или подбор не попал в `target ± tolerance`.
+    public static func tuneLunaPeriapsis(node: ManeuverNode, body: BodyID, state: StateVector, time: Double,
+                                         target: Double = 30_000, tolerance: Double = 5_000,
+                                         maxIterations: Int = 12,
+                                         maxPatches: Int = defaultMapPatches) -> ManeuverNode? {
+        let pre = predict(body: body, state: state, time: time, maxPatches: maxPatches)
+        func periapsis(_ dv: Double) -> Double? {
+            var n = node
+            n.prograde = dv
+            guard let p = predict(node: n, body: body, state: state, time: time, mass: 1, thrust: 0, isp: 1,
+                                  maxPatches: maxPatches, preTrajectory: pre),
+                  let enc = p.trajectory.encounter, enc.body == .luna else { return nil }
+            return enc.periapsisAltitude - target
+        }
+        guard var f0 = periapsis(node.prograde) else { return nil }
+        var x0 = node.prograde
+        var best = (dv: x0, error: abs(f0))
+        // Второе приближение: Пе у Луны меняется на десятки км на 1 м/с.
+        var x1 = x0 + 0.5
+        var calls = 1
+        while calls < maxIterations, best.error > 200 {
+            calls += 1
+            guard let f1 = periapsis(x1) else {
+                // Встреча пропала — шаг вдвое короче.
+                x1 = 0.5 * (x0 + x1)
+                continue
+            }
+            if abs(f1) < best.error { best = (x1, abs(f1)) }
+            guard f1 != f0 else { break }
+            let step = max(-5, min(5, -f1 * (x1 - x0) / (f1 - f0)))
+            (x0, f0) = (x1, f1)
+            x1 += step
+        }
+        guard best.error <= tolerance else { return nil }
+        var out = node
+        out.prograde = best.dv
+        return out
+    }
+
     /// Гомановский импульс с круговой орбиты радиуса `radius` до орбиты Луны, м/с.
     public static func hohmannLunaDeltaV(radius: Double) -> Double {
         let mu = Bodies.terra.mu, r2 = Bodies.luna.orbitRadius

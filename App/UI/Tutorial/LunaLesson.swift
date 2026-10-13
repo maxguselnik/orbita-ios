@@ -13,7 +13,11 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
     static var endsWithSummary: Bool { true }
 
     /// Пе у Луны, к которому подстраивают узел, м.
-    static let periapsisRange = 20_000.0...40_000.0
+    static let periapsisRange = 15_000.0...60_000.0
+    /// Границы диапазона Пе в км для текстов («15–60»).
+    static var periapsisRangeText: String {
+        "\(Int(periapsisRange.lowerBound / 1_000))–\(Int(periapsisRange.upperBound / 1_000))"
+    }
     /// Шаг «К узлу» закончен, когда до начала прожига осталось столько секунд.
     static let burnArrival = ManeuverStatus.warpLead + 5
     /// Апоцентр у Луны, ниже которого орбита считается пойманной, м.
@@ -160,7 +164,8 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
                                 button: "Дальше")
         case .tune:
             return LessonBubble(title: "Ручки Δv",
-                                text: "Ручка «разгон» — импульс по ходу. Потяните её чуть-чуть, чтобы Пе у Луны стал 20–40 км.",
+                                text: "Ручка «разгон» — импульс по ходу. Пе у Луны должен быть \(Self.periapsisRangeText) км: "
+                                    + "тяните ручку чуть-чуть или жмите ±0.1 в панели узла.",
                                 button: nil)
         case .toNode:
             return LessonBubble(title: "Ускорение до узла",
@@ -190,7 +195,7 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
             guard let peri = i.lunaPeriapsis else {
                 return LivePlate(head: "Встречи с Луной нет · ", value: "тяните «разгон»")
             }
-            return LivePlate(head: "Пе у Луны ", value: HUDFormat.distance(peri), tail: " · цель 20–40 км")
+            return LivePlate(head: "Пе у Луны ", value: HUDFormat.distance(peri), tail: " · цель \(Self.periapsisRangeText) км")
         case .toNode:
             return LivePlate(head: "Летим к узлу · до прожига ", value: HUDFormat.countdown(t.maneuver?.timeToBurn))
         case .burn:
