@@ -108,6 +108,29 @@ public final class FlightSim: FlightSimulation {
 
     // Телеметрия последнего шага.
     private var lastThrust = 0.0
+    /// Кэш сводки ступеней: пересчёт (пошаговое сжигание по группам) только при смене топлива, состава,
+    /// сработавшей ступени, зажигания или давления — на рельсах и в полёте без тяги не считается каждый кадр.
+    private var stageCache: (key: StageCacheKey, infos: [StageInfo])?
+
+    private struct StageCacheKey: Equatable {
+        var vessel: VesselID
+        var parts: Int
+        var mass: Double
+        var ignited: Int
+        var lastStage: Int?
+        var pressure: Double
+        var gravity: Double
+    }
+
+    private func cachedStageInfos(_ v: Vessel, pressure p: Double, gravity g: Double) -> [StageInfo] {
+        let key = StageCacheKey(vessel: v.id, parts: v.ship.parts.count, mass: v.ship.mass,
+                                ignited: v.ship.parts.reduce(0) { $0 + ($1.ignited ? 1 : 0) },
+                                lastStage: v.ship.lastStage, pressure: (p * 1e4).rounded() / 1e4, gravity: g)
+        if let c = stageCache, c.key == key { return c.infos }
+        let infos = v.ship.stageInfos(pressure: p, gravity: g)
+        stageCache = (key, infos)
+        return infos
+    }
     private var lastSolidThrust = 0.0
     private var lastProperAccel = 0.0
     private var qPeak = 0.0
@@ -1200,7 +1223,7 @@ public final class FlightSim: FlightSimulation {
         t.warpIndex = warpIndex
         t.warpBlocked = railsBlockReason()
         t.missionTime = launchTime.map { time - $0 } ?? 0
-        t.stages = s.ship.stageInfos(pressure: p, gravity: b.surfaceGravity)
+        t.stages = cachedStageInfos(s, pressure: p, gravity: b.surfaceGravity)
         t.thrust = onRails ? 0 : lastThrust
         var maxT = 0.0
         for k in s.ship.ignitedEngines where s.ship.engineHasFuel(k) {
