@@ -42,15 +42,19 @@ final class CrewAssets {
 
     /// Общие текстуры + текстуры персонажа (радужка, нашивка, бирка, голова).
     func prepare(id: String, name: String) async {
+        // Сначала то, что видно на лице (кожа, радужка), потом скафандр и кабина.
+        let look = CrewLook.of(id)
+        await ensure(Self.headKey(look.kind)) { Self.headImage(look.shape) }
+        await ensure(Self.irisKey(look.iris)) { Self.irisImage(look.iris) }
+        await ensure("fresnel") { Self.fresnelImage() }
+        await ensure("hairTube") { Self.hairTubeImage() }
+        await ensure("hairCap") { Self.hairCapImage() }
+        await ensure(Self.patchKey(look.suit)) { Self.patchImage(look.suit) }
+        await ensure(Self.tagKey(name)) { Self.labelImage(Self.tagText(name), fg: 0x20242e, bg: 0xe7ebf2) }
         if common == nil {
             common = Task { await self.loadCommon() }
         }
         await common?.value
-        let look = CrewLook.of(id)
-        await ensure(Self.irisKey(look.iris)) { Self.irisImage(look.iris) }
-        await ensure(Self.patchKey(look.suit)) { Self.patchImage(look.suit) }
-        await ensure(Self.tagKey(name)) { Self.labelImage(Self.tagText(name), fg: 0x20242e, bg: 0xe7ebf2) }
-        await ensure(Self.headKey(look.kind)) { Self.headImage(look.shape) }
     }
 
     private func loadCommon() async {

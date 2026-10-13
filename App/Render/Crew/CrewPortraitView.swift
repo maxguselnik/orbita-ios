@@ -42,7 +42,7 @@ struct CrewPortraitView: View {
 @Observable
 final class CrewStage {
     /// Строка состояния поверх портретов (только сцена CI `-screen crewGallery`).
-    static let showsDiagnostics = DemoScenario.fromArguments == .crewGallery
+    static let showsDiagnostics = false
     /// Диагностика: места, загруженные текстуры, кадры цикла.
     private(set) var info = "—"
     let root = Entity()
