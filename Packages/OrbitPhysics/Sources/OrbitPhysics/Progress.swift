@@ -46,7 +46,7 @@ public enum TechTree {
         TechNode(id: .rocketry, title: "Ракетостроение", cost: 5, requires: [.basics],
                  parts: [.t400, .shtil], column: 1, row: 0),
         TechNode(id: .stability, title: "Устойчивость", cost: 5, requires: [.basics],
-                 parts: [.fin], column: 1, row: 2),
+                 parts: [.fin, .heatShield], column: 1, row: 2),
         TechNode(id: .aero, title: "Аэродинамика", cost: 10, requires: [.rocketry],
                  parts: [.fairing, .decouplerRadial], column: 2, row: 0),
         TechNode(id: .liquid, title: "Жидкие ЖРД", cost: 10, requires: [.rocketry],
@@ -58,7 +58,7 @@ public enum TechTree {
         TechNode(id: .crew, title: "Экипаж", cost: 25, requires: [.control, .landing],
                  parts: [.podK3], column: 4, row: 2),
         TechNode(id: .heavy, title: "Тяжёлые ракеты", cost: 30, requires: [.aero, .liquid],
-                 parts: [.titan, .j64, .decouplerXL, .fairingXL], column: 3, row: 0),
+                 parts: [.titan, .j64, .decouplerXL, .fairingXL, .heatShieldXL], column: 3, row: 0),
     ]
 
     public static func node(_ id: TechID) -> TechNode { nodes.first { $0.id == id }! }

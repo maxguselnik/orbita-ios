@@ -8,6 +8,8 @@ public enum PartKind: String, Sendable, Hashable, Codable {
     case rcs, monoTank
     /// Обтекатель (снижает сопротивление колонны, которую венчает; сбрасывается ступенью) и стабилизатор.
     case fairing, fin
+    /// Теплозащитный экран (абляционное покрытие хранится в `fuelMass`).
+    case heatShield
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
@@ -18,6 +20,8 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case rcsBlock, m100
     /// Этап 5.2: боковой разделитель, обтекатели 1.25/2.5 м, стабилизатор.
     case decouplerRadial, fairing, fairingXL, fin
+    /// Теплозащитные экраны 1.25 и 2.5 м.
+    case heatShield, heatShieldXL
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -43,6 +47,16 @@ public struct PartSpec: Sendable, Hashable {
 
     /// Как деталь крепится (контракт 5.2): капсулы, модуль, осевые разделители, парашют, опоры, обтекатели —
     /// по оси; боковой разделитель и стабилизатор — только сбоку; баки, двигатели, РСУ, монотопливо — как угодно.
+    /// Предел температуры детали, К (5.2): выше — деталь разрушается. Значения — по типу детали (A уточняет).
+    public var maxTemperature: Double {
+        switch kind {
+        case .heatShield: 3300
+        case .pod, .engine, .fairing: 2400
+        case .tank, .decoupler, .monoTank, .fin: 2000
+        case .probe, .chute, .legs, .rcs: 1600
+        }
+    }
+
     public var mount: PartMount {
         switch id {
         case .decouplerRadial, .fin: .radial
@@ -96,6 +110,9 @@ public enum PartCatalog {
         make(.fairingXL, "Обтекатель О-2", .fairing, dry: 0.15, h: 2.2, w: 2.5),
         // Стабилизатор: `h` — хорда вдоль оси, `w` — размах наружу.
         make(.fin, "Стабилизатор С-1", .fin, dry: 0.04, h: 1.0, w: 0.6),
+        // Теплозащитные экраны: `fuel` — абляционное покрытие.
+        make(.heatShield, "Теплозащитный экран Э-1", .heatShield, dry: 0.1, fuel: 0.2, h: 0.2, w: 1.25),
+        make(.heatShieldXL, "Теплозащитный экран Э-2", .heatShield, dry: 0.3, fuel: 0.8, h: 0.3, w: 2.5),
     ]
 
     private static let byID: [PartID: PartSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
