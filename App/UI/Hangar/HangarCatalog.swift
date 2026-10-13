@@ -197,6 +197,9 @@ struct PartCardView: View {
                 Text(line).font(.system(size: 11, weight: .medium).monospacedDigit())
                     .foregroundStyle(HUDStyle.secondaryText)
             }
+            Text("Температура: " + HangarFormat.limit(spec))
+                .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+                .foregroundStyle(HUDStyle.secondaryText)
             Text(HangarFormat.size(spec) + " · " + HangarFormat.mountText(spec))
                 .font(.system(size: 10.5, weight: .medium))
                 .foregroundStyle(HUDStyle.secondaryText)

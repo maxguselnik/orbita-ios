@@ -26,7 +26,7 @@ struct FlightResult: Equatable {
 
 /// Подсказка первого полёта; в каждый момент показывается не больше одной.
 enum HUDHint: Hashable {
-    case stage, throttle, turn, warp, chute, chuteStages
+    case stage, throttle, turn, warp, chute, chuteStages, reentryShield
 
     /// Ключ `@AppStorage`: после первой успешной посадки подсказки больше не нужны.
     static let doneKey = "hintsDone"
@@ -39,6 +39,7 @@ enum HUDHint: Hashable {
         case .warp: "Ускорение времени — в верхней панели"
         case .chute: "Нажмите «Парашют» — он раскроется при безопасной скорости"
         case .chuteStages: "Сначала завершите ступени, затем нажмите «Парашют»"
+        case .reentryShield: "Ретроград, экран к потоку"
         }
     }
 }
@@ -137,6 +138,11 @@ struct FlightAdvisor {
         let horizontal = (max(0, t.surfaceSpeed * t.surfaceSpeed - vertical * vertical)).squareRoot()
         let airborne = t.situation == .flying || t.situation == .suborbital
 
+        // Вход в атмосферу с теплозащитным экраном, обращённым не к потоку.
+        if t.thermal.ablatorCapacity > 0, !t.thermal.shieldFacingFlow, airborne, vertical < -5,
+           t.heating > 0.05 || t.thermal.hottest > 0.15 {
+            return .reentryShield
+        }
         if t.body == .terra, t.mission.launched, airborne, vertical < -5, t.altitude < 30_000,
            t.chute == .stowed, t.chuteSafe {
             // `stages.count` совпадает с числом секций корабля: «Ступень» раскрывает парашют, только когда
