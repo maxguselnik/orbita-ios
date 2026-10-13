@@ -29,7 +29,7 @@ struct ThermalHUDTests {
         let aligned = ThermalStatus(hottest: 0.6, ablator: 50, ablatorCapacity: 200, shieldFacingFlow: true)
         #expect(ThermalDisplay.make(aligned)?.shieldMisaligned == false)
         // Слабый нагрев — без предупреждения; без экрана — тоже.
-        let weak = ThermalStatus(hottest: 0.4, ablator: 50, ablatorCapacity: 200, shieldFacingFlow: false)
+        let weak = ThermalStatus(hottest: 0.48, ablator: 50, ablatorCapacity: 200, shieldFacingFlow: false)
         #expect(ThermalDisplay.make(weak)?.shieldMisaligned == false)
         let bare = ThermalStatus(hottest: 0.8, shieldFacingFlow: false)
         #expect(ThermalDisplay.make(bare)?.hasShield == false)
