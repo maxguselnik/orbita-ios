@@ -39,11 +39,15 @@ struct ProgressTests {
     @Test func researchNeedsScienceAndPrerequisite() {
         var p = GameProgress(mode: .science, science: 100)
         #expect(!p.canResearch(.liquid))            // нужна «Ракетостроение»
-        #expect(p.research(.rocketry) && p.science == 95)
-        #expect(p.research(.liquid) && p.isUnlocked(.vikhr))
-        #expect(!p.research(.liquid))               // уже открыта
+        let r1 = p.research(.rocketry)
+        #expect(r1 && p.science == 95)
+        let r2 = p.research(.liquid)
+        #expect(r2 && p.isUnlocked(.vikhr))
+        let r3 = p.research(.liquid)                // уже открыта
+        #expect(!r3)
         var poor = GameProgress(mode: .science, science: 4)
-        #expect(!poor.research(.rocketry) && poor.science == 4)
+        let r4 = poor.research(.rocketry)
+        #expect(!r4 && poor.science == 4)
     }
 
     @Test func milestonesAwardOnceThenQuarter() {
