@@ -14,6 +14,8 @@ struct PartInstance: Sendable, Hashable {
     var stage: Int?
     /// Положение в осях корабля; начало — `Vessel.r` (ось корня, нижняя точка).
     var placement: PartPlacement
+    /// Температура детали, К.
+    var temperature: Double = Ship.ambientTemperature
     var spec: PartSpec { id.spec }
 }
 
@@ -244,7 +246,7 @@ struct Ship: Sendable, Hashable {
         }
         guard let last = lowest else { return false }
         switch last.spec.kind {
-        case .pod, .probe, .chute, .legs: return true
+        case .pod, .probe, .chute, .legs, .heatShield: return true
         default: return false
         }
     }
@@ -254,6 +256,167 @@ struct Ship: Sendable, Hashable {
 
     /// Разделители, которые ещё могут отделить что-то (не корень) — номер в событиях ступеней.
     var decouplerCount: Int { parts.reduce(0) { $0 + ($1.spec.kind == .decoupler && $1.parent != nil ? 1 : 0) } }
+
+    // MARK: Нагрев (5.2)
+
+    /// Окружающая (равновесная) температура, К.
+    static let ambientTemperature = 290.0
+    /// Удельная теплоёмкость деталей, Дж/(кг·К).
+    static let specificHeat = 800.0
+    /// Излучательная способность (игровая, малая: нагрев копится за проход) × постоянная Стефана — Больцмана.
+    static let emissivitySigma = 0.1 * 5.670374419e-8
+    /// Теплопроводность стыка родитель — ребёнок, Вт/К.
+    static let conductance = 30.0
+    /// Доля потока, которая достаётся заслонённой детали.
+    static let shadowedFraction = 0.1
+    /// Экран к потоку: доля тепла, уносимая абляцией, и теплота абляции покрытия, Дж/кг.
+    static let ablationShare = 0.9
+    static let ablationHeat = 6e7
+    /// Предел экрана без покрытия, К.
+    static let bareShieldLimit = 2000.0
+
+    /// Предел температуры детали `i`, К (экран без покрытия — как обычная деталь).
+    func temperatureLimit(_ i: Int) -> Double {
+        parts[i].spec.kind == .heatShield && parts[i].fuel <= 1e-9 ? Self.bareShieldLimit : parts[i].spec.maxTemperature
+    }
+
+    /// Нагрев деталей 0…1 (температура / предел), индексы — `parts`.
+    var partHeat: [Double] { parts.indices.map { parts[$0].temperature / temperatureLimit($0) } }
+
+    /// Абляционное покрытие экранов и его ёмкость, кг.
+    var ablator: (mass: Double, capacity: Double) {
+        parts.reduce((0, 0)) { $1.spec.kind == .heatShield ? ($0.0 + $1.fuel, $0.1 + $1.spec.fuelMass) : $0 }
+    }
+
+    /// Заслонённость деталей потоком `d` (единичный, оси корабля, по воздушной скорости): для каждой —
+    /// наибольший диаметр детали впереди по потоку, перекрывающей её ось (0 — открыта). Деталь не меньшего
+    /// диаметра заслоняет целиком, меньшая — только середину торца.
+    func shadowDiameters(flow d: Vec3) -> [Double] {
+        parts.indices.map { i in
+            let ci = parts[i].placement.center
+            var best = 0.0
+            for j in parts.indices where j != i {
+                let rel = parts[j].placement.center - ci
+                let along = rel.dot(d)
+                guard along > 0.01 else { continue }
+                let dj = parts[j].placement.diameter
+                if dj > best && (rel - d * along).length <= dj / 2 { best = dj }
+            }
+            return best
+        }
+    }
+
+    /// Открыта ли деталь потоку целиком (её никто не заслоняет деталью не меньшего диаметра).
+    func exposure(flow d: Vec3) -> [Bool] {
+        let sh = shadowDiameters(flow: d)
+        return parts.indices.map { sh[$0] < parts[$0].placement.diameter - 1e-9 }
+    }
+
+    /// Площадь детали, на которую приходит поток, с учётом заслонения, м²: открытая часть торца и бок —
+    /// полностью, заслонённая — долей `shadowedFraction`.
+    func heatedArea(_ i: Int, flow d: Vec3, shadow: Double) -> Double {
+        let pl = parts[i].placement
+        let c = min(1, abs(pl.orientation.rotate(.unitY).dot(d)))
+        let cap = Double.pi * pl.diameter * pl.diameter / 4 * c
+        let side = pl.diameter * pl.height * (1 - c * c).squareRoot()
+        if shadow >= pl.diameter - 1e-9 { return (cap + side) * Self.shadowedFraction }
+        let covered = shadow > 0 ? min(1, (shadow / pl.diameter) * (shadow / pl.diameter)) : 0
+        return cap * (1 - covered) + cap * covered * Self.shadowedFraction + side
+    }
+
+    func surfaceArea(_ i: Int) -> Double {
+        let pl = parts[i].placement
+        return Double.pi * pl.diameter * pl.height + Double.pi * pl.diameter * pl.diameter / 2
+    }
+
+    func heatCapacity(_ i: Int) -> Double { max(10, parts[i].spec.dryMass + parts[i].fuel) * Self.specificHeat }
+
+    /// Экран, встречающий поток: открыт и обращён к нему торцом.
+    func shieldFacing(_ i: Int, flow d: Vec3, exposed: [Bool]) -> Bool {
+        parts[i].spec.kind == .heatShield && exposed[i] && abs(parts[i].placement.orientation.rotate(.unitY).dot(d)) > 0.7
+    }
+
+    /// Шаг нагрева: поток `flux` (Вт/м² на открытую площадь) по направлению `d`, излучение, обмен с соседями.
+    /// Возвращает id перегретых деталей и встречает ли поток экран.
+    mutating func thermalStep(flow d: Vec3, flux: Double, dt: Double) -> (destroyed: [Int], shieldFacing: Bool) {
+        var dq = Array(repeating: 0.0, count: parts.count)
+        var facing = false
+        if flux > 0 && d.lengthSquared > 0.5 {
+            let shadow = shadowDiameters(flow: d)
+            let exposed = parts.indices.map { shadow[$0] < parts[$0].placement.diameter - 1e-9 }
+            for i in parts.indices {
+                var q = flux * heatedArea(i, flow: d, shadow: shadow[i])
+                if shieldFacing(i, flow: d, exposed: exposed) {
+                    facing = true
+                    if parts[i].fuel > 0 {
+                        // Абляция уносит большую часть тепла, расходуя покрытие.
+                        let want = q * Self.ablationShare * dt / Self.ablationHeat
+                        let use = min(want, parts[i].fuel)
+                        parts[i].fuel -= use
+                        q -= use * Self.ablationHeat / dt
+                    }
+                }
+                dq[i] += q
+            }
+        }
+        let ta = Self.ambientTemperature
+        let ta4 = ta * ta * ta * ta
+        var index: [Int: Int] = [:]
+        for (i, p) in parts.enumerated() { index[p.uid] = i }
+        for (i, p) in parts.enumerated() {
+            let t = p.temperature
+            dq[i] -= Self.emissivitySigma * surfaceArea(i) * (t * t * t * t - ta4)
+            if let pid = p.parent, let j = index[pid] {
+                let flow = Self.conductance * (parts[j].temperature - t)
+                dq[i] += flow
+                dq[j] -= flow
+            }
+        }
+        var destroyed: [Int] = []
+        for i in parts.indices {
+            parts[i].temperature = max(ta, parts[i].temperature + dq[i] * dt / heatCapacity(i))
+            if parts[i].temperature > temperatureLimit(i) { destroyed.append(parts[i].uid) }
+        }
+        return (destroyed, facing)
+    }
+
+    /// Остывание излучением за `dt` без потока (рельсы, вакуум): точное решение dT/dt = −k·T⁴.
+    mutating func cool(dt: Double) {
+        guard dt > 0 else { return }
+        let ta = Self.ambientTemperature
+        for i in parts.indices where parts[i].temperature > ta + 0.01 {
+            let k = Self.emissivitySigma * surfaceArea(i) / heatCapacity(i)
+            let t = parts[i].temperature
+            parts[i].temperature = max(ta, 1 / cbrt(1 / (t * t * t) + 3 * k * dt))
+        }
+    }
+
+    /// Удалить разрушенную деталь: её поддеревья, кроме оставшегося с корнем (или с командной деталью, если
+    /// разрушен корень), уходят обломками. Возвращает отрезанные куски (как `split`) и сдвиг начала.
+    mutating func destroy(_ uid: Int) -> (pieces: [(debris: Ship, debrisOrigin: Vec3, shift: Vec3)], shift: Vec3) {
+        guard let i = index(of: uid) else { return ([], .zero) }
+        let isRoot = parts[i].parent == nil
+        let kids = parts.filter { $0.parent == uid }.map(\.uid)
+        var keep: Int?
+        if isRoot {
+            func hasCommand(_ k: Int) -> Bool {
+                let sub = subtree(k)
+                return parts.contains { sub.contains($0.uid) && ($0.spec.kind == .pod || $0.spec.kind == .probe) }
+            }
+            keep = kids.first(where: hasCommand) ?? kids.first
+        }
+        var pieces: [(debris: Ship, debrisOrigin: Vec3, shift: Vec3)] = []
+        for k in kids where k != keep {
+            let cut = split(removing: subtree(k))
+            // Остаёмся в прежних осях: начала всех кусков — в одной системе.
+            for j in parts.indices { parts[j].placement.center += cut.shift }
+            pieces.append(cut)
+        }
+        if let k = keep, let j = index(of: k) { parts[j].parent = nil }
+        // Сама деталь исчезает; сдвиг начала оставшегося корабля — в прежних осях.
+        let gone = split(removing: [uid])
+        return (pieces, gone.shift)
+    }
 
     // MARK: РСУ
 

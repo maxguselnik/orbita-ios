@@ -336,6 +336,8 @@ public final class Autopilot {
             sim.autopilotDirection = -v
             if sim.activeBody == .terra && alt < body.atmosphereHeight {
                 stopWarp(sim)
+                // Перед входом сбросить отработавшие ступени: в атмосферу — капсула (с экраном, если есть).
+                for _ in 0..<4 where sim.snapshot.telemetry.nextStageAction == .separate { sim.send(.stage) }
                 sim.send(.deployChute)
                 phase = .reentry
                 break
@@ -372,6 +374,10 @@ public final class Autopilot {
             } else if t.chute == .open || t.chute == .deploying {
                 setThrottle(sim, 0)
                 sim.autopilotDirection = up
+            } else if t.thermal.ablatorCapacity > 0 && air.length > 1_000 {
+                // Быстро и есть экран: щитом к потоку (нос против воздушной скорости).
+                setThrottle(sim, 0)
+                sim.autopilotDirection = -air
             } else {
                 // Боком к потоку: сопротивление растёт с углом атаки (×3.5), купол раскроется выше.
                 setThrottle(sim, 0)

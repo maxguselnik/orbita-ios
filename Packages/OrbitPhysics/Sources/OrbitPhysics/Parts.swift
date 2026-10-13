@@ -129,8 +129,10 @@ extension VesselDesign {
     public static let jump = VesselDesign(name: "Прыжок", parts: [.chute, .podK1, .decoupler, .molot])
     public static let orbit = VesselDesign(name: "Орбита", parts: [.chute, .podK1, .decoupler, .t400, .shtil,
                                                                   .decoupler, .t800, .t800, .vikhr])
-    public static let luna = VesselDesign(name: "Луна", parts: [.chute, .podK1, .t800, .legs, .shtil, .decoupler,
-                                                               .t800, .t800, .vikhr, .decouplerXL, .j64, .titan])
+    /// «Луна»: капсула с теплозащитным экраном Э-1 отделяется от посадочной ступени перед входом (5.2).
+    public static let luna = VesselDesign(name: "Луна", parts: [.chute, .podK1, .heatShield, .decoupler, .t800, .legs,
+                                                               .shtil, .decoupler, .t800, .t800, .vikhr,
+                                                               .decouplerXL, .j64, .titan])
     /// «Ускорители»: ядро как у «Орбиты» без средней ступени, два РДТТ «Молот» на боковых разделителях
     /// с обтекателями сверху, четыре стабилизатора у низа ядра.
     public static let boosters: VesselDesign = {

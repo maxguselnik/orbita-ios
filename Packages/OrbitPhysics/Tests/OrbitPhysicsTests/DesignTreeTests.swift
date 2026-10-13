@@ -190,7 +190,8 @@ struct DesignStagingTests {
     @Test func linearAutoStagingMatchesOldSequence() {
         #expect(kinds(.jump) == [["molot"], ["decoupler"], ["chute"]])
         #expect(kinds(.orbit) == [["vikhr"], ["decoupler", "shtil"], ["decoupler"], ["chute"]])
-        #expect(kinds(.luna) == [["titan"], ["decouplerXL", "vikhr"], ["decoupler", "shtil"], ["chute"]])
+        // «Луна» (5.2): последней перед парашютом — отделение капсулы с экраном.
+        #expect(kinds(.luna) == [["titan"], ["decouplerXL", "vikhr"], ["decoupler", "shtil"], ["decoupler"], ["chute"]])
         #expect(kinds(.boosters) == [["molot", "molot", "vikhr"], ["decouplerRadial", "decouplerRadial", "fairing", "fairing"],
                                      ["decoupler"], ["chute"]])
         for d in VesselDesign.presets { #expect(d.stageInfos().count == d.stageGroups.count) }
@@ -470,8 +471,9 @@ struct InterstageShroudTests {
         #expect(o.enumerated().allSatisfy { $0.offset == 5 || $0.element.shroud == nil })
         // «Луна»: разделитель под «Штилем» (над ним опоры 1.25) и XL под «Вихрем» (над ним Т-800 1.25).
         let l = VesselDesign.luna.layout()
-        #expect(l[5].shroud == InterstageShroud(height: 0.85, bottomDiameter: 1.25, topDiameter: 1.25))
-        #expect(l[9].shroud == InterstageShroud(height: 1.3, bottomDiameter: 2.5, topDiameter: 1.25))
+        #expect(l[7].shroud == InterstageShroud(height: 0.85, bottomDiameter: 1.25, topDiameter: 1.25))
+        #expect(l[11].shroud == InterstageShroud(height: 1.3, bottomDiameter: 2.5, topDiameter: 1.25))
+        #expect(l[3].shroud == nil)
         // «Прыжок»: над разделителем капсула — кожуха нет; боковые разделители — без кожуха.
         #expect(VesselDesign.jump.layout().allSatisfy { $0.shroud == nil })
         #expect(VesselDesign.boosters.layout().allSatisfy { $0.shroud == nil })
