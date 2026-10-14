@@ -6,8 +6,14 @@ struct OrbitaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(settings)
+            Group {
+                if ProcessInfo.processInfo.arguments.contains("-navball-preview") {
+                    NavballPreviewExport()
+                } else {
+                    RootView()
+                }
+            }
+            .environment(settings)
         }
     }
 }

@@ -42,7 +42,7 @@ jobs:
           set -o pipefail
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
             -destination "platform=iOS Simulator,id=$SCREENS_UDID" \
-            -derivedDataPath build -configuration Debug build-for-testing \
+            -derivedDataPath build -configuration Debug build \
             CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Регрессии рендера и HUD
         if: ${{ !contains(github.event.head_commit.message, '[screens-only]') }}
@@ -64,7 +64,24 @@ jobs:
           if [ -z "$PICK" ] || [ "$PICK" = "none" ]; then echo "Снимки пропущены (нет метки [screens: …])"; mkdir -p screens; exit 0; fi
           if [ "$PICK" = "all" ]; then PICK=$(cat screens-all.txt); fi
           if [ "$PICK" = "default" ]; then PICK=$(cat screens.txt); fi
-          scripts/ci-screens.sh $PICK
+          if [ "$PICK" = "navball" ]; then
+            mkdir -p screens
+            xcrun simctl boot "$SCREENS_UDID" || true
+            xcrun simctl bootstatus "$SCREENS_UDID" -b
+            xcrun simctl install "$SCREENS_UDID" build/Build/Products/Debug-iphonesimulator/Orbita.app
+            xcrun simctl launch "$SCREENS_UDID" com.maxguselnik.orbita -navball-preview
+            DATA=$(xcrun simctl get_app_container "$SCREENS_UDID" com.maxguselnik.orbita data)
+            for i in {1..60}; do
+              if [ -s "$DATA/Documents/navball.png" ]; then
+                cp "$DATA/Documents/navball.png" screens/navball.png
+                break
+              fi
+              sleep 1
+            done
+            test -s screens/navball.png
+          else
+            scripts/ci-screens.sh $PICK
+          fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
