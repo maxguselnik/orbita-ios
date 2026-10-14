@@ -536,6 +536,17 @@ public protocol FlightSimulation: AnyObject {
     func predictTrajectory(maxPatches: Int) -> Trajectory
     /// Прогноз после узла манёвра; nil — узел невозможен (например, корабль на грунте).
     func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction?
+    /// Прогноз после узла с уже вычисленной текущей траекторией (карта не считает её дважды).
+    func predictManeuver(_ node: ManeuverNode, using trajectory: Trajectory?,
+                         maxPatches: Int) -> ManeuverPrediction?
+}
+
+extension FlightSimulation {
+    /// Совместимость со сторонними/моковыми симуляциями без переиспользования прогноза.
+    public func predictManeuver(_ node: ManeuverNode, using trajectory: Trajectory?,
+                                maxPatches: Int) -> ManeuverPrediction? {
+        predictManeuver(node, maxPatches: maxPatches)
+    }
 }
 
 /// Контрольная точка для отката (обучение). Симуляции без поддержки возвращают nil.

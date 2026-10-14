@@ -42,7 +42,7 @@ final class MapModel {
     /// Кадр: пересчитать прогноз, если карта открыта и пора.
     func update(sim: any FlightSimulation, now: Double) {
         guard isOpen else { return }
-        let node = sim.snapshot.telemetry.maneuver?.node
+        let node = Self.pendingNode(in: sim.snapshot)
         let elapsed = lastRefresh.map { now - $0 } ?? .infinity
         let due = node != lastNode ? elapsed >= Self.editInterval : elapsed >= Self.refreshInterval
         guard due else { return }
@@ -79,7 +79,8 @@ final class MapModel {
         let trajectory = sim.predictTrajectory(maxPatches: maxPatches)
         map.trajectory = trajectory
         map.markers = MapMarkers.compute(trajectory, afterManeuver: false)
-        if let node, let prediction = sim.predictManeuver(node, maxPatches: maxPatches) {
+        if let node, world.telemetry.maneuver?.isDone != true,
+           let prediction = sim.predictManeuver(node, using: trajectory, maxPatches: maxPatches) {
             map.maneuver = prediction
             map.markers += MapMarkers.compute(prediction.trajectory, afterManeuver: true)
             if let first = prediction.trajectory.patches.first {
@@ -97,5 +98,11 @@ final class MapModel {
             map.hohmannPhase = TrajectoryPredictor.hohmannLunaPhase(radius: v.position.length)
         }
         return map
+    }
+
+    /// Выполненный узел остаётся в HUD до удаления, но повторять его импульс в прогнозе уже не нужно.
+    private static func pendingNode(in world: WorldSnapshot) -> ManeuverNode? {
+        guard let status = world.telemetry.maneuver, !status.isDone else { return nil }
+        return status.node
     }
 }
