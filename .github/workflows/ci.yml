@@ -12,6 +12,7 @@ concurrency:
 jobs:
   physics-linux:
     name: OrbitPhysics (Linux)
+    if: "!contains(github.event.head_commit.message, '[build-only]') && !contains(github.event.pull_request.title, '[build-only]')"
     runs-on: ubuntu-latest
     container: swift:6.0-noble
     steps:
@@ -36,14 +37,19 @@ jobs:
           UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; phones=[x for rt,r in d.items() if 'iOS' in rt for x in r if x['name'].startswith('iPhone')]; exact=[x for x in phones if x['name']=='iPhone 16 Pro']; print((exact or phones)[-1]['udid'])")
           echo "Симулятор: $UDID"
           echo "SCREENS_UDID=$UDID" >> "$GITHUB_ENV"
-      - name: Сборка (под симулятор, с тестами)
+      - name: Сборка под симулятор
+        env:
+          BUILD_ONLY: ${{ contains(github.event.head_commit.message, '[build-only]') || contains(github.event.pull_request.title, '[build-only]') }}
         run: |
           set -o pipefail
+          BUILD_ACTION=build-for-testing
+          if [ "$BUILD_ONLY" = "true" ]; then BUILD_ACTION=build; fi
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
             -destination "platform=iOS Simulator,id=$SCREENS_UDID" \
-            -derivedDataPath build -configuration Debug build-for-testing \
+            -derivedDataPath build -configuration Debug "$BUILD_ACTION" \
             CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Регрессии рендера и HUD
+        if: "!contains(github.event.head_commit.message, '[build-only]') && !contains(github.event.pull_request.title, '[build-only]')"
         run: |
           set -o pipefail
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \

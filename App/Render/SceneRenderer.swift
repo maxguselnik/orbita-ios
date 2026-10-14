@@ -66,8 +66,8 @@ final class SceneRenderer: FlightRenderer {
         pad.root.isEnabled = false
 
         Task { [weak self] in
-            let terraTex = await Palette.terraTexture()
-            let lunaTex = await Palette.lunaTexture()
+            let terraTex = await PlanetTextures.load(.terra)
+            let lunaTex = await PlanetTextures.load(.luna)
             guard let self else { return }
             let terraMat = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1),
                                                 roughness: 0.93)
@@ -75,7 +75,7 @@ final class SceneRenderer: FlightRenderer {
             self.terra.material = terraMat
             self.luna.material = lunaMat
             self.map.setMaterials(terra: terraMat, luna: lunaMat)
-            // Облачный слой готовится дольше палитр: рельеф уже виден.
+            // Облачный слой готовится после загрузки атласов: рельеф уже виден.
             let cloudTex = await CloudShell.makeTexture()
             self.cloudShell.setTexture(cloudTex)
             self.map.setCloudTexture(cloudTex)

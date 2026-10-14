@@ -123,7 +123,7 @@ final class MapVisual {
 
     // MARK: - Тела
 
-    /// Текстурные материалы рельефа (палитры), когда готовы.
+    /// Материалы с готовыми атласами рельефа, когда готовы.
     func setMaterials(terra: any Material, luna: any Material) {
         terraMaterial = terra
         lunaMaterial = luna
