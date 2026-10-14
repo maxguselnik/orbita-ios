@@ -390,10 +390,11 @@ struct FirstFlightLessonTests {
         // Направление — от плашки к цели.
         #expect(arrow.end.x > arrow.start.x && arrow.end.y > arrow.start.y)
 
-        // Цель слева сверху (ускорение времени): стрелка идёт влево.
+        // Цель слева сверху (ускорение времени): стрелка выходит из верхнего края плашки и идёт влево-вверх.
         let warp = CGRect(x: 6, y: 0, width: 160, height: 36)
         let back = try #require(TutorialLayout.arrow(from: plaque, to: warp))
-        #expect(abs(back.start.x - plaque.minX) < 1e-6 && back.end.x < back.start.x)
+        #expect(abs(back.start.y - plaque.minY) < 1e-6 && back.start.x > plaque.minX)
+        #expect(back.end.x < back.start.x && back.end.y < back.start.y)
     }
 
     @Test func arrowIsHiddenWhenTargetIsAdjacentOrCovered() {
