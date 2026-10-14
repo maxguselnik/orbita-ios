@@ -241,11 +241,9 @@ struct RCSControls: View {
                 HoldButton(systemImage: "chevron.up", label: "РСУ вперёд", diameter: 30, touchHeight: 34) { pressed in
                     model.rcsForwardPressed = pressed
                 }
-                .longPressHint("РСУ вперёд — сдвиг корабля по носу, пока держите", isHold: true)
                 HoldButton(systemImage: "chevron.down", label: "РСУ назад", diameter: 30, touchHeight: 34) { pressed in
                     model.rcsBackPressed = pressed
                 }
-                .longPressHint("РСУ назад — сдвиг корабля к корме, пока держите", isHold: true)
             }
             Joystick(size: 64, label: "Джойстик РСУ: вправо и вверх", tint: HUDPalette.green) { axes in
                 // Палец вправо — сдвиг вправо, вверх — сдвиг вверх (спина корабля).

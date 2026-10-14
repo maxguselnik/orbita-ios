@@ -115,7 +115,7 @@
 - Физика на Linux: Swift 6.0.3 в `/opt/swift` (download.swift.org, ubuntu24.04), `swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors` (~97 тестов, ~80 с).
 - iOS — только CI (`.github/workflows/ci.yml`, macOS, Xcode 16.4, warnings-as-errors) на push в `claude/**`, `stage*/**` и PR. Снимки — только по метке в сообщении коммита `[screens: сцена …]`; сцена падает, если приложение умерло за 6 с. Не пушить во время прогона (concurrency отменит).
 - Сцены `-screen`: см. `App/Core/DemoScenario.swift`, списки `screens.txt`, `screens-all.txt`.
-- Уроки: движок `App/UI/Tutorial/LessonEngine.swift`, уроки `FirstFlightLesson`, `LunaLesson`, `ControlsTour`; контракт — `docs/CONTRACTS.md` «Обучение».
+- Уроки: движок `App/UI/Tutorial/LessonEngine.swift`, уроки `FirstFlightLesson`, `LunaLesson` (тур «Все кнопки» заменён долгим нажатием, `App/UI/HUD/LongPressHint.swift`); контракт — `docs/CONTRACTS.md` «Обучение».
 
 ## Сделано
 - Этапы 0–5 — PR #1–#6 (каркас, физика, рендер мира, ангар и цикл полёта, эффекты, карта и узлы).
@@ -136,4 +136,3 @@
 - Наклон держит CoreMotion включённым на паузе.
 - На `lunaSurface` Терры не видно в кадре (вероятно, посадка в кратере).
 - Подстройка Пе у Луны ручкой Δv очень чувствительная (~70 км на 1 м/с). С `claude/luna-node-tune`: «К Луне» сам подбирает прогрейд под Пе ≈ 30 км (`TrajectoryPredictor.tuneLunaPeriapsis`, секущие, ≤ 12 прогнозов), цель шага `.tune` — 15–60 км, в панели узла есть ±0.1 м/с. Проверить на iPhone удобство доводки.
-- Шаг «попробуйте» ускорения в «Все кнопки» ловит открытие меню через `onAppear` пунктов `Menu` — может не срабатывать (тогда выбор уровня или «Дальше»).

@@ -48,4 +48,15 @@ struct TutorialModelTests {
         #expect((25_000...35_000).contains(peri))
         #expect(LunaStep.periapsisRange.contains(peri))
     }
+
+    /// В уроке «Эксперт» недоступен, после выхода из урока — снова работает.
+    @Test func expertModeWorksAfterLeavingTheLesson() {
+        let model = FlightHUDModel(makeSimulation: { TutorialID.toLuna.makeSimulation() }, tutorial: .toLuna)
+        model.setMapExpert(true)
+        #expect(!model.mapExpert)
+        model.exitTutorial()
+        model.setMapExpert(true)
+        #expect(model.mapExpert)
+        model.setMapExpert(false)
+    }
 }

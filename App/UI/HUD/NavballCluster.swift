@@ -370,7 +370,6 @@ struct ThrottleGauge: View {
                 .position(x: touch.midX, y: touch.midY)
                 .accessibilityElement()
                 .accessibilityLabel("Тяга")
-                .longPressHint("Тяга: ведите пальцем по дуге, вверху MAX, внизу 0", isHold: true)
                 .accessibilityValue(locked ? "РДТТ работает на полной тяге, регулировка невозможна" : HUDFormat.percent(value))
                 .accessibilityAdjustableAction { direction in
                     guard !locked else { return }

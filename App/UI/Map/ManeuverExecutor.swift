@@ -108,8 +108,9 @@ struct ManeuverExecutor: Equatable {
                         commands.append(.setWarp(index: Self.physicalTop))
                     }
                 }
-            } else if physicalWarp {
-                // До прожига осталось мало: возвращаемся к ×1, чтобы развернуться и не проскочить.
+            } else if physicalWarp || (t.warpIndex > 0 && t.warpIndex <= Self.physicalTop) {
+                // До прожига осталось мало: возвращаемся к ×1 (и с физического ускорения игрока),
+                // чтобы развернуться и не проскочить.
                 physicalWarp = false
                 if t.warpIndex > 0 { commands.append(.setWarp(index: 0)) }
             }

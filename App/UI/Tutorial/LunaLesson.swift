@@ -39,7 +39,9 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
         switch self {
         case .intro: .flight
         case .lunaNode, .encounter, .execute, .captureNode, .captureBurn: .map
-        case .openMap, .coast, .retro, .brake, .land, .finish: .any
+        // SAS и тяга есть только в полёте: с карты шаг просит «Полёт».
+        case .retro, .brake, .land: .flight
+        case .openMap, .coast, .finish: .any
         }
     }
 

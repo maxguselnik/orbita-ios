@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Подсказка кнопки по долгому нажатию (0.5 с): одна строка на 3 с, действие кнопки не выполняется.
-/// Заменяет тур «Все кнопки».
+/// Только для кнопок: у удерживаемых контролов (крестовина, тяга, РСУ) удержание — обычное действие.
 enum ControlHint {
     /// Сколько секунд подсказка висит на экране.
     static let duration: TimeInterval = 3
@@ -29,28 +29,21 @@ extension EnvironmentValues {
 
 private struct LongPressHintModifier: ViewModifier {
     let text: String
-    /// Контроль сам по себе «держится» (крестовина, дуга тяги, ползунок): подсказка не отменяет его действие.
-    let isHold: Bool
 
     @Environment(\.showControlHint) private var show
 
     func body(content: Content) -> some View {
         let gesture = LongPressGesture(minimumDuration: ControlHint.holdTime)
             .onEnded { _ in show(text) }
-        if isHold {
-            content.simultaneousGesture(gesture)
-        } else {
-            // Приоритетный жест: после 0.5 с удержания нажатие кнопки отменяется, быстрый тап проходит как обычно.
-            content.highPriorityGesture(gesture)
-        }
+        // Приоритетный жест: после 0.5 с удержания нажатие кнопки отменяется, быстрый тап проходит как обычно.
+        content.highPriorityGesture(gesture)
     }
 }
 
 extension View {
-    /// Долгое нажатие показывает подсказку `text`. Для кнопок действие при этом не выполняется;
-    /// для удерживаемых контролов (`isHold`) подсказка появляется поверх обычного действия.
-    func longPressHint(_ text: String, isHold: Bool = false) -> some View {
-        modifier(LongPressHintModifier(text: text, isHold: isHold))
+    /// Долгое нажатие показывает подсказку `text`, действие кнопки при этом не выполняется.
+    func longPressHint(_ text: String) -> some View {
+        modifier(LongPressHintModifier(text: text))
     }
 }
 

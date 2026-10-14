@@ -93,6 +93,8 @@ struct LunaLessonTests {
         #expect(LunaStep.execute.target == .mapExecute && LunaStep.captureBurn.target == .mapExecute)
         #expect(LunaStep.lunaNode.target == .mapLuna && LunaStep.captureNode.target == .mapCircularize)
         #expect(LunaStep.coast.target == .warp && LunaStep.retro.target == .sas)
+        // SAS и тяга есть только в полёте: с карты эти шаги просят «Полёт», а не ждут недоступную кнопку.
+        #expect([LunaStep.retro, .brake, .land].allSatisfy { $0.screen == .flight })
         for step in [LunaStep.lunaNode, .encounter, .execute, .captureNode, .captureBurn] {
             #expect(step.screen == .map)
         }

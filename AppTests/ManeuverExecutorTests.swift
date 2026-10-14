@@ -75,7 +75,16 @@ struct ManeuverExecutorTests {
         t.warpIndex = TimeWarp.physicalCount - 1
         t.maneuver = status(toBurn: ManeuverStatus.warpLead + 3)
         #expect(ex.step(t, mass: mass).commands == [.setWarp(index: 0)])
+        t.warpIndex = 0
         #expect(ex.step(t, mass: mass).commands.isEmpty)
+    }
+
+    /// Игрок сам включил ×4 до старта: перед прожигом автопрожиг всё равно возвращает ×1.
+    @Test func playerPhysicalWarpAlsoReturnsToRealTimeBeforeTheBurn() {
+        var ex = ManeuverExecutor()
+        var t = telemetry(status(toBurn: ManeuverStatus.warpLead + 3))
+        t.warpIndex = TimeWarp.physicalCount - 1
+        #expect(ex.step(t, mass: mass).commands == [.setSAS(.maneuver), .setWarp(index: 0)])
     }
 
     @Test func thrustOrSphereChangeBlocksDoNotTriggerPhysicalWarp() {

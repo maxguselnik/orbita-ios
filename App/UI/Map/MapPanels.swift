@@ -581,6 +581,8 @@ struct NudgeButton: View {
 
     @State private var repeatTask: Task<Void, Never>?
     @State private var pressed = false
+    /// Палец на кнопке; сбрасывается и при отмене касания системой (там `onEnded` не приходит).
+    @GestureState private var touching = false
 
     var body: some View {
         Text(direction < 0 ? HUDFormat.minus : "+")
@@ -593,12 +595,12 @@ struct NudgeButton: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .updating($touching) { _, state, _ in state = true }
                     .onChanged { _ in begin() }
                     .onEnded { _ in end() }
             )
+            .onChange(of: touching) { _, value in if !value { end() } }
             .onDisappear { end() }
-            .longPressHint(direction < 0 ? "− уменьшить Δv узла на шаг; держите — повтор"
-                                         : "+ увеличить Δv узла на шаг; держите — повтор", isHold: true)
             .accessibilityElement()
             .accessibilityLabel(direction < 0 ? "Меньше" : "Больше")
             .accessibilityHint("Шаг \(HUDFormat.fixed(ManeuverPlanner.fineStep(model.maneuverGoal), digits: 1)) м/с по ходу орбиты")
@@ -663,7 +665,6 @@ struct ManeuverJog: View {
         .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch, maxHeight: HUDStyle.minTouch)
         .contentShape(Rectangle())
         .gesture(drag)
-        .longPressHint("Ползунок: тяните вправо — больше, влево — меньше; отпустите — стоп", isHold: true)
         .onChange(of: active) { _, value in
             // Касание отменено системой — onEnded может не прийти.
             if !value, model.maneuverDrag?.fromJog == true { model.maneuverDrag = nil }

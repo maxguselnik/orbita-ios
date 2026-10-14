@@ -196,7 +196,6 @@ struct DPadCircle: View {
             if let old { model.setAttitude(old.button, pressed: false) }
             if let new { model.setAttitude(new.button, pressed: true) }
         }
-        .longPressHint("Крестовина: ▲▼ нос вверх/вниз, ◀▶ влево/вправо. Держите — поворот нарастает", isHold: true)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Крестовина: тангаж и рыскание")
         .accessibilityAddTraits(.isButton)
@@ -243,7 +242,6 @@ struct AttitudeHoldButton: View {
                     .updating($pressed) { _, state, _ in state = true }
             )
             .onChange(of: pressed) { _, value in onPress(value) }
-            .longPressHint("Крен — вращение вокруг оси корабля, пока держите", isHold: true)
             .accessibilityLabel(label)
             .accessibilityAddTraits(.isButton)
     }

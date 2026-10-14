@@ -628,12 +628,12 @@ final class FlightHUDModel {
 
     /// Переключатель «Эксперт» / «Просто»; в уроках режим «Эксперт» недоступен. Выбор запоминается.
     func setMapExpert(_ on: Bool) {
-        let value = on && tutorial == nil
+        let value = on && tutorial?.isActive != true
         guard value != mapExpert else { return }
         mapExpert = value
         maneuverDrag = nil
         cancelExecutor(zeroThrottle: true)
-        if tutorial == nil { UserDefaults.standard.set(value, forKey: Self.mapExpertKey) }
+        if tutorial?.isActive != true { UserDefaults.standard.set(value, forKey: Self.mapExpertKey) }
     }
 
     /// Узел по цели: планировщик ставит его сам. nil от планировщика — тост «Сейчас не получится».
