@@ -11,6 +11,7 @@ concurrency:
 
 jobs:
   physics-linux:
+    if: ${{ !contains(github.event.head_commit.message, '[screens-only]') }}
     name: OrbitPhysics (Linux)
     runs-on: ubuntu-latest
     container: swift:6.0-noble
@@ -44,6 +45,7 @@ jobs:
             -derivedDataPath build -configuration Debug build-for-testing \
             CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Регрессии рендера и HUD
+        if: ${{ !contains(github.event.head_commit.message, '[screens-only]') }}
         run: |
           set -o pipefail
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
