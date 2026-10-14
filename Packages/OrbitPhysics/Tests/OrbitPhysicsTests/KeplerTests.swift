@@ -6,6 +6,24 @@ import Testing
 struct KeplerTests {
     let mu = Bodies.terra.mu
 
+    @Test(arguments: [BodyID.terra, .luna])
+    func longEscapePredictionConservesEnergyAndAngularMomentum(body: BodyID) {
+        let b = Bodies.body(body)
+        let r0 = Vec3(b.radius + 30_000, 0, 0)
+        let v0 = Vec3(0, (2 * b.mu / r0.length).squareRoot() * 1.8, 0)
+        let energy = v0.lengthSquared / 2 - b.mu / r0.length
+        let momentum = r0.cross(v0)
+        for dt in [6_000_000.0, -6_000_000] {
+            let future = Kepler.propagate(position: r0, velocity: v0, mu: b.mu, dt: dt)
+            let futureEnergy = future.velocity.lengthSquared / 2 - b.mu / future.position.length
+            #expect(abs(futureEnergy - energy) / energy < 1e-10)
+            // На расстоянии десятков миллиардов метров r × v теряет младшие биты при вычитании.
+            #expect((future.position.cross(future.velocity) - momentum).length / momentum.length < 1e-8)
+            let back = Kepler.propagate(position: future.position, velocity: future.velocity, mu: b.mu, dt: -dt)
+            #expect((back.position - r0).length < 5)
+        }
+    }
+
     @Test func ellipseMatchesRK4OverDay() {
         // Эллипс LKO-типа с наклоном: Пе ≈ 100 км, Ап ≈ 200 км.
         let r0 = Vec3(700_000, 0, 0)

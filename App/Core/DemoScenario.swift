@@ -283,6 +283,11 @@ final class ScenarioFlight: FlightSimulation, FlightCheckpointing {
         sim.predictManeuver(node, maxPatches: maxPatches)
     }
 
+    func predictManeuver(_ node: ManeuverNode, using trajectory: Trajectory?,
+                         maxPatches: Int) -> ManeuverPrediction? {
+        sim.predictManeuver(node, using: trajectory, maxPatches: maxPatches)
+    }
+
     func advance(realDelta: Double) -> [SimEvent] {
         guard let ap = autopilot, !ap.isFinished else { return sim.advance(realDelta: realDelta) }
         pending += realDelta

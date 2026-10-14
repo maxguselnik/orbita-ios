@@ -181,8 +181,17 @@ public enum Terrain {
         for sc in craterScales {
             let inv = 1 / sc.cell
             let ix = Int(floor(p.x * inv)), iy = Int(floor(p.y * inv)), iz = Int(floor(p.z * inv))
+            let reach = 1.5 * sc.rMax
+            let reachSquared = reach * reach
             for dx in -1...1 { for dy in -1...1 { for dz in -1...1 {
                 let cx = ix + dx, cy = iy + dy, cz = iz + dz
+                // Центр принятого кратера остаётся внутри ячейки. Если даже ближайшая
+                // точка её объёма дальше максимального вала, хеш и проекция не нужны.
+                let x0 = Double(cx) * sc.cell, y0 = Double(cy) * sc.cell, z0 = Double(cz) * sc.cell
+                let bx = max(0, x0 - p.x, p.x - (x0 + sc.cell))
+                let by = max(0, y0 - p.y, p.y - (y0 + sc.cell))
+                let bz = max(0, z0 - p.z, p.z - (z0 + sc.cell))
+                if bx * bx + by * by + bz * bz > reachSquared { continue }
                 var h = mix(UInt64(bitPattern: Int64(cx)) &* 0x9E37_79B1 ^ sc.salt)
                 h = mix(h ^ UInt64(bitPattern: Int64(cy)) &* 0x85EB_CA77)
                 h = mix(h ^ UInt64(bitPattern: Int64(cz)) &* 0xC2B2_AE3D)
@@ -245,13 +254,19 @@ public enum Terrain {
     /// Высота рельефа над уровнем моря, м. `direction` — направление в системе, связанной с телом.
     /// На Терре отрицательная высота — дно океана.
     public static func height(body: BodyID, direction: Vec3) -> Double {
+        sample(body: body, direction: direction).height
+    }
+
+    /// Высота и оттенок кратеров за один проход: рендеру не нужно повторять поиск тех же кратеров.
+    public static func sample(body: BodyID, direction: Vec3) -> (height: Double, craterShade: Double) {
         let d = direction.normalized
         switch body {
         case .terra:
             let w = padBlend(d)
-            return rawTerra(d) * (1 - w) + padHeight * w
+            return (rawTerra(d) * (1 - w) + padHeight * w, 0)
         case .luna:
-            var h = lunaBase + waves(lunaWaves, d) + smallCraters(d).height
+            let small = smallCraters(d)
+            var h = lunaBase + waves(lunaWaves, d) + small.height
             for c in craters {
                 let cosA = d.dot(c.center)
                 // Быстрый отсев: дальше 2 радиусов кратера.
@@ -261,7 +276,7 @@ public enum Terrain {
                 let rim = (x - 1) / 0.25
                 h += 0.3 * c.depth * exp(-rim * rim)
             }
-            return h
+            return (h, small.shade)
         }
     }
 

@@ -72,6 +72,15 @@ public enum Kepler {
             if t < 0 { t += period }
             xPeriod = 2 * Double.pi / alpha.squareRoot()
         }
+        // На гиперболе универсальная аномалия растёт логарифмически со временем.
+        // Линейный старт на длинном прогнозе переполняет cosh/sinh, после чего
+        // карта для каждой точки запускает запасной RK4 на 20 000 шагов.
+        var initial = xPeriod.isFinite ? sqmu * alpha * t : sqmu * t / r0m
+        if alpha < 0 {
+            let scale = (-alpha).squareRoot()
+            let magnitude = log1p(abs(sqmu * t / r0m) * scale) / scale
+            initial = t < 0 ? -magnitude : magnitude
+        }
         let a1 = rv / sqmu
         let a2 = 1 - alpha * r0m
         func F(_ x: Double) -> (f: Double, df: Double, c: Double, s: Double) {
@@ -88,21 +97,16 @@ public enum Kepler {
             hi = xPeriod
         } else if t > 0 {
             lo = 0
-            hi = max(sqmu * t / r0m, 1)
+            hi = max(initial, 1)
             var guard_ = 0
             while F(hi).f < 0 && guard_ < 200 { lo = hi; hi *= 2; guard_ += 1 }
         } else {
             hi = 0
-            lo = min(sqmu * t / r0m, -1)
+            lo = min(initial, -1)
             var guard_ = 0
             while F(lo).f > 0 && guard_ < 200 { hi = lo; lo *= 2; guard_ += 1 }
         }
-        var x: Double
-        if xPeriod.isFinite {
-            x = sqmu * alpha * t
-        } else {
-            x = sqmu * t / r0m
-        }
+        var x = initial
         if !(x > lo && x < hi) { x = 0.5 * (lo + hi) }
         var ok = false
         for _ in 0..<200 {

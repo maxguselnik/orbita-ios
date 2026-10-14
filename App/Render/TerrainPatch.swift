@@ -84,15 +84,18 @@ enum PatchBuilder {
         var pts = [D3](repeating: .zero, count: w * w)
         var dirs = [D3](repeating: .zero, count: w * w)
         var hts = [Double](repeating: 0, count: w * w)
+        var shades = [Double](repeating: 0, count: w * w)
         for j in 0..<w {
             for i in 0..<w {
                 let a = a0 + span * Double(i - 1) / Double(n)
                 let b = b0 + span * Double(j - 1) / Double(n)
                 let d = CubeSphere.direction(face: face, a: a, b: b)
-                let h = Terrain.height(body: body, direction: vec3(d))
+                let sample = Terrain.sample(body: body, direction: vec3(d))
+                let h = sample.height
                 let k = j * w + i
                 dirs[k] = d
                 hts[k] = h
+                shades[k] = sample.craterShade
                 pts[k] = d * (radius + displayHeight(body, h))
             }
         }
@@ -121,7 +124,7 @@ enum PatchBuilder {
                 let uv = Palette.terrainUV(body: body, direction: d, height: h,
                                            noise: hashNoise(d, scale: noiseScale), cell: cellSize,
                                            slope: 1 - simd_dot(normal, d),
-                                           craterShade: body == .luna ? Terrain.craterShade(body: body, direction: vec3(d)) : 0)
+                                           craterShade: shades[k])
                 mesh.vertex(f3(pts[k] - center), f3(normal), uv)
             }
         }
