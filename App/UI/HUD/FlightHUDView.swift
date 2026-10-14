@@ -49,7 +49,7 @@ struct FlightHUDView: View {
             }
 
             if mapOpen {
-                MapLayer(model: model)
+                MapLayer(model: model, hintsEnabled: hintsEnabled && !inLesson)
                 NavballCluster(model: model, ascentEnabled: false)
                     .padding(.bottom, NavballCluster.lift)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
@@ -98,14 +98,6 @@ struct FlightHUDView: View {
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .animation(.easeOut(duration: 0.2), value: model.hint)
         .overlay(alignment: .topTrailing) { stagePanel }
-        .overlay(alignment: .bottom) {
-            if mapOpen, model.mapExpert, !model.isPaused {
-                // Пошаговая подсказка карты: над переключателем фокуса, центр экрана свободен.
-                MapHintHost(model: model, hintsEnabled: hintsEnabled && !inLesson)
-                    .padding(.bottom, Self.mapFocusBottom + HUDStyle.minTouch + 16)
-                    .ignoresSafeArea(.container, edges: .bottom)
-            }
-        }
         .overlay {
             if mapOpen, showLegend, !model.isPaused {
                 MapLegendView(onClose: { showLegend = false })
@@ -310,6 +302,7 @@ struct ManeuverBadgeHost: View {
 /// справа — панель узла манёвра и «Ступень».
 struct MapLayer: View {
     let model: FlightHUDModel
+    var hintsEnabled = true
 
     var body: some View {
         ZStack {
@@ -323,7 +316,7 @@ struct MapLayer: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             HStack(alignment: .bottom, spacing: 8) {
                 MapLeftColumn(model: model)
-                MapCenterColumn(model: model)
+                MapCenterColumn(model: model, hintsEnabled: hintsEnabled)
                 MapSideColumn(model: model)
             }
             .padding(.top, 50)

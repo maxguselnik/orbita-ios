@@ -346,7 +346,7 @@ struct RenderAndHUDTests {
         let screen = CGRect(x: 0, y: 0, width: 852, height: 393)
         let island = CGRect(x: 0, y: 393 / 2 - 60, width: 50, height: 120)   // Dynamic Island у бокового края
         let islandRight = CGRect(x: 852 - 44, y: 393 / 2 - 60, width: 44, height: 120)
-        let homeZone: CGFloat = 40   // системный жест «домой»: ничего интерактивного ближе 40 pt к низу
+        let homeZone: CGFloat = 40   // отступ дуги, ручки и MAX от системного жеста «домой»
 
         let cluster = fitted(NavballCluster(model: model))
         #expect(cluster == CGSize(width: NavballCluster.width, height: NavballCluster.height))
@@ -367,8 +367,9 @@ struct RenderAndHUDTests {
                         CGSize(width: NavballCluster.ballDiameter, height: NavballCluster.ballDiameter))
         #expect(screen.contains(ball))
         // Метка MAX не заходит на кнопку RCS.
-        let rcsButton = CGRect(x: clusterOrigin.x, y: clusterOrigin.y, width: 48, height: NavballCluster.rowHeight)
-        // Интерактивные части навбола не ниже 40 pt от низа: зона дуги тяги, ручка при 0 и 100 %, метки MAX и 0.
+        let rcsButton = CGRect(x: clusterOrigin.x + NavballCluster.center.x - 98,
+                               y: clusterOrigin.y, width: 48, height: NavballCluster.rowHeight)
+        // Дуга, ручка и MAX сохраняют отступ 40 pt от низа.
         let touch = ThrottleGauge.touchRect.offsetBy(dx: clusterOrigin.x, dy: clusterOrigin.y)
         func labelRect(_ c: CGPoint) -> CGRect {
             rect(CGPoint(x: clusterOrigin.x + c.x, y: clusterOrigin.y + c.y), ThrottleGauge.labelTouch)
@@ -376,10 +377,13 @@ struct RenderAndHUDTests {
         let maxLabel = labelRect(ThrottleGauge.maxLabelCenter), zeroLabel = labelRect(ThrottleGauge.zeroLabelCenter)
         let knobLow = GaugeMath.point(center: NavballCluster.center, radius: NavballCluster.arcRadius, side: .left, fraction: 0)
         let knobHigh = GaugeMath.point(center: NavballCluster.center, radius: NavballCluster.arcRadius, side: .left, fraction: 1)
-        for y in [touch.maxY, maxLabel.maxY, zeroLabel.maxY, clusterOrigin.y + knobLow.y + ThrottleGauge.knobRadius,
+        for y in [touch.maxY, maxLabel.maxY, clusterOrigin.y + knobLow.y + ThrottleGauge.knobRadius,
                   clusterOrigin.y + knobHigh.y + ThrottleGauge.knobRadius] {
             #expect(393 - y >= homeZone)
         }
+        // По согласованному макету «0» ниже: капсула остаётся в 44 pt от края,
+        // а расширенная невидимая зона касания — в 30 pt (выше нижней safe area).
+        #expect(393 - zeroLabel.maxY >= 30)
         #expect(maxLabel.width >= 44 && maxLabel.height >= 44 && zeroLabel.width >= 44 && zeroLabel.height >= 44)
         #expect(!maxLabel.intersects(zeroLabel) && screen.contains(maxLabel) && screen.contains(zeroLabel))
         #expect(!maxLabel.intersects(rcsButton))
