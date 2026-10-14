@@ -229,9 +229,9 @@ struct RenderAndHUDTests {
             let r = degrees * .pi / 180
             return CGPoint(x: 50 + 40 * cos(r), y: 50 + 40 * sin(r))
         }
-        #expect(abs(GaugeMath.fraction(forTouch: touch(145), center: center)) < 1e-6)
-        #expect(abs(GaugeMath.fraction(forTouch: touch(180), center: center) - 0.5) < 1e-6)
-        #expect(abs(GaugeMath.fraction(forTouch: touch(215), center: center) - 1) < 1e-6)
+        #expect(abs(GaugeMath.fraction(forTouch: touch(180), center: center)) < 1e-6)
+        #expect(abs(GaugeMath.fraction(forTouch: touch(215), center: center) - 0.5) < 1e-6)
+        #expect(abs(GaugeMath.fraction(forTouch: touch(250), center: center) - 1) < 1e-6)
         #expect(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 100), center: center) == 0)
         #expect(GaugeMath.fraction(forTouch: CGPoint(x: 50, y: 0), center: center) == 1)
     }
@@ -357,12 +357,17 @@ struct RenderAndHUDTests {
         let block = fitted(AttitudeControls(model: model))
         #expect(block == AttitudeControls.frameSize)
 
-        // Навбол по центру, поднят на `lift`.
+        // Навбол по центру, опущен: низ кольца за краем экрана, шар виден целиком.
         let clusterOrigin = CGPoint(x: (852 - cluster.width) / 2, y: 393 - NavballCluster.lift - cluster.height)
         let clusterRect = CGRect(origin: clusterOrigin, size: cluster)
         let ringRect = CGRect(x: clusterOrigin.x + NavballCluster.ringOrigin.x, y: clusterOrigin.y + NavballCluster.ringOrigin.y,
                               width: NavballCluster.size, height: NavballCluster.size)
-        #expect(screen.contains(clusterRect))
+        #expect(NavballCluster.lift < 0 && clusterRect.maxY > 393)
+        let ball = rect(CGPoint(x: clusterOrigin.x + NavballCluster.center.x, y: clusterOrigin.y + NavballCluster.center.y),
+                        CGSize(width: NavballCluster.ballDiameter, height: NavballCluster.ballDiameter))
+        #expect(screen.contains(ball))
+        // Метка MAX не заходит на кнопку RCS.
+        let rcsButton = CGRect(x: clusterOrigin.x, y: clusterOrigin.y, width: 48, height: NavballCluster.rowHeight)
         // Интерактивные части навбола не ниже 40 pt от низа: зона дуги тяги, ручка при 0 и 100 %, метки MAX и 0.
         let touch = ThrottleGauge.touchRect.offsetBy(dx: clusterOrigin.x, dy: clusterOrigin.y)
         func labelRect(_ c: CGPoint) -> CGRect {
@@ -377,6 +382,7 @@ struct RenderAndHUDTests {
         }
         #expect(maxLabel.width >= 44 && maxLabel.height >= 44 && zeroLabel.width >= 44 && zeroLabel.height >= 44)
         #expect(!maxLabel.intersects(zeroLabel) && screen.contains(maxLabel) && screen.contains(zeroLabel))
+        #expect(!maxLabel.intersects(rcsButton))
         // Подпись «ТЯГА» (видимая часть) не пересекается с видимыми метками.
         let caption = rect(CGPoint(x: clusterOrigin.x + ThrottleGauge.captionCenter.x,
                                    y: clusterOrigin.y + ThrottleGauge.captionCenter.y), CGSize(width: 30, height: 22))
@@ -420,7 +426,7 @@ struct RenderAndHUDTests {
         #expect(abs(stageRect.minX - (852 - circle.maxX)) <= 4)
         #expect(!stageRect.intersects(island) && stageRect.height >= 44)
 
-        let all: [(String, CGRect)] = [("ring", clusterRect), ("maxLabel", maxLabel), ("zeroLabel", zeroLabel), ("circle", circle),
+        let all: [(String, CGRect)] = [("ball", ball), ("maxLabel", maxLabel), ("zeroLabel", zeroLabel), ("circle", circle),
                                        ("rollL", rollL), ("rollR", rollR), ("pill", pill), ("stage", stageRect), ("rcs", rcsRect)]
         for r in all { #expect(screen.contains(r.1), "\(r.0) вне экрана") }
         // Навбол (кольцо и строка над ним) не пересекается ни с правой, ни с левой группой; метки — тоже.

@@ -7,10 +7,11 @@ enum GaugeSide {
 }
 
 /// Геометрия дуг-приборов на кольце. Углы — в экранных координатах (y вниз): 0° — право, 90° — низ,
-/// 180° — лево, 270° — верх. Левая дуга идёт от 145° (низ-лево, у края экрана) до 215° (верх-лево),
-/// правая — зеркально: от 35° до −35°. Значение 0…1 откладывается снизу вверх.
+/// 180° — лево, 270° — верх. Кольцо опущено так, что его низ уходит за край экрана, поэтому дуги — в верхней
+/// половине: левая от 180° (лево, «9 часов») до 250° (верх-лево), правая — зеркально: от 0° до −70°.
+/// Значение 0…1 откладывается снизу вверх.
 enum GaugeMath {
-    static let startDegrees = 145.0
+    static let startDegrees = 180.0
     static let spanDegrees = 70.0
 
     static func degrees(side: GaugeSide, fraction: Double) -> Double {
@@ -76,7 +77,7 @@ struct GaugeTicksShape: Shape {
     }
 }
 
-/// Кольцо навбола (макет Б4): круг 184 pt, нижние 34 pt уходят за край экрана. Внутри — навбол, сверху — табло
+/// Кольцо навбола (макет Б4): круг 156 pt, нижние 26 pt уходят за край экрана. Внутри — навбол, сверху — табло
 /// скорости, в верхних углах — RCS (слева) и SAS со стрелкой выбора режима (справа); на кольце слева дуга тяги
 /// (тянется пальцем), справа дуга перегрузки.
 struct NavballCluster: View {
@@ -92,8 +93,9 @@ struct NavballCluster: View {
     static let rowHeight: CGFloat = 36
     static let width: CGFloat = 196
     static let height: CGFloat = rowHeight + size
-    /// Подъём кластера над нижним краем: ничего интерактивного ближе 40 pt к низу (там системный жест «домой»).
-    static let lift: CGFloat = 14
+    /// Подъём кластера над нижним краем; отрицательный — низ кольца уходит за край (шар виден целиком).
+    /// Интерактивное (дуга тяги, метки MAX и 0) всё равно не ближе 40 pt к низу: там системный жест «домой».
+    static let lift: CGFloat = -26
     static let ballDiameter: CGFloat = 98
     /// Левый верхний угол кольца и его центр в координатах кластера.
     static let ringOrigin = CGPoint(x: (width - size) / 2, y: rowHeight)
@@ -296,24 +298,24 @@ struct ThrottleGauge: View {
     let model: FlightHUDModel
     var guide: HUDAction?
 
-    /// Центры меток MAX и 0 в координатах кластера: слева от дуги, зона касания 44 pt. Нижняя метка стоит так, чтобы
-    /// её зона не опускалась ниже конца дуги (низ кластера ≥ 40 pt от края экрана).
-    static var maxLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 50) }
-    static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 106) }
+    /// Центры меток MAX и 0 в координатах кластера: слева от дуги, зона касания 44 pt. Метка 0 — чуть выше начала
+    /// дуги, чтобы её зона не опускалась ближе 40 pt к низу экрана; MAX — под кнопкой RCS, без пересечения с ней.
+    static var maxLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 22) }
+    static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 68) }
     static let labelTouch = CGSize(width: 44, height: 44)
     /// Центр подписи «ТЯГА N %».
-    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 12, y: NavballCluster.ringOrigin.y + 78) }
+    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 12, y: NavballCluster.ringOrigin.y + 45) }
     /// Радиус ручки.
     static let knobRadius: CGFloat = 7
 
     /// Рамка для обучения: дуга тяги вместе с метками MAX и 0 (координаты кластера).
     static var lessonRect: CGRect {
-        CGRect(x: NavballCluster.ringOrigin.x - 30, y: NavballCluster.ringOrigin.y + 26, width: 78, height: 104)
+        CGRect(x: NavballCluster.ringOrigin.x - 30, y: NavballCluster.ringOrigin.y, width: 94, height: 92)
     }
 
-    /// Зона касания дуги в координатах кластера: от верхнего до нижнего конца дуги, ниже — ничего.
+    /// Зона касания дуги в координатах кластера: от верхнего до нижнего конца дуги (и 12 pt ниже «9 часов»), ниже — ничего.
     static var touchRect: CGRect {
-        CGRect(x: NavballCluster.ringOrigin.x - 4, y: NavballCluster.ringOrigin.y + 28, width: 52, height: 100)
+        CGRect(x: NavballCluster.ringOrigin.x - 4, y: NavballCluster.ringOrigin.y + 3, width: 64, height: 87)
     }
 
     var body: some View {
@@ -456,7 +458,7 @@ struct GForceGauge: View {
                 .font(.system(size: 8, weight: .semibold).monospacedDigit())
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .position(x: NavballCluster.ringOrigin.x + size + 12, y: NavballCluster.ringOrigin.y + 105)
+                .position(x: NavballCluster.ringOrigin.x + size + 12, y: NavballCluster.ringOrigin.y + 68)
         }
         .allowsHitTesting(false)
         .accessibilityElement()
