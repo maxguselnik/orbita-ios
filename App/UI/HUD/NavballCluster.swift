@@ -166,6 +166,7 @@ struct SpeedLCD: View {
         .accessibilityLabel(frame == .orbit ? "Орбитальная скорость \(HUDFormat.speed(speed))"
                                             : "Скорость относительно поверхности \(HUDFormat.speed(speed))")
         .accessibilityHint("Переключить орбита или поверхность")
+        .longPressHint("Скорость: орб — от центра Терры, пов — от земли. Тап переключает")
     }
 }
 
@@ -202,6 +203,7 @@ struct ClusterRCSButton: View {
         .buttonStyle(HUDPressStyle())
         .accessibilityLabel(on ? "Выключить РСУ" : "Включить РСУ")
         .accessibilityValue(rcs.available ? "монотоплива \(HUDFormat.percent(rcs.monoFraction))" : "нет блоков")
+        .longPressHint("РСУ — малые двигатели для точных сдвигов и стыковки")
     }
 }
 
@@ -246,6 +248,7 @@ struct ClusterSASButton: View {
             }
             .buttonStyle(HUDPressStyle())
             .accessibilityLabel(on ? "Выключить SAS, сейчас: " + SASGrid.fullName(current) : "Включить SAS")
+            .longPressHint("SAS — автопилот: сам держит нос, куда вы указали")
 
             Button {
                 picking = true
@@ -258,6 +261,7 @@ struct ClusterSASButton: View {
             }
             .buttonStyle(HUDPressStyle())
             .accessibilityLabel("Режим SAS: " + (on ? SASGrid.fullName(current) : "выключен"))
+            .longPressHint("▾ — режим SAS: держать, прогрейд, ретро, узел…")
             .accessibilityHint("Выбрать режим")
             .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -366,6 +370,7 @@ struct ThrottleGauge: View {
                 .position(x: touch.midX, y: touch.midY)
                 .accessibilityElement()
                 .accessibilityLabel("Тяга")
+                .longPressHint("Тяга: ведите пальцем по дуге, вверху MAX, внизу 0", isHold: true)
                 .accessibilityValue(locked ? "РДТТ работает на полной тяге, регулировка невозможна" : HUDFormat.percent(value))
                 .accessibilityAdjustableAction { direction in
                     guard !locked else { return }
@@ -415,6 +420,7 @@ struct ThrottleEndLabel: View {
         .buttonStyle(HUDPressStyle())
         .disabled(!enabled)
         .accessibilityLabel(label)
+        .longPressHint(title == "MAX" ? "MAX — полная тяга" : "0 — выключить тягу")
     }
 }
 

@@ -45,12 +45,50 @@ struct ManeuverExecutorTests {
         #expect(second.commands.isEmpty && second.phase == .warping)
     }
 
-    @Test func noWarpWhenBurnIsCloseOrRailsBlocked() {
+    @Test func noWarpWhenBurnIsClose() {
         var near = ManeuverExecutor()
         #expect(near.step(telemetry(status(toBurn: ManeuverStatus.warpLead + 5)), mass: mass).commands == [.setSAS(.maneuver)])
-        var blocked = ManeuverExecutor()
-        let t = telemetry(status(toBurn: 1_900), warpBlocked: .atmosphere)
-        #expect(blocked.step(t, mass: mass).commands == [.setSAS(.maneuver)])
+    }
+
+    /// В атмосфере рельсов нет: физическое ×4, а как только можно — один раз «до узла».
+    @Test func atmosphereUsesPhysicalWarpThenRailsOnceUnblocked() {
+        var ex = ManeuverExecutor()
+        var t = telemetry(status(toBurn: 1_900), warpBlocked: .atmosphere)
+        let first = ex.step(t, mass: mass)
+        #expect(first.commands == [.setSAS(.maneuver), .setWarp(index: TimeWarp.physicalCount - 1)])
+        // Ускорение включено: повторно не шлём.
+        t.warpIndex = TimeWarp.physicalCount - 1
+        #expect(ex.step(t, mass: mass).commands.isEmpty)
+        t.maneuver = status(toBurn: 1_200)
+        #expect(ex.step(t, mass: mass).commands.isEmpty)
+        // Вышли из атмосферы: рельсы до узла — ровно один раз.
+        t.warpBlocked = nil
+        t.maneuver = status(toBurn: 900)
+        #expect(ex.step(t, mass: mass).commands == [.warpToManeuver])
+        #expect(ex.step(t, mass: mass).commands.isEmpty)
+    }
+
+    @Test func physicalWarpReturnsToRealTimeBeforeTheBurn() {
+        var ex = ManeuverExecutor()
+        var t = telemetry(status(toBurn: 400), warpBlocked: .atmosphere)
+        _ = ex.step(t, mass: mass)
+        t.warpIndex = TimeWarp.physicalCount - 1
+        t.maneuver = status(toBurn: ManeuverStatus.warpLead + 3)
+        #expect(ex.step(t, mass: mass).commands == [.setWarp(index: 0)])
+        #expect(ex.step(t, mass: mass).commands.isEmpty)
+    }
+
+    @Test func thrustOrSphereChangeBlocksDoNotTriggerPhysicalWarp() {
+        for reason in [WarpResetReason.thrust, .soiChange] {
+            var ex = ManeuverExecutor()
+            let out = ex.step(telemetry(status(toBurn: 1_900), warpBlocked: reason), mass: mass)
+            #expect(out.commands == [.setSAS(.maneuver)])
+        }
+        // Игрок уже сам включил ×4 — команду не дублируем.
+        var ex = ManeuverExecutor()
+        var t = telemetry(status(toBurn: 1_900), warpBlocked: .atmosphere)
+        t.warpIndex = TimeWarp.physicalCount - 1
+        #expect(ex.step(t, mass: mass).commands == [.setSAS(.maneuver)])
     }
 
     @Test func throttleStaysZeroUntilBurnTime() {

@@ -16,9 +16,13 @@ struct TutorialDisplay: Equatable {
     var failure: String?
     /// Есть контрольная точка: на ошибке можно откатить шаг.
     var canRepeat: Bool
+    /// «Шаг N из M»; nil на вводном и итоговом шагах.
+    var progress: LessonProgress?
 
     var bubble: LessonBubble? { scene.bubble }
     var target: LessonElement? { scene.target }
+    /// Все рамки шага: главная цель первой.
+    var targets: [LessonElement] { (scene.target.map { [$0] } ?? []) + scene.alsoTargets }
 }
 
 /// Контроллер урока: логика (`TutorialLesson`) плюс наблюдаемое состояние для оверлея.
@@ -51,7 +55,6 @@ final class TutorialController {
         switch id {
         case .firstFlight: return FirstFlightLesson()
         case .toLuna: return LunaLesson()
-        case .controls: return ControlsTour()
         }
     }
 
@@ -137,6 +140,6 @@ final class TutorialController {
     private static func makeDisplay(_ lesson: any TutorialLesson, _ input: LessonInput,
                                     canRepeat: Bool) -> TutorialDisplay {
         TutorialDisplay(stepIndex: lesson.stepIndex, phase: lesson.phase, scene: lesson.scene(input),
-                        failure: lesson.failure, canRepeat: canRepeat)
+                        failure: lesson.failure, canRepeat: canRepeat, progress: lesson.progress)
     }
 }

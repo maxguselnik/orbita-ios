@@ -169,10 +169,14 @@ final class FlightHUDModel {
     }
 
     /// Интерактивный урок (nil — обычный полёт). Пока он держит физику на паузе, `tick` принимает ввод, но не двигает мир.
-    /// Меняется, когда тур «Все кнопки» запускают из меню паузы поверх текущего полёта.
     private(set) var tutorial: TutorialController?
-    /// Меню ускорения времени открывалось (счётчик для шага «попробуйте»); перерисовки не вызывает.
+    /// Меню ускорения времени открывалось (счётчик); перерисовки не вызывает.
     @ObservationIgnored private var warpMenuCount = 0
+    /// Подсказка кнопки по долгому нажатию (одна строка на `ControlHint.duration` с); nil — нет.
+    private(set) var controlHint: ControlHintLine?
+    @ObservationIgnored private var controlHintExpiry: TimeInterval = 0
+    @ObservationIgnored private var controlHintCounter = 0
+    @ObservationIgnored private var lastFrameTime: TimeInterval?
     /// Скорость последнего касания поверхности, м/с (итог и ошибка урока «К Луне»).
     @ObservationIgnored private var touchdownSpeed: Double?
 
@@ -229,8 +233,12 @@ final class FlightHUDModel {
 
     /// Один кадр игрового цикла; `now` — время кадра в секундах (CACurrentMediaTime).
     func tick(now: TimeInterval) {
+        lastFrameTime = now
         if toast != nil, now >= toastExpiry {
             self.toast = nil
+        }
+        if controlHint != nil, now >= controlHintExpiry {
+            controlHint = nil
         }
         flushCamera()
         guard !isPaused else { lastTick = nil; return }
@@ -344,15 +352,11 @@ final class FlightHUDModel {
         feedback?.setPaused(tutorial.holdsPhysics || isPaused)
     }
 
-    /// Тур «Все кнопки» поверх текущего полёта (из меню паузы): без смены корабля и без перезапуска.
-    func startTour() {
-        tutorial?.exit()
-        let tour = TutorialController(id: .controls, telemetry: telemetry)
-        tutorial = tour
-        saveTutorialCheckpoint()
-        isPaused = false
-        lastTick = nil
-        feedback?.setPaused(tour.holdsPhysics)
+    /// Подсказка кнопки по долгому нажатию: одна строка на 3 с.
+    func showControlHint(_ text: String) {
+        controlHintCounter += 1
+        controlHint = ControlHintLine(id: controlHintCounter, text: text)
+        controlHintExpiry = (lastFrameTime ?? CACurrentMediaTime()) + ControlHint.duration
     }
 
     /// Меню ускорения времени открыто (шаг «Время и ускорение» засчитывается).

@@ -17,7 +17,8 @@ struct ExecutorOutput: Equatable {
 /// Автопрожиг узла манёвра для простой карты. Чистая структура без UI: модель каждый кадр отдаёт телеметрию
 /// и массу и выполняет то, что вернул `step` (тягу пишет в `throttle` до `setInput`, команды шлёт в симуляцию).
 ///
-/// Порядок: SAS по узлу → один раз ускорение до узла (если до прожига далеко) → тяга 0, пока не пришло время
+/// Порядок: SAS по узлу → один раз ускорение до узла (если до прожига далеко; в атмосфере — физическое ×4, пока
+/// рельсы заблокированы, потом `warpToManeuver`) → тяга 0, пока не пришло время
 /// и нос не развёрнут на узел (5°; во время прожига допускается 15°) → тяга по остатку Δv → узел выполнен.
 /// Отмена игроком (тяга, кнопки ориентации, «Стоп») — на стороне модели; здесь отмена — удалённый или изменённый узел.
 struct ManeuverExecutor: Equatable {
@@ -48,6 +49,8 @@ struct ManeuverExecutor: Equatable {
     /// Остаток Δv, при котором прожиг закончен, м/с, и рост остатка, считающийся перелётом.
     static let finishRemaining = 0.1
     static let overshootMargin = 0.05
+    /// Последний физический уровень ускорения (×4).
+    static let physicalTop = TimeWarp.physicalCount - 1
     static let noFuelText = "Не хватает топлива"
     static let doneText = "Манёвр выполнен"
 
@@ -55,6 +58,8 @@ struct ManeuverExecutor: Equatable {
     /// Узел, с которым начали: его правка = отмена.
     private var node: ManeuverNode?
     private var warpRequested = false
+    /// Физическое ускорение включено автопрожигом (рельсы заблокированы атмосферой).
+    private var physicalWarp = false
     private var started = false
     /// Тяга включена: допуск выравнивания шире.
     private var engaged = false
@@ -90,9 +95,23 @@ struct ManeuverExecutor: Equatable {
         let lead = m.burnTime.isFinite ? m.timeToBurn : m.timeToNode
         if lead > 0 {
             phase = .warping
-            if !warpRequested, lead > ManeuverStatus.warpLead + 5, t.warpBlocked == nil {
-                warpRequested = true
-                commands.append(.warpToManeuver)
+            if lead > ManeuverStatus.warpLead + 5 {
+                if !warpRequested {
+                    if t.warpBlocked == nil {
+                        // Рельсы можно: один раз летим до узла, дальше ускорение держит физика.
+                        warpRequested = true
+                        physicalWarp = false
+                        commands.append(.warpToManeuver)
+                    } else if Self.blockedByGround(t.warpBlocked), !physicalWarp, t.warpIndex < Self.physicalTop {
+                        // В атмосфере (или низко над Луной) рельсов нет: физическое ×4, пока не выйдем выше.
+                        physicalWarp = true
+                        commands.append(.setWarp(index: Self.physicalTop))
+                    }
+                }
+            } else if physicalWarp {
+                // До прожига осталось мало: возвращаемся к ×1, чтобы развернуться и не проскочить.
+                physicalWarp = false
+                if t.warpIndex > 0 { commands.append(.setWarp(index: 0)) }
             }
             // Заранее: пустую ступень сбросить, жидкостный двигатель зажечь — к прожигу всё готово.
             if t.maxThrust <= 0, lead <= Self.stageLead, !(t.stages.first?.hasSolid ?? false) {
@@ -119,6 +138,11 @@ struct ManeuverExecutor: Equatable {
         let throttle = Self.throttle(remaining: m.remainingDeltaV, acceleration: acceleration)
         return ExecutorOutput(throttle: throttle, commands: commands, phase: .burning, error: nil, toast: nil,
                               finished: false)
+    }
+
+    /// Рельсы заблокированы высотой (атмосфера Терры, низкая орбита Луны), а не тягой или сменой сферы.
+    static func blockedByGround(_ reason: WarpResetReason?) -> Bool {
+        reason == .atmosphere || reason == .terrain
     }
 
     /// Тяга по остатку Δv: полная, пока остаток больше разгона за `tailSeconds`, потом плавно вниз до `minThrottle`.

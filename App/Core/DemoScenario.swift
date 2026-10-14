@@ -20,8 +20,6 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case tutorial
     /// Урок «Полёт к Луне» на орбите 80 км (первый шаг).
     case tutorialLuna
-    /// Урок «Все кнопки» на площадке (первый шаг).
-    case tutorialControls
     /// Подъём на автопилоте, около max Q.
     case ascent
     /// Подъём на автопилоте, около 1 Маха (конденсационный конус, тряска).
@@ -64,7 +62,6 @@ enum DemoScenario: String, CaseIterable, Sendable {
         switch self {
         case .tutorial: .firstFlight
         case .tutorialLuna: .toLuna
-        case .tutorialControls: .controls
         default: nil
         }
     }
@@ -113,7 +110,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial, .tutorialControls,
+        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial,
              .crewGallery, .crewCalm:
             return FlightSim(design: .orbit)
         case .crewStrain: return DemoScenario.ascent.makeSimulation()

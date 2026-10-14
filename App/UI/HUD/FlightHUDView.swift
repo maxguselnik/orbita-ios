@@ -20,7 +20,7 @@ struct FlightHUDView: View {
     var onSpaceCenter: () -> Void = {}
     /// Начислить науку за итог полёта (один раз на полёт, `GameFlow.finishFlight`); модель HUD о `GameFlow` не знает.
     var onFinish: (MissionRecord) -> (fresh: [Milestone], science: Int) = { _ in ([], 0) }
-    /// Урок из меню паузы: новый полёт по уроку (модель HUD о `GameFlow` не знает); «Все кнопки» идут поверх полёта.
+    /// Урок из меню паузы: новый полёт по уроку (модель HUD о `GameFlow` не знает).
     var onTutorial: (TutorialID) -> Void = { _ in }
 
     @AppStorage(HUDHint.doneKey) private var hintsDone = false
@@ -77,8 +77,18 @@ struct FlightHUDView: View {
                         .transition(.opacity)
                 }
             }
-            .padding(.top, mapOpen ? 54 : (inLesson ? 120 : 60))
+            .padding(.top, mapOpen ? (inLesson ? 100 : 54) : (inLesson ? 176 : 60))
         }
+        .overlay(alignment: .top) {
+            // Подсказка по долгому нажатию: в уроке — над плашкой шага (поверх высотомера), иначе под высотомером.
+            if let line = model.controlHint {
+                ControlHintBanner(text: line.text)
+                    .id(line.id)
+                    .padding(.top, mapOpen ? 54 : (inLesson ? 6 : 100))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: model.controlHint)
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .animation(.easeOut(duration: 0.2), value: model.hint)
         .overlay(alignment: .topTrailing) { stagePanel }
@@ -118,6 +128,7 @@ struct FlightHUDView: View {
                 PauseMenu(model: model, onHangar: onHangar, onTutorial: onTutorial)
             }
         }
+        .environment(\.showControlHint, { [model] text in model.showControlHint(text) })
         .onAppear {
             driver.frameRate = frameRate
             driver.start { [model] now in model.tick(now: now) }

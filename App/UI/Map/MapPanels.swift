@@ -68,6 +68,7 @@ struct MapToggleButton: View {
         .buttonStyle(HUDButtonStyle(isActive: open))
         .tutorialAnchor(.mapFlight)
         .accessibilityLabel(open ? "Закрыть карту" : "Открыть карту")
+        .longPressHint(open ? "Полёт — вернуться к управлению кораблём" : "Карта: орбиты, Луна и манёвры")
     }
 }
 
@@ -95,6 +96,7 @@ struct MapSASRow: View {
             .opacity(enabled ? 1 : 0.45)
             .tutorialAnchor(.mapSASNode)
             .accessibilityLabel("SAS по узлу манёвра")
+            .longPressHint("УЗЕЛ — нос корабля смотрит туда, куда нужно жечь")
         }
     }
 }
@@ -150,13 +152,33 @@ struct MapGoalsColumn: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     .buttonStyle(HUDButtonStyle(isActive: goal == active))
-                    .tutorialAnchor(optional: goal == .toLuna ? .mapLuna : nil)
+                    .tutorialAnchor(optional: Self.anchor(goal))
                     .accessibilityLabel(Self.title(goal))
                     .accessibilityHint("Игра сама поставит узел манёвра")
+                    .longPressHint(Self.hint(goal))
                     .accessibilityAddTraits(goal == active ? .isSelected : [])
                 }
             }
             .tutorialAnchor(.mapGoals)
+        }
+    }
+
+    /// Ключ рамки кнопки цели для уроков.
+    static func anchor(_ goal: ManeuverGoal) -> LessonElement? {
+        switch goal {
+        case .toLuna: .mapLuna
+        case .circularize: .mapCircularize
+        default: nil
+        }
+    }
+
+    /// Подсказка по долгому нажатию на кнопку цели.
+    static func hint(_ goal: ManeuverGoal) -> String {
+        switch goal {
+        case .toLuna: "К Луне — игра поставит узел перелёта к Луне"
+        case .circularize: "Скруглить орбиту — узел, после которого орбита станет круговой"
+        case .changeOrbit: "Выше / ниже — узел для небольшого изменения орбиты"
+        case .returnHome: "Домой на Терру — узел возврата с орбиты Луны"
         }
     }
 
@@ -302,6 +324,7 @@ struct MapFocusPicker: View {
                 }
                 .buttonStyle(HUDButtonStyle(isActive: focus == item))
                 .accessibilityLabel("Центр карты: \(Self.name(item))")
+                .longPressHint("Центр карты: \(Self.name(item)) — карта вращается вокруг него")
             }
             Button {
                 showLegend.toggle()
@@ -312,6 +335,7 @@ struct MapFocusPicker: View {
             .buttonStyle(HUDButtonStyle(isActive: showLegend))
             .tutorialAnchor(.mapLegend)
             .accessibilityLabel("Легенда карты и подсказки")
+            .longPressHint("«?» — что значат цвета и значки на карте")
         }
         .padding(4)
         .hudBackground()
@@ -484,6 +508,7 @@ struct ManeuverResultCard: View {
                 .buttonStyle(HUDPressStyle())
                 .padding(.vertical, -14)
                 .accessibilityLabel("Удалить узел")
+                .longPressHint("Удалить узел манёвра")
                 Button {
                     model.setMapExpert(true)
                 } label: {
@@ -498,6 +523,7 @@ struct ManeuverResultCard: View {
                 // Высота строки — по заголовку, касание — полные 44 pt.
                 .padding(.vertical, -14)
                 .accessibilityLabel("Режим «Эксперт»")
+                .longPressHint("Эксперт — ручки Δv, оси и время узла вручную")
             }
             if let outcome {
                 Text(ManeuverResultText.headline(outcome))
@@ -571,6 +597,8 @@ struct NudgeButton: View {
                     .onEnded { _ in end() }
             )
             .onDisappear { end() }
+            .longPressHint(direction < 0 ? "− уменьшить Δv узла на шаг; держите — повтор"
+                                         : "+ увеличить Δv узла на шаг; держите — повтор", isHold: true)
             .accessibilityElement()
             .accessibilityLabel(direction < 0 ? "Меньше" : "Больше")
             .accessibilityHint("Шаг \(HUDFormat.fixed(ManeuverPlanner.fineStep(model.maneuverGoal), digits: 1)) м/с по ходу орбиты")
@@ -635,6 +663,7 @@ struct ManeuverJog: View {
         .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch, maxHeight: HUDStyle.minTouch)
         .contentShape(Rectangle())
         .gesture(drag)
+        .longPressHint("Ползунок: тяните вправо — больше, влево — меньше; отпустите — стоп", isHold: true)
         .onChange(of: active) { _, value in
             // Касание отменено системой — onEnded может не прийти.
             if !value, model.maneuverDrag?.fromJog == true { model.maneuverDrag = nil }
@@ -698,6 +727,7 @@ struct ManeuverExecuteButton: View {
             .buttonStyle(HUDPressStyle())
             .tutorialAnchor(.mapExecute)
             .accessibilityLabel("Стоп автопрожига")
+            .longPressHint("Стоп — отменить автопрожиг")
             .accessibilityValue(phase)
         } else if model.maneuverNode != nil {
             if model.maneuver?.isDone == true {
@@ -716,6 +746,7 @@ struct ManeuverExecuteButton: View {
                 .buttonStyle(HUDPressStyle())
                 .tutorialAnchor(.mapExecute)
                 .accessibilityLabel("Узел выполнен, удалить")
+                .longPressHint("Узел выполнен — нажмите, чтобы убрать его с карты")
             } else {
                 Button {
                     model.executeManeuver()
@@ -733,6 +764,7 @@ struct ManeuverExecuteButton: View {
                 .tutorialAnchor(.mapExecute)
                 .accessibilityLabel("Выполнить манёвр")
                 .accessibilityHint("Корабль сам долетит до узла, развернётся и сделает прожиг")
+                .longPressHint("Выполнить манёвр — корабль сам долетит до узла, развернётся и сделает прожиг")
             }
         }
     }
