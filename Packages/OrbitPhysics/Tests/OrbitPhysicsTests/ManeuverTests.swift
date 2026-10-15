@@ -182,6 +182,30 @@ struct ManeuverTests {
         #expect(sim.warpIndex == 0)
     }
 
+    /// Долгое ожидание (окно к планете): «до узла» быстрее верхнего уровня, но остановка такая же точная.
+    @Test func warpToManeuverBoostsLongWait() throws {
+        let sim = Self.orbitSim()
+        let wait = 5_000_000.0
+        sim.send(.setManeuver(ManeuverNode(time: sim.time + wait, prograde: 400)))
+        sim.send(.warpToManeuver)
+        _ = sim.advance(realDelta: Self.frame)
+        #expect(sim.snapshot.telemetry.warpFactor == TimeWarp.maneuverBoostMax)
+        var frames = 1
+        var stopped = false
+        while !stopped && frames < 2_000 {
+            frames += 1
+            if sim.advance(realDelta: Self.frame).contains(.warpReset(.maneuver)) {
+                stopped = true
+                let m = try #require(sim.snapshot.telemetry.maneuver)
+                #expect(abs(m.timeToBurn - ManeuverStatus.warpLead) < 1, "до прожига \(m.timeToBurn)")
+            }
+        }
+        #expect(stopped)
+        // Без ускорения ×100 000 это было бы ~50 с; теперь — несколько секунд.
+        #expect(Double(frames) * Self.frame < 10, "\(frames) кадров")
+        #expect(TimeWarp.maneuverRate(remaining: 1_000) == TimeWarp.levels.last)
+    }
+
     @Test func warpToManeuverCancelAndBlock() throws {
         let sim = Self.orbitSim()
         sim.send(.setManeuver(ManeuverNode(time: sim.time + 3_000, prograde: 100)))

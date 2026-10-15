@@ -181,11 +181,16 @@ struct RenderAndHUDTests {
         #expect(AscentGuide.advice(t)?.targetPitch == nil)
     }
 
-    @Test func warpWindowKeepsCurrentLevelVisible() {
-        #expect(WarpButtons.window(current: 0) == [0, 1, 2])
-        #expect(WarpButtons.window(current: 3) == [2, 3, 4])
+    @Test func warpStepButtonsStopAtEnds() {
         let last = TimeWarp.levels.count - 1
-        #expect(WarpButtons.window(current: last) == [last - 2, last - 1, last])
+        #expect(WarpButtons.target(current: 0, step: -1) == nil)
+        #expect(WarpButtons.target(current: 0, step: 1) == 1)
+        #expect(WarpButtons.target(current: last, step: 1) == nil)
+        #expect(WarpButtons.target(current: last, step: -1) == last - 1)
+        // «До узла» множитель на кнопке округлён, чтобы не меняться каждый кадр.
+        #expect(FlightHUDModel.displayedWarp(743_218) == 700_000)
+        #expect(FlightHUDModel.displayedWarp(100_000) == 100_000)
+        #expect(FlightHUDModel.displayedWarp(10) == 10)
     }
 
     @Test func odometerShowsSixDigitsAndSwitchesToKilometers() {

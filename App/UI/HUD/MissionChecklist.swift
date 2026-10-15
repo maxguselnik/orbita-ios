@@ -47,7 +47,7 @@ enum MissionChecklist {
     }
 }
 
-/// Режим высотомера: над рельефом у поверхности (с гистерезисом против дребезга), иначе над уровнем моря.
+/// Режим высотомера: над рельефом у поверхности (с гистерезисом против дребезга), иначе над средним уровнем тела.
 enum AltimeterMode {
     static let enter = 1_000.0
     static let leave = 1_500.0
@@ -62,7 +62,13 @@ enum AltimeterMode {
         }
     }
 
-    static func label(overTerrain: Bool) -> String { overTerrain ? "над землёй" : "над морем" }
+    /// «над землёй» у поверхности, «над морем» в атмосфере Терры, выше — «над Террой», «над Луной», «над Веллой».
+    static func label(overTerrain: Bool, body: BodyID, altitude: Double) -> String {
+        if overTerrain { return "над землёй" }
+        let b = Bodies.body(body)
+        if body == .terra, altitude < b.atmosphereHeight { return "над морем" }
+        return "над " + MapText.instrumental(body)
+    }
 }
 
 /// Карточка миссии слева под стопкой ступеней: развёрнута на площадке, после старта — одна строка; тап переключает.

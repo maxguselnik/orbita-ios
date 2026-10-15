@@ -289,7 +289,7 @@ public final class FlightSim: FlightSimulation {
             warpIndex = reason == .thrust ? TimeWarp.physicalCount - 1 : 0
             events.append(.warpReset(reason))
         }
-        let w = TimeWarp.levels[warpIndex]
+        let w = currentWarpRate()
         if warpIndex < TimeWarp.physicalCount {
             railsBacklog = 0
             physicalAdvance(realDelta * w)
@@ -1191,7 +1191,7 @@ public final class FlightSim: FlightSimulation {
             t.orbit = OrbitElements(position: s.r, velocity: s.v, mu: b.mu).summary(body: b)
         }
         t.sas = sas
-        t.warpFactor = TimeWarp.levels[warpIndex]
+        t.warpFactor = currentWarpRate()
         t.warpIndex = warpIndex
         t.warpBlocked = railsBlockReason()
         t.missionTime = launchTime.map { time - $0 } ?? 0
@@ -1370,6 +1370,14 @@ public final class FlightSim: FlightSimulation {
         return ManeuverStatus(node: node, timeToNode: toNode, deltaV: node.deltaV,
                               remainingDeltaV: maneuverRemaining.length, burnTime: burn,
                               timeToBurn: toBurn, isDone: maneuverDone)
+    }
+
+    /// Множитель времени сейчас: уровень `warpIndex`, а «до узла» на верхнем уровне — `TimeWarp.maneuverRate`.
+    private func currentWarpRate() -> Double {
+        let base = TimeWarp.levels[warpIndex]
+        guard warpToManeuverActive, warpIndex == TimeWarp.levels.count - 1,
+              let stop = maneuverWarpStopTime() else { return base }
+        return TimeWarp.maneuverRate(remaining: stop - time)
     }
 
     /// Момент остановки `warpToManeuver`: начало прожига − `warpLead` (время симуляции).

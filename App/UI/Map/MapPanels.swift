@@ -203,7 +203,7 @@ struct MapGoalsColumn: View {
         switch goal {
         case .toLuna: "К Луне — игра поставит узел перелёта к Луне"
         case .circularize: "Скруглить орбиту — узел, после которого орбита станет круговой"
-        case .changeOrbit: "Выше / ниже — узел для небольшого изменения орбиты"
+        case .changeOrbit: "Изменить высоту — узел в перицентре: «+» поднимает дальнюю сторону орбиты, «−» опускает"
         case .returnHome: "Домой на Терру — узел возврата с орбиты Луны"
         case .toVella, .toArda, .toTaros:
             "К планете — игра выберет окно, поставит узел отлёта и сама поправит курс в пути"
@@ -214,7 +214,7 @@ struct MapGoalsColumn: View {
         switch goal {
         case .toLuna: "К Луне"
         case .circularize: "Скруглить орбиту"
-        case .changeOrbit: "Выше / ниже"
+        case .changeOrbit: "Изменить высоту"
         case .returnHome: "Домой на Терру"
         case .toVella: "К Велле"
         case .toArda: "К Арде"
@@ -381,7 +381,8 @@ struct MapInfoPanel: View {
     }
 }
 
-/// Фокус камеры карты: корабль, Терра, Луна. Снизу по центру, на месте навбола.
+/// Фокус камеры карты: одна кнопка-меню «◎ Корабль ▾» и «?» снизу по центру, над навболом.
+/// Пока ускорение ждёт окна к планете, над ними — отсчёт до окна.
 struct MapFocusPicker: View {
     let model: FlightHUDModel
     /// Кнопка «?» открывает легенду карты.
@@ -390,48 +391,68 @@ struct MapFocusPicker: View {
     var body: some View {
         let focus = model.map.focus
         VStack(spacing: 3) {
-        if let bodyID = focus.bodyID {
-            let body = Bodies.body(bodyID)
-            Text(body.name + String(format: " · g %.2f м/с² · средняя %.0f °C", body.surfaceGravity, body.surfaceTemperature - 273.15)
-                 + (body.hasSolidSurface ? "" : " · нет грунта"))
-                .font(.system(size: HUDFont.caption, weight: .medium).monospacedDigit())
-                .foregroundStyle(HUDPalette.muted)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
-        }
-        ScrollView(.horizontal, showsIndicators: false) {
-        HStack(spacing: 4) {
-            ForEach(MapFocus.allCases, id: \.self) { item in
-                Button {
-                    model.setMapFocus(item)
+            if let wait = model.planetWaitText {
+                Text(wait)
+                    .font(.system(size: HUDFont.caption, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(HUDPalette.green)
+                    .lineLimit(1)
+            }
+            HStack(spacing: 4) {
+                Menu {
+                    if let bodyID = focus.bodyID {
+                        Text(Self.info(bodyID))
+                    }
+                    ForEach(MapFocus.allCases, id: \.self) { item in
+                        Button {
+                            model.setMapFocus(item)
+                        } label: {
+                            if item == focus {
+                                Label(Self.name(item), systemImage: "checkmark")
+                            } else {
+                                Text(Self.name(item))
+                            }
+                        }
+                    }
                 } label: {
-                    Text(Self.name(item))
-                        .font(.system(size: 13, weight: .bold))
-                        .lineLimit(1)
-                        .padding(.horizontal, 10)
+                    HStack(spacing: 5) {
+                        Image(systemName: "scope")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text(Self.name(focus))
+                            .font(.system(size: 13, weight: .bold))
+                            .lineLimit(1)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                    }
+                    .padding(.horizontal, 10)
                 }
-                .buttonStyle(HUDButtonStyle(isActive: focus == item))
-                .accessibilityLabel("Центр карты: \(Self.name(item))")
-                .longPressHint("Центр карты: \(Self.name(item)) — карта вращается вокруг него")
+                .menuStyle(.button)
+                .menuOrder(.fixed)
+                .buttonStyle(HUDButtonStyle(isActive: false))
+                .accessibilityLabel("Центр карты: \(Self.name(focus)), выбрать")
+                .longPressHint("Центр карты: корабль, Терра, Луна, Система или планета — карта вращается вокруг него")
+                Button {
+                    showLegend.toggle()
+                } label: {
+                    Image(systemName: "questionmark")
+                        .font(.system(size: 15, weight: .bold))
+                }
+                .buttonStyle(HUDButtonStyle(isActive: showLegend))
+                .tutorialAnchor(.mapLegend)
+                .accessibilityLabel("Легенда карты и подсказки")
+                .longPressHint("«?» — что значат цвета и значки на карте")
             }
-            Button {
-                showLegend.toggle()
-            } label: {
-                Image(systemName: "questionmark")
-                    .font(.system(size: 15, weight: .bold))
-            }
-            .buttonStyle(HUDButtonStyle(isActive: showLegend))
-            .tutorialAnchor(.mapLegend)
-            .accessibilityLabel("Легенда карты и подсказки")
-            .longPressHint("«?» — что значат цвета и значки на карте")
         }
-        }
-        .frame(maxWidth: 430)
-        }
-        .frame(maxWidth: 430)
         .padding(4)
         .hudBackground()
+        .fixedSize()
         .tutorialAnchor(.mapFocus)
+    }
+
+    /// «Велла · g 7.85 м/с² · средняя 12 °C · нет грунта».
+    static func info(_ id: BodyID) -> String {
+        let body = Bodies.body(id)
+        return body.name + String(format: " · g %.2f м/с² · средняя %.0f °C", body.surfaceGravity, body.surfaceTemperature - 273.15)
+            + (body.hasSolidSurface ? "" : " · нет грунта")
     }
 
     static func name(_ focus: MapFocus) -> String {

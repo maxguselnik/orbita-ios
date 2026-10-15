@@ -1,7 +1,7 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Узкая строка сверху слева (Б4): «Т+ мм:сс», три ближайших уровня ускорения времени и пауза.
+/// Узкая строка сверху слева (Б4): «Т+ мм:сс», ускорение времени «− ×1 +» и пауза.
 /// Каждый кадр перерисовывается только часы (`MissionClock`), кнопки — при смене своих полей.
 struct MissionTimeBar: View {
     let model: FlightHUDModel
@@ -52,66 +52,57 @@ struct MissionClock: View {
     }
 }
 
-/// Ускорение времени: три соседних уровня ▶ / ▶▶ / ▶▶▶ вокруг текущего. Текущий — зелёный, тап по нему
-/// раскрывает полный список уровней и «До узла манёвра»; тап по соседнему переключает сразу.
+/// Ускорение времени: «−» медленнее, текущий множитель («×1 000») и «+» быстрее. Тап по множителю
+/// раскрывает полный список уровней и «До узла манёвра».
 struct WarpButtons: View {
     let model: FlightHUDModel
 
     var body: some View {
         let status = model.warp
         HStack(spacing: 0) {
-            ForEach(Array(Self.window(current: status.index).enumerated()), id: \.offset) { position, index in
-                if index == status.index {
-                    currentButton(position: position, status: status)
-                } else {
-                    neighbourButton(position: position, index: index, status: status)
-                }
-            }
+            stepButton(-1, status: status)
+            currentButton(status: status)
+            stepButton(1, status: status)
         }
     }
 
-    /// Индексы трёх уровней `TimeWarp.levels` вокруг текущего (текущий — в середине, у краёв списка — сбоку).
-    static func window(current: Int, count: Int = TimeWarp.levels.count) -> [Int] {
-        guard count >= 3 else { return Array(0..<max(count, 0)) }
-        let start = min(max(current - 1, 0), count - 3)
-        return [start, start + 1, start + 2]
+    /// Уровень после «−» (`step` = −1) или «+» (+1); nil — край списка.
+    static func target(current: Int, step: Int, count: Int = TimeWarp.levels.count) -> Int? {
+        let i = current + step
+        return i >= 0 && i < count ? i : nil
     }
 
-    private func glyph(position: Int, active: Bool) -> some View {
-        HStack(spacing: 0) {
-            ForEach(0...position, id: \.self) { _ in
-                Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
-            }
-        }
-        .foregroundStyle(active ? Color(red: 0.73, green: 0.96, blue: 0.76) : HUDPalette.muted)
-        .frame(width: 38, height: 32)
-        .background(active ? HUDPalette.greenDark : Color.white.opacity(0.08),
-                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
-        .contentShape(Rectangle())
-    }
-
-    private func neighbourButton(position: Int, index: Int, status: WarpStatus) -> some View {
-        let factor = TimeWarp.levels[index]
-        let locked = status.blocked != nil && index >= TimeWarp.physicalCount
+    private func stepButton(_ step: Int, status: WarpStatus) -> some View {
+        let target = Self.target(current: status.index, step: step)
+        let locked = step > 0 && status.blocked != nil && (target ?? 0) >= TimeWarp.physicalCount
         return Button {
+            guard let target else { return }
             if locked, let reason = status.blocked {
                 // Недоступный уровень не молчит: тост с причиной (как в меню текущего уровня).
                 model.notify("Выше \(HUDFormat.warp(TimeWarp.levels[TimeWarp.physicalCount - 1])) нельзя: \(FlightHUDModel.warpReasonText(reason))")
             } else {
-                model.send(.setWarp(index: index))
+                model.send(.setWarp(index: target))
             }
         } label: {
-            glyph(position: position, active: false)
+            Image(systemName: step < 0 ? "minus" : "plus")
+                .font(.system(size: 13, weight: .heavy))
+                .foregroundStyle(HUDPalette.text)
+                .frame(width: 32, height: 32)
+                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .frame(width: 40, height: HUDStyle.minTouch)
+                .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
-        .opacity(locked ? 0.4 : 1)
-        .accessibilityLabel("Ускорение \(HUDFormat.warp(factor))")
-        .longPressHint("Ускорить время до \(HUDFormat.warp(factor)): долгие перелёты проходят быстрее")
+        .disabled(target == nil)
+        .opacity(target == nil || locked ? 0.4 : 1)
+        .accessibilityLabel(step < 0 ? "Медленнее" : "Быстрее")
+        .longPressHint(step < 0 ? "Медленнее: на уровень ниже; ×1 — обычное время"
+                                : "Быстрее: долгие перелёты проходят быстрее (у атмосферы и при тяге нельзя выше ×4)")
     }
 
-    private func currentButton(position: Int, status: WarpStatus) -> some View {
-        Menu {
+    private func currentButton(status: WarpStatus) -> some View {
+        let fast = status.index > 0
+        return Menu {
             if let reason = status.blocked {
                 Text(verbatim: "Выше \(HUDFormat.warp(TimeWarp.levels[TimeWarp.physicalCount - 1])) нельзя: \(FlightHUDModel.warpReasonText(reason))")
             }
@@ -138,11 +129,20 @@ struct WarpButtons: View {
             // Меню открыто — шаг урока «Время и ускорение» засчитывается.
             .onAppear { model.noteWarpMenu() }
         } label: {
-            glyph(position: position, active: true)
+            Text(HUDFormat.warp(status.factor))
+                .font(.system(size: 13, weight: .bold).monospacedDigit())
+                .lineLimit(1)
+                .foregroundStyle(fast ? Color(red: 0.73, green: 0.96, blue: 0.76) : HUDPalette.text)
+                .padding(.horizontal, 7)
+                .frame(minWidth: 44, minHeight: 32)
+                .background(fast ? HUDPalette.greenDark : Color.white.opacity(0.08),
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .frame(minHeight: HUDStyle.minTouch)
+                .contentShape(Rectangle())
         }
         .menuOrder(.fixed)
         .accessibilityLabel("Ускорение времени \(HUDFormat.warp(status.factor)), выбрать уровень")
-        .longPressHint("Ускорение времени: ×1 — обычное, дальше быстрее (у атмосферы и при тяге нельзя)")
+        .longPressHint("Ускорение времени: ×1 — обычное время; тап — список уровней и «До узла манёвра»")
     }
 }
 

@@ -50,13 +50,18 @@ struct FlightHUDView: View {
 
             if mapOpen {
                 MapLayer(model: model, hintsEnabled: hintsEnabled && !inLesson)
-                NavballCluster(model: model, ascentEnabled: false)
-                    .padding(.bottom, NavballCluster.lift)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                    .ignoresSafeArea(.container, edges: .bottom)
-                MapFocusPicker(model: model, showLegend: $showLegend)
-                    .padding(.bottom, Self.mapFocusBottom)
-                    .ignoresSafeArea(.container, edges: .bottom)
+                // «Система» — масштаб планет: навбол там не нужен и закрывает орбиты.
+                if !model.mapPanelsHidden, model.map.focus != .sol {
+                    NavballCluster(model: model, ascentEnabled: false)
+                        .padding(.bottom, NavballCluster.lift)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                        .ignoresSafeArea(.container, edges: .bottom)
+                }
+                if !model.mapPanelsHidden {
+                    MapFocusPicker(model: model, showLegend: $showLegend)
+                        .padding(.bottom, model.map.focus == .sol ? 8 : Self.mapFocusBottom)
+                        .ignoresSafeArea(.container, edges: .bottom)
+                }
             } else {
                 FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
             }
@@ -322,16 +327,31 @@ struct MapLayer: View {
                 .padding(.top, 6)
                 .padding(.leading, 6)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            StagePanelButton(model: model)
-                .padding(.trailing, 4)
-                .padding(.top, 2)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            HStack(alignment: .bottom, spacing: 8) {
-                MapLeftColumn(model: model)
-                MapCenterColumn(model: model, hintsEnabled: hintsEnabled)
-                MapSideColumn(model: model)
+            HStack(spacing: 0) {
+                HUDIconButton(systemImage: model.mapPanelsHidden ? "eye.slash" : "eye",
+                              label: model.mapPanelsHidden ? "Показать панели карты" : "Спрятать панели карты",
+                              isActive: model.mapPanelsHidden,
+                              hint: "Глаз: спрятать панели и посмотреть на карту целиком, повторный тап — вернуть") {
+                    model.toggleMapPanels()
+                }
+                StagePanelButton(model: model)
             }
-            .padding(.top, 50)
+            .padding(.trailing, 4)
+            .padding(.top, 2)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+            if model.mapPanelsHidden {
+                // Без панелей остаётся только «Полёт» — выход с карты.
+                MapToggleButton(model: model)
+                    .frame(width: MapLeftColumn.width)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+            } else {
+                HStack(alignment: .bottom, spacing: 8) {
+                    MapLeftColumn(model: model)
+                    MapCenterColumn(model: model, hintsEnabled: hintsEnabled)
+                    MapSideColumn(model: model)
+                }
+                .padding(.top, 50)
+            }
         }
     }
 }
