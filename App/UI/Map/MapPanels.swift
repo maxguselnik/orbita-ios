@@ -36,30 +36,6 @@ enum MapText {
         }
     }
 
-    /// Родительный падеж: «у Арды».
-    static func genitive(_ body: BodyID) -> String {
-        switch body {
-        case .terra: "Терры"
-        case .luna: "Луны"
-        case .sol: "Сол"
-        case .vella: "Веллы"
-        case .arda: "Арды"
-        case .taros: "Тароса"
-        }
-    }
-
-    /// Творительный падеж: «с Ардой».
-    static func instrumental(_ body: BodyID) -> String {
-        switch body {
-        case .terra: "Террой"
-        case .luna: "Луной"
-        case .sol: "Сол"
-        case .vella: "Веллой"
-        case .arda: "Ардой"
-        case .taros: "Таросом"
-        }
-    }
-
     /// «Луну», «Терру».
     static func accusative(_ body: BodyID) -> String {
         switch body {
