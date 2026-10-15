@@ -1,7 +1,7 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Выдвижная панель: топливо, Δv, TWR по ступеням; «Наука» и «Контракты» — заглушки.
+/// Выдвижная панель: топливо, Δv, TWR по ступеням; «Наука» — сбор данных (`SciencePanel`); «Контракты» — заглушка.
 struct StagePanel: View {
     let model: FlightHUDModel
 
@@ -43,7 +43,7 @@ struct StagePanel: View {
             case .stages:
                 stagesList
             case .science:
-                stub("Приборы и данные появятся на этапе 7.", systemImage: "flask")
+                SciencePanel(model: model)
             case .contracts:
                 stub("Контракты появятся на этапе 8.", systemImage: "doc.text")
             }

@@ -275,6 +275,8 @@ public final class FlightSim: FlightSimulation {
         case .setManeuver(let node): setManeuver(node)
         case .warpToManeuver: warpToManeuver()
         case .setRCS(let on): rcsEnabled = on
+        case .collectScience(let e): collectScience(e)
+        case .discardScience(let id): discardScience(id)
         }
         rebuildSnapshot()
     }
@@ -1258,11 +1260,54 @@ public final class FlightSim: FlightSimulation {
         thermal.ablatorCapacity = abl.capacity
         thermal.shieldFacingFlow = s.shieldFacing && !onRails && rho > 0
         t.thermal = thermal
+        t.science = scienceStatus(s, altitude: alt)
         t.rcs = RCSStatus(available: s.ship.rcsBlocks > 0, enabled: rcsEnabled, monoMass: s.ship.monoMass,
                           monoCapacity: s.ship.monoCapacity, firing: rcsFiring)
         snapshot = WorldSnapshot(time: time, activeVessel: activeID, vessels: vessels.map(\.state),
                                  lunaPosition: World.lunaPosition(at: time), lunaVelocity: World.lunaVelocity(at: time),
                                  terraRotation: World.terraRotation(at: time), telemetry: t)
+    }
+
+    // MARK: Наука
+
+    private func scienceSituation(_ s: Vessel, altitude: Double) -> ScienceSituation? {
+        ScienceContext.situation(body: s.body, vessel: s.situation, altitude: altitude)
+    }
+
+    private func scienceStatus(_ s: Vessel, altitude: Double) -> ScienceStatus {
+        let stored = s.ship.parts.flatMap { p in p.science.map { StoredScience(data: $0, part: p.id) } }
+            .sorted { $0.data.collectedAt < $1.data.collectedAt }
+        var instruments = Set<ExperimentID>()
+        var free = Set<ExperimentID>()
+        for p in s.ship.parts {
+            guard let e = ExperimentID.allCases.first(where: { $0.instrument == p.id }) else { continue }
+            instruments.insert(e)
+            if p.science.isEmpty { free.insert(e) }
+        }
+        return ScienceStatus(body: s.body, situation: scienceSituation(s, altitude: altitude),
+                             crewAboard: s.ship.parts.contains { !$0.crew.isEmpty },
+                             instruments: instruments, freeInstruments: free, stored: stored,
+                             recoverable: s.body == .terra && s.isOnSurface)
+    }
+
+    /// Провести эксперимент: результат — в первую кабину с экипажем, на беспилотнике — в свободный прибор
+    /// (один результат на прибор). Нельзя (`ScienceStatus.blocker`) — без изменений.
+    private func collectScience(_ e: ExperimentID) {
+        let i = activeIndex
+        let s = vessels[i]
+        let status = scienceStatus(s, altitude: s.r.length - Bodies.body(s.body).radius)
+        guard let subject = status.subject(e) else { return }
+        let k = s.ship.parts.firstIndex { !$0.crew.isEmpty }
+            ?? s.ship.parts.firstIndex { $0.id == e.instrument && $0.science.isEmpty }
+        guard let k else { return }
+        vessels[i].ship.parts[k].science.append(ScienceData(subject: subject, collectedAt: time))
+    }
+
+    private func discardScience(_ id: String) {
+        let i = activeIndex
+        for k in vessels[i].ship.parts.indices {
+            vessels[i].ship.parts[k].science.removeAll { $0.id == id }
+        }
     }
 
     /// Действие следующего нажатия «Ступень»: отделение (разделитель/обтекатель), иначе зажигание, иначе парашют.

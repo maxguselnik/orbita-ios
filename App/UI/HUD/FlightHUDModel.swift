@@ -174,6 +174,8 @@ final class FlightHUDModel {
     /// Перед перезапуском и при выходе из урока — итоги полёта на этот момент (начисление науки; подключает RootView).
     @ObservationIgnored var onRestart: ((MissionRecord) -> Void)?
     @ObservationIgnored var onTutorialExit: ((MissionRecord) -> Void)?
+    /// Архив начислений за данные на момент старта (ценность результатов во вкладке «Наука»; подключает RootView).
+    @ObservationIgnored var scienceArchive = ScienceArchive()
 
     /// Интерактивный урок (nil — обычный полёт). Пока он держит физику на паузе, `tick` принимает ввод, но не двигает мир.
     private(set) var tutorial: TutorialController?

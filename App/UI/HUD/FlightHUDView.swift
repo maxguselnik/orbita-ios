@@ -19,7 +19,7 @@ struct FlightHUDView: View {
     /// Выход в космоцентр (панель результата).
     var onSpaceCenter: () -> Void = {}
     /// Начислить науку за итог полёта (один раз на полёт, `GameFlow.finishFlight`); модель HUD о `GameFlow` не знает.
-    var onFinish: (MissionRecord) -> (fresh: [Milestone], science: Int) = { _ in ([], 0) }
+    var onFinish: (MissionRecord) -> FlightAwardSummary = { _ in FlightAwardSummary() }
     /// Урок из меню паузы: новый полёт по уроку (модель HUD о `GameFlow` не знает).
     var onTutorial: (TutorialID) -> Void = { _ in }
 
@@ -110,7 +110,9 @@ struct FlightHUDView: View {
         }
         .overlay(alignment: .bottom) {
             if let result = model.result, !model.isPaused {
-                FlightResultPanel(result: result, onHangar: onHangar, onSpaceCenter: onSpaceCenter, onFinish: onFinish,
+                FlightResultPanel(result: result,
+                                  lostData: result.outcome == .crashed ? model.telemetry.science.stored.count : 0,
+                                  onHangar: onHangar, onSpaceCenter: onSpaceCenter, onFinish: onFinish,
                                   onRetry: { model.restart() },
                                   onContinue: { model.dismissResult() })
                     .transition(.move(edge: .bottom).combined(with: .opacity))

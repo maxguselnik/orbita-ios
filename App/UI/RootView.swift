@@ -31,7 +31,7 @@ struct RootView: View {
                                   hintsEnabled: settings.hintsEnabled,
                                   onHangar: exitToHangar,
                                   onSpaceCenter: exitToSpaceCenter,
-                                  onFinish: { flow.finishFlight($0) },
+                                  onFinish: { [flight] _ in flow.finishFlight(flight.telemetry) },
                                   onTutorial: { flow.startTutorial($0) })
                         .id(flow.flightID)
                 }
@@ -60,8 +60,9 @@ struct RootView: View {
         let model = FlightHUDModel(makeSimulation: { [flow] in flow.makeSimulation() }, scenario: flow.scenario, tutorial: flow.tutorial,
                                    crew: flow.flightCrew)
         model.feedback = feedback
-        model.onRestart = { [flow] in flow.restartFlight($0) }
+        model.onRestart = { [flow, weak model] _ in if let model { flow.restartFlight(model.telemetry) } }
         model.onTutorialExit = { [flow] in flow.leaveTutorial($0) }
+        model.scienceArchive = flow.scienceArchive
         feedback.recalibrate()
         feedback.setPaused(false)
         flight = model
@@ -75,14 +76,14 @@ struct RootView: View {
     }
 
     private func exitToHangar() {
-        if let flight { flow.finishFlight(flight.telemetry.mission) }
+        if let flight { flow.finishFlight(flight.telemetry) }
         feedback?.stop()
         flight = nil
         flow.returnToHangar()
     }
 
     private func exitToSpaceCenter() {
-        if let flight { flow.finishFlight(flight.telemetry.mission) }
+        if let flight { flow.finishFlight(flight.telemetry) }
         feedback?.stop()
         flight = nil
         flow.returnToHangar()

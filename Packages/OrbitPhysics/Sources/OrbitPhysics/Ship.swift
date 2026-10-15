@@ -16,6 +16,10 @@ struct PartInstance: Sendable, Hashable {
     var placement: PartPlacement
     /// Температура детали, К.
     var temperature: Double = Ship.ambientTemperature
+    /// id членов экипажа в кабине (пусто — не кабина или пустая).
+    var crew: [String] = []
+    /// Научные результаты, хранящиеся в детали (уходят вместе с ней при разделении, теряются при разрушении).
+    var science: [ScienceData] = []
     var spec: PartSpec { id.spec }
 }
 
@@ -55,9 +59,13 @@ struct Ship: Sendable, Hashable {
         let groups = design.stageGroups
         var stageOf: [Int: Int] = [:]
         for (k, g) in groups.enumerated() { for id in g { stageOf[id] = k } }
+        var crewOf: [Int: [String]] = [:]
+        for seat in design.seating() { if let m = seat.memberID { crewOf[seat.partID, default: []].append(m) } }
         parts = design.nodes.enumerated().map { i, n in
-            PartInstance(id: n.part, fuel: n.part.spec.fuelMass, ignited: false, uid: n.id, parent: n.parent,
-                         node: n.node, stage: stageOf[n.id], placement: lay[i])
+            var p = PartInstance(id: n.part, fuel: n.part.spec.fuelMass, ignited: false, uid: n.id, parent: n.parent,
+                                 node: n.node, stage: stageOf[n.id], placement: lay[i])
+            p.crew = crewOf[n.id] ?? []
+            return p
         }
         stageParts = groups.map { g in g.compactMap { design.node($0)?.part } }
         lastStage = nil
@@ -97,7 +105,9 @@ struct Ship: Sendable, Hashable {
         group = g
         // Колонны: детали, связанные осевыми узлами; стабилизаторы и боковые разделители — отдельно.
         var col = Array(repeating: -1, count: parts.count)
-        func inColumn(_ i: Int) -> Bool { parts[i].spec.kind != .fin && parts[i].id != .decouplerRadial }
+        func inColumn(_ i: Int) -> Bool {
+            parts[i].spec.kind != .fin && parts[i].spec.kind != .instrument && parts[i].id != .decouplerRadial
+        }
         var nc = 0
         for i in parts.indices where col[i] < 0 && inColumn(i) {
             var stack = [i]
@@ -241,7 +251,7 @@ struct Ship: Sendable, Hashable {
     var retroStable: Bool {
         if finsBelowCenterOfMass > 0 { return false }
         var lowest: PartInstance?
-        for p in parts where p.spec.kind != .fin {
+        for p in parts where p.spec.kind != .fin && p.spec.kind != .instrument {
             if lowest == nil || p.placement.bottom < lowest!.placement.bottom - 1e-9 { lowest = p }
         }
         guard let last = lowest else { return false }

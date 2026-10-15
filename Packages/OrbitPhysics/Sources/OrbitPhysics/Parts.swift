@@ -10,6 +10,8 @@ public enum PartKind: String, Sendable, Hashable, Codable {
     case fairing, fin
     /// Теплозащитный экран (абляционное покрытие хранится в `fuelMass`).
     case heatShield
+    /// Научный прибор (крепится сбоку, детей не принимает; `ExperimentID.instrument`).
+    case instrument
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
@@ -22,6 +24,8 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case decouplerRadial, fairing, fairingXL, fin
     /// Теплозащитные экраны 1.25 и 2.5 м.
     case heatShield, heatShieldXL
+    /// Научные приборы.
+    case thermometer, barometer, gravimeter
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -53,13 +57,13 @@ public struct PartSpec: Sendable, Hashable {
         case .heatShield: 3300
         case .pod, .engine, .fairing: 2400
         case .tank, .decoupler, .monoTank, .fin: 2000
-        case .probe, .chute, .legs, .rcs: 1600
+        case .probe, .chute, .legs, .rcs, .instrument: 1600
         }
     }
 
     public var mount: PartMount {
         switch id {
-        case .decouplerRadial, .fin: .radial
+        case .decouplerRadial, .fin, .thermometer, .barometer, .gravimeter: .radial
         case .t100, .t200, .t400, .t800, .j64, .shtil, .vikhr, .titan, .molot, .rcsBlock, .m100: .any
         default: .axial
         }
@@ -113,6 +117,10 @@ public enum PartCatalog {
         // Теплозащитные экраны: `fuel` — абляционное покрытие.
         make(.heatShield, "Теплозащитный экран Э-1", .heatShield, dry: 0.1, fuel: 0.2, h: 0.2, w: 1.25),
         make(.heatShieldXL, "Теплозащитный экран Э-2", .heatShield, dry: 0.3, fuel: 0.8, h: 0.3, w: 2.5),
+        // Научные приборы (SPEC «Наука»): `h` — высота вдоль оси, `w` — вынос от борта.
+        make(.thermometer, "Термометр Т-1", .instrument, dry: 0.005, h: 0.2, w: 0.12),
+        make(.barometer, "Барометр Б-1", .instrument, dry: 0.05, h: 0.3, w: 0.2),
+        make(.gravimeter, "Гравиметр Г-1", .instrument, dry: 0.05, h: 0.35, w: 0.2),
     ]
 
     private static let byID: [PartID: PartSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })

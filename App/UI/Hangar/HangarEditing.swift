@@ -61,6 +61,9 @@ enum HangarFormat {
             return ["Покрытие \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
         case .chute, .decoupler, .legs, .fairing, .fin:
             return [mass(spec.wetMass)]
+        case .instrument:
+            let e = ExperimentID.allCases.first { $0.instrument == spec.id }
+            return [mass(spec.wetMass), e.map { "Работает \($0.whereItWorks)" } ?? ""]
         }
     }
 
@@ -81,7 +84,7 @@ enum HangarFormat {
 
 /// Вкладки каталога по типу детали.
 enum CatalogTab: CaseIterable, Identifiable {
-    case pods, tanks, engines, decouplers, aero, rcs, legs
+    case pods, tanks, engines, decouplers, aero, rcs, legs, science
 
     var id: Self { self }
 
@@ -94,6 +97,7 @@ enum CatalogTab: CaseIterable, Identifiable {
         case .aero: "Аэро"
         case .rcs: "РСУ"
         case .legs: "Опоры"
+        case .science: "Наука"
         }
     }
 
@@ -106,6 +110,7 @@ enum CatalogTab: CaseIterable, Identifiable {
         case .aero: "wind"
         case .rcs: "dot.arrowtriangles.up.right.down.left.circle"
         case .legs: "arrow.down.to.line"
+        case .science: "flask"
         }
     }
 
@@ -118,6 +123,7 @@ enum CatalogTab: CaseIterable, Identifiable {
         case .aero: kind == .fairing || kind == .fin || kind == .heatShield
         case .rcs: kind == .rcs
         case .legs: kind == .legs
+        case .science: kind == .instrument
         }
     }
 

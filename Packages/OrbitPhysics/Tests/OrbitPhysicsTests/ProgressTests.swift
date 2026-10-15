@@ -50,14 +50,14 @@ struct ProgressTests {
         #expect(!r4 && poor.science == 4)
     }
 
-    @Test func milestonesAwardOnceThenQuarter() {
+    @Test func milestonesAwardOnlyOnce() {
         var p = GameProgress(mode: .science)
         let m = MissionRecord(launched: true, maxAltitude: 90_000, reachedSpace: true, reachedOrbit: true)
         let first = p.award(m)
         #expect(Set(first.fresh) == [.launch, .above10km, .space, .orbit])
         #expect(first.science == 2 + 4 + 8 + 12 && p.science == 26)
         let again = p.award(m)
-        #expect(again.fresh.isEmpty && again.science == 1 + 1 + 2 + 3)
+        #expect(again.fresh.isEmpty && again.science == 0 && p.science == 26)
     }
 
     @Test func flightAwardCountsEachMilestoneOncePerFlight() {
@@ -74,10 +74,12 @@ struct ProgressTests {
         orbit.reachedOrbit = true
         let more = flight.credit(orbit, to: &p)
         #expect(more.science == 14 + 12 && p.science == 26 && more.fresh.last == .orbit)
-        // Перезапуск: новая попытка получает повторную четверть.
+        // Перезапуск: новый счёт, но уже полученные вехи науки не дают.
         flight.reset()
-        let retry = flight.credit(MissionRecord(launched: true), to: &p)
-        #expect(retry.fresh.isEmpty && retry.science == 1 && p.science == 27)
+        var reached = MissionRecord(launched: true)
+        reached.enteredLunaSOI = true
+        let retry = flight.credit(reached, to: &p)
+        #expect(retry.fresh == [.lunaSOI] && retry.science == 15 && p.science == 41)
     }
 
     @Test func flightAwardSkipsLessonPart() {
@@ -95,7 +97,15 @@ struct ProgressTests {
         var p = GameProgress(mode: .science, science: 7)
         p.research(.rocketry)
         p.award(MissionRecord(launched: true))
+        p.deliver([ScienceData(subject: ScienceSubjectID(experiment: .crewReport, body: .terra, situation: .nearSpace),
+                               collectedAt: 0)])
         let back = try JSONDecoder().decode(GameProgress.self, from: JSONEncoder().encode(p))
         #expect(back == p)
+    }
+
+    @Test func oldProgressWithoutArchiveLoads() throws {
+        let json = #"{"mode":"science","science":12,"researched":["basics","rocketry"],"milestones":["launch"]}"#
+        let p = try JSONDecoder().decode(GameProgress.self, from: Data(json.utf8))
+        #expect(p.science == 12 && p.isResearched(.rocketry) && p.milestones == [.launch] && p.archive.total == 0)
     }
 }
