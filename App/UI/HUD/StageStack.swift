@@ -84,12 +84,12 @@ struct StageGroup: Equatable, Identifiable {
     }
 }
 
-/// Левая стопка ступеней (Б4): до четырёх строк по 22 pt, текущая ступень внизу, в зелёной рамке. Тап открывает
+/// Левая стопка ступеней (Б4): до четырёх строк по 28 pt, текущая ступень внизу, в зелёной рамке. Тап открывает
 /// панель ступеней (топливо, Δv, TWR).
 struct StageStackView: View {
     let model: FlightHUDModel
 
-    static let width: CGFloat = 138
+    static let width: CGFloat = 150
     /// Сколько ступеней показывается в стопке (ближайшие к текущей); остальные — в панели.
     static let maxRows = 4
 
@@ -117,12 +117,12 @@ struct StageStackView: View {
     }
 }
 
-/// Одна строка 22 pt: номер, значки деталей и подпись — «N %» топлива или «парашют» / «капсула»;
+/// Одна строка 28 pt: номер, значки деталей и подпись — «N %» топлива или «парашют» / «капсула»;
 /// у текущей ступени справа ещё мини-шкала топлива (красная ниже 15 %).
 struct StageGroupRow: View {
     let group: StageGroup
 
-    static let height: CGFloat = 22
+    static let height: CGFloat = 28
 
     var body: some View {
         let current = group.isCurrent
@@ -130,7 +130,7 @@ struct StageGroupRow: View {
         let fraction: Double = min(max(group.info?.fuelFraction ?? 0, 0), 1)
         HStack(spacing: 4) {
             Text("\(group.number)")
-                .font(.system(size: 10, weight: .heavy))
+                .font(.system(size: HUDFont.caption, weight: .heavy))
                 .foregroundStyle(current ? Color.white : HUDPalette.text)
             HStack(spacing: 1) {
                 ForEach(Array(group.items.enumerated()), id: \.offset) { _, item in
@@ -138,7 +138,7 @@ struct StageGroupRow: View {
                 }
             }
             Text(hasFuel ? HUDFormat.percent(fraction) : emptyCaption)
-                .font(.system(size: 9).monospacedDigit())
+                .font(.system(size: HUDFont.caption).monospacedDigit())
                 .foregroundStyle(hasFuel ? (fraction < 0.15 ? Color.red : HUDPalette.green) : HUDPalette.muted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
@@ -188,7 +188,8 @@ struct StageGlyphCell: View {
             .overlay(alignment: .topTrailing) {
                 if item.count > 1 {
                     Text("\(item.count)")
-                        .font(.system(size: 6, weight: .heavy))
+                        // Счётчик на значке 14 × 16 pt: 10 pt — меньше не стоит, больше не влезает.
+                        .font(.system(size: 10, weight: .heavy))
                         .foregroundStyle(tint)
                         .offset(x: 2, y: -1)
                 }

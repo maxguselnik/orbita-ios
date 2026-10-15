@@ -47,7 +47,7 @@ struct FlightResultPanel: View {
             HStack(spacing: 8) {
                 button("В ангар", systemImage: "wrench.and.screwdriver", action: onHangar)
                 button("В космоцентр", systemImage: "building.2", action: onSpaceCenter)
-                button("Повтор", systemImage: "arrow.counterclockwise", action: onRetry)
+                button("Начать заново", systemImage: "arrow.counterclockwise", action: onRetry)
                 if result.canContinue {
                     button("Продолжить", systemImage: "play.fill", primary: true, action: onContinue)
                 }

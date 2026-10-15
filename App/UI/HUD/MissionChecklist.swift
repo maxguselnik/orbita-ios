@@ -97,14 +97,14 @@ struct MissionCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     if expanded {
                         Text(MissionChecklist.goalTitle)
-                            .font(.system(size: 10, weight: .heavy))
+                            .font(.system(size: HUDFont.caption, weight: .heavy))
                             .foregroundStyle(HUDPalette.advice)
                         ForEach(model.missionSteps) { step in
                             MissionStepRow(step: step)
                         }
                         if complete {
                             Text(MissionChecklist.doneTitle)
-                                .font(.system(size: 10, weight: .heavy))
+                                .font(.system(size: HUDFont.caption, weight: .heavy))
                                 .foregroundStyle(HUDPalette.green)
                         }
                     } else {
@@ -113,7 +113,7 @@ struct MissionCard: View {
                                 .font(.system(size: 8))
                             Text(MissionChecklist.summary(done: done)).lineLimit(1).minimumScaleFactor(0.7)
                         }
-                        .font(.system(size: 10, weight: .semibold))
+                        .font(.system(size: HUDFont.caption, weight: .semibold))
                         .foregroundStyle(complete ? HUDPalette.green : HUDPalette.advice)
                     }
                 }
@@ -136,11 +136,11 @@ private struct MissionStepRow: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 9, weight: .bold))
+                .font(.system(size: HUDFont.caption, weight: .bold))
                 .frame(width: 11)
             Text(step.title).lineLimit(1).minimumScaleFactor(0.7)
         }
-        .font(.system(size: 10, weight: step.state == .current ? .heavy : .medium))
+        .font(.system(size: HUDFont.caption, weight: step.state == .current ? .heavy : .medium))
         .foregroundStyle(color)
     }
 
