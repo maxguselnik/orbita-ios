@@ -7,10 +7,17 @@ import Foundation
 /// Эксперимент.
 public enum ExperimentID: String, Sendable, Hashable, Codable, CaseIterable {
     case crewReport, temperature, pressure, gravity
+    /// EVA (этап 6): только космонавт снаружи (`FlightCommand.evaReport` / `.evaCollectSample`).
+    case evaReport, surfaceSample
+
+    /// Проводит космонавт снаружи, а не корабль.
+    public var isEVA: Bool { self == .evaReport || self == .surfaceSample }
 
     public var title: String {
         switch self {
         case .crewReport: "Отчёт экипажа"
+        case .evaReport: "Отчёт EVA"
+        case .surfaceSample: "Образец грунта"
         case .temperature: "Термометр"
         case .pressure: "Барометр"
         case .gravity: "Гравиметр"
@@ -23,13 +30,15 @@ public enum ExperimentID: String, Sendable, Hashable, Codable, CaseIterable {
         case .crewReport, .temperature: 8
         case .pressure: 12
         case .gravity: 20
+        case .evaReport: 10
+        case .surfaceSample: 25
         }
     }
 
     /// Прибор, который проводит эксперимент (nil — отчёт экипажа, нужен экипаж).
     public var instrument: PartID? {
         switch self {
-        case .crewReport: nil
+        case .crewReport, .evaReport, .surfaceSample: nil
         case .temperature: .thermometer
         case .pressure: .barometer
         case .gravity: .gravimeter
@@ -39,7 +48,8 @@ public enum ExperimentID: String, Sendable, Hashable, Codable, CaseIterable {
     /// Можно ли провести эксперимент в этом месте.
     public func works(_ s: ScienceSituation, body: BodyID) -> Bool {
         switch self {
-        case .crewReport: true
+        case .crewReport, .evaReport: true
+        case .surfaceSample: s == .landed || s == .launchPad
         case .temperature: s != .highSpace
         case .pressure:
             Bodies.body(body).atmosphereHeight > 0 && s != .nearSpace && s != .highSpace
@@ -50,7 +60,8 @@ public enum ExperimentID: String, Sendable, Hashable, Codable, CaseIterable {
     /// Где работает (для подсказки, почему недоступен).
     public var whereItWorks: String {
         switch self {
-        case .crewReport: "везде"
+        case .crewReport, .evaReport: "везде"
+        case .surfaceSample: "только на грунте"
         case .temperature: "ниже дальнего космоса"
         case .pressure: "только в воздухе"
         case .gravity: "на поверхности и в космосе"
@@ -232,6 +243,8 @@ public enum ScienceBlocker: Sendable, Hashable {
     case nowhere, notHere
     /// Беспилотник: прибор уже хранит результат (место — один результат на прибор).
     case instrumentFull
+    /// EVA: такой предмет уже при себе или на борту; не на грунте (флаг, образец).
+    case duplicate, notOnGround
 
     public var text: String {
         switch self {
@@ -240,6 +253,8 @@ public enum ScienceBlocker: Sendable, Hashable {
         case .nowhere: "здесь нельзя"
         case .notHere: "здесь не работает"
         case .instrumentFull: "прибор занят"
+        case .duplicate: "уже есть"
+        case .notOnGround: "только на грунте"
         }
     }
 }
@@ -275,7 +290,7 @@ public struct ScienceStatus: Sendable, Hashable {
 
     /// Эксперименты, которые можно предложить на этом корабле (отчёт — при экипаже, приборы — установленные).
     public var experiments: [ExperimentID] {
-        ExperimentID.allCases.filter { $0 == .crewReport ? crewAboard : instruments.contains($0) }
+        ExperimentID.allCases.filter { !$0.isEVA && ($0 == .crewReport ? crewAboard : instruments.contains($0)) }
     }
 
     /// Предмет эксперимента здесь; nil — нельзя (см. `blocker`).

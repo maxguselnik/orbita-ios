@@ -1092,6 +1092,8 @@ final class FlightHUDModel {
             return "Сгорела деталь: \(part.spec.name)"
         case .warpReset(let reason):
             return "Ускорение сброшено: \(warpReasonText(reason))"
+        case .evaExited, .evaBoarded, .evaLanded, .evaInjured, .evaDied, .flagPlanted, .evaScienceCollected, .jetpackEmpty:
+            return nil // TODO(C): тексты EVA
         }
     }
 
@@ -1102,6 +1104,7 @@ final class FlightHUDModel {
         case .thrust: "работает двигатель"
         case .soiChange: "смена сферы влияния"
         case .maneuver: "узел манёвра"
+        case .eva: "космонавт снаружи"
         }
     }
 }

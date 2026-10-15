@@ -280,6 +280,8 @@ public final class FlightSim: FlightSimulation {
         case .setRCS(let on): rcsEnabled = on
         case .collectScience(let e): collectScience(e)
         case .discardScience(let id): discardScience(id)
+        case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport:
+            break // TODO(A): EVA — docs/CONTRACTS.md «EVA»
         }
         rebuildSnapshot()
     }

@@ -119,6 +119,8 @@ final class MockFlight: FlightSimulation {
             if !enabled { rcsFiring = false }
         case .collectScience, .discardScience:
             break
+        case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport:
+            break
         case .setManeuver(let node):
             maneuverNode = node
             if node == nil { warpingToManeuver = false }
