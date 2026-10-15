@@ -30,7 +30,7 @@ struct MapOverlayFrame: View {
         }
         if let node {
             obstacles.append(CGRect(x: node.center.x - 12, y: node.center.y - 12, width: 24, height: 24))
-            for item in node.items {
+            for item in model.mapExpert ? node.items : [] {
                 obstacles.append(CGRect(x: item.point.x - 22, y: item.point.y - 22, width: 44, height: 44))
             }
         }
@@ -63,7 +63,8 @@ struct MapOverlayFrame: View {
                     .tutorialAnchor(.mapNode)
                     .position(node.center)
                     .allowsHitTesting(false)
-                ForEach(node.items) { item in
+                // Ручки Δv — только в «Эксперт».
+                ForEach(model.mapExpert ? node.items : []) { item in
                     ManeuverHandleKnob(handle: item.handle, direction: item.direction, model: model)
                         .tutorialAnchor(optional: item.handle == .prograde ? .mapHandle : nil)
                         .position(item.point)

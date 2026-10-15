@@ -268,6 +268,7 @@ struct FineControlToggle: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
+        .longPressHint("ТОЧНО — повороты в 3 раза мягче, для прицеливания")
         .accessibilityLabel("Точное управление")
         .accessibilityValue(on ? "включено" : "выключено")
     }

@@ -24,6 +24,7 @@ struct MissionTimeBar: View {
             }
             .buttonStyle(HUDPressStyle())
             .accessibilityLabel("Пауза")
+            .longPressHint("Пауза: меню, ангар, обучение")
         }
         .padding(.horizontal, 3)
         .frame(height: 24)
@@ -99,6 +100,7 @@ struct WarpButtons: View {
         .disabled(locked)
         .opacity(locked ? 0.4 : 1)
         .accessibilityLabel("Ускорение \(HUDFormat.warp(factor))")
+        .longPressHint("Ускорить время до \(HUDFormat.warp(factor)): долгие перелёты проходят быстрее")
     }
 
     private func currentButton(position: Int, status: WarpStatus) -> some View {
@@ -133,6 +135,7 @@ struct WarpButtons: View {
         }
         .menuOrder(.fixed)
         .accessibilityLabel("Ускорение времени \(HUDFormat.warp(status.factor)), выбрать уровень")
+        .longPressHint("Ускорение времени: ×1 — обычное, дальше быстрее (у атмосферы и при тяге нельзя)")
     }
 }
 
@@ -142,6 +145,8 @@ struct HUDIconButton: View {
     let label: String
     var isActive = false
     var compact = false
+    /// Подсказка по долгому нажатию (nil — без подсказки).
+    var hint: String?
     let action: () -> Void
 
     var body: some View {
@@ -158,6 +163,7 @@ struct HUDIconButton: View {
         }
         .buttonStyle(HUDPressStyle())
         .accessibilityLabel(label)
+        .longPressHint(hint ?? label)
     }
 }
 
@@ -167,10 +173,12 @@ struct FlightCornerButtons: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HUDIconButton(systemImage: "map", label: "Открыть карту", compact: true) { model.toggleMap() }
+            HUDIconButton(systemImage: "map", label: "Открыть карту", compact: true,
+                          hint: "Карта: орбиты, Луна и манёвры") { model.toggleMap() }
                 .tutorialAnchor(.mapButton)
             HUDIconButton(systemImage: CameraModeInfo.symbol(model.cameraMode),
-                          label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))", compact: true) {
+                          label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))", compact: true,
+                          hint: "Камера: свободная, следом за кораблём, по курсу — тап меняет") {
                 model.cycleCameraMode()
             }
         }
@@ -183,7 +191,7 @@ struct StagePanelButton: View {
 
     var body: some View {
         HUDIconButton(systemImage: "list.bullet.rectangle", label: "Ступени, топливо, Δv",
-                      isActive: model.isPanelOpen) {
+                      isActive: model.isPanelOpen, hint: "Ступени: топливо, Δv и тяга каждой ступени") {
             withAnimation(.snappy(duration: 0.25)) { model.isPanelOpen.toggle() }
         }
     }

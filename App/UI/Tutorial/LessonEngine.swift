@@ -9,8 +9,14 @@ enum LessonElement: Hashable, Sendable {
     case mission, throttle, stageButton, dpadRight, warp
     case timeBar, altimeter, crew, corner, mapButton, stageStack
     case navball, speed, sas, rcs, dpad, fine
+    /// Строка «Ап …» у высотомера.
+    case apoapsis
     // Карта
     case mapLuna, mapSummary, mapHandle, mapToNode, mapSASNode, mapPanel, mapFocus, mapLegend, mapNode, mapFlight
+    /// Колонка целей «Куда летим?» и кнопка «Выполнить манёвр» простой карты.
+    case mapGoals, mapExecute
+    /// Кнопка цели «Скруглить орбиту».
+    case mapCircularize
 }
 
 /// Вид шага: `pause` — игра на паузе, ждём кнопку в пузыре; `wait` — пауза, ждём действие игрока
@@ -36,6 +42,8 @@ struct LessonInput: Equatable {
     var dpadHeld = false
     /// Карта открыта.
     var mapOpen = false
+    /// Идёт автопрожиг («Выполнить манёвр»).
+    var autoBurn = false
     /// Сколько раз открывалось меню ускорения времени (счётчик растёт).
     var warpMenuCount = 0
     /// Пе у Луны по прогнозу карты (после узла, если он не выполнен), м; nil — встречи нет.
@@ -68,10 +76,34 @@ struct LessonBubble: Equatable {
     var role: LessonButtonRole = .next
     /// Подпись ссылки выхода (nil — «Выйти из урока»); на итоге — «Остаться на орбите» и т. п.
     var exitTitle: String?
+    /// Пояснение «Зачем?» (1–2 строки); nil — кнопки «Зачем?» нет.
+    var why: String?
 
     /// После отката шага.
     static let restart = LessonBubble(title: "Шаг сначала", text: "Полёт возвращён к началу шага. Готовы?",
                                       button: "Поехали")
+}
+
+/// Номер шага для плашки «Шаг N из M» (считаются только видимые шаги урока).
+struct LessonProgress: Equatable, Sendable {
+    var step: Int
+    var total: Int
+
+    var text: String { "Шаг \(step) из \(total)" }
+}
+
+extension LivePlate {
+    /// Плашка автопрожига: путь к узлу, затем остаток Δv.
+    static func burn(_ i: LessonInput) -> LivePlate {
+        guard let m = i.telemetry.maneuver, !m.isDone else {
+            return LivePlate(head: "Прожиг выполнен · ", value: "тяга 0")
+        }
+        if m.timeToBurn > 0, m.remainingDeltaV >= m.deltaV - 0.5 {
+            return LivePlate(head: "Летим к узлу · до прожига ", value: HUDFormat.countdown(m.timeToBurn))
+        }
+        return LivePlate(head: "Прожиг · осталось ", value: HUDFormat.speed(m.remainingDeltaV),
+                         tail: " из \(HUDFormat.grouped(m.deltaV))")
+    }
 }
 
 /// Живая плашка: «голова», выделенное число и «хвост».
@@ -99,6 +131,8 @@ enum LessonPhase: Equatable, Sendable {
 struct LessonScene: Equatable {
     var bubble: LessonBubble?
     var target: LessonElement?
+    /// Дополнительные рамки шага (например, «Ап» рядом с тягой); стрелка ведёт к `target`.
+    var alsoTargets: [LessonElement] = []
     /// Затемнение с вырезом вокруг цели.
     var dims = false
     /// Касания внутри выреза проходят к контролу (шаг ждёт действия).
@@ -133,7 +167,7 @@ struct LessonBaseline: Equatable, Sendable {
 // MARK: - Протокол урока
 
 /// Чистая логика урока (без UI и физики): шаг, фаза, ошибка, что показать. Реализации — `FirstFlightLesson`,
-/// `ScriptLesson<LunaStep>`, `ScriptLesson<TourStep>`.
+/// `ScriptLesson<LunaStep>`.
 protocol TutorialLesson: Sendable {
     var phase: LessonPhase { get }
     /// Физика стоит: пауза-объяснение, ожидание действия, откат или ошибка.
@@ -141,9 +175,11 @@ protocol TutorialLesson: Sendable {
     var failure: String? { get }
     /// Номер текущего шага (для смены контрольной точки и тестов).
     var stepIndex: Int { get }
-    /// Урок пройден: дошли до итога (или тур закрыт «Готово»).
+    /// «Шаг N из M»; nil на вводном и итоговом шагах.
+    var progress: LessonProgress? { get }
+    /// Урок пройден: дошли до итога.
     var reachedEnd: Bool { get }
-    /// Урок закрылся сам (тур: «Готово» на последнем шаге) — оверлей убирается.
+    /// Урок закрылся сам — оверлей убирается.
     var isClosed: Bool { get }
     /// Игра держит ускорение ×1 (шаг, где рельсы мешают).
     var forcesRealTime: Bool { get }
@@ -177,6 +213,10 @@ protocol ScriptStep: Hashable, Sendable {
     var kind: LessonKind { get }
     var screen: LessonScreen { get }
     var target: LessonElement? { get }
+    /// Дополнительные рамки шага.
+    var alsoTargets: [LessonElement] { get }
+    /// Шаг считается в «Шаг N из M» (вводный и итоговый — нет).
+    var numbered: Bool { get }
     /// Шаг ожидания без затемнения: подсветка рамкой, остальной экран доступен (ручки карты).
     var freeHands: Bool { get }
     /// Живая плашка видна и пока игра стоит на шаге (иначе — только когда полёт идёт).
@@ -186,6 +226,8 @@ protocol ScriptStep: Hashable, Sendable {
     func isAvailable(_ i: LessonInput) -> Bool
     /// Шаг `wait`: игрок начал действие — пауза снимается.
     func trigger(_ i: LessonInput, from start: LessonBaseline) -> Bool
+    /// Игра стоит на шаге, а то, что он делает (узел), исчезло: шаг, на который нужно вернуться.
+    func fallback(_ i: LessonInput) -> Self?
     /// Шаг выполнен (для `pause` не спрашивается — только кнопкой).
     func isComplete(_ i: LessonInput, from start: LessonBaseline) -> Bool
     /// Ошибка шага в полёте (nil — всё в порядке).
@@ -195,6 +237,9 @@ protocol ScriptStep: Hashable, Sendable {
 }
 
 extension ScriptStep {
+    var alsoTargets: [LessonElement] { [] }
+    var numbered: Bool { true }
+    func fallback(_ i: LessonInput) -> Self? { nil }
     var freeHands: Bool { false }
     var platesWhileHolding: Bool { false }
     func isAvailable(_ i: LessonInput) -> Bool { true }
@@ -249,6 +294,13 @@ struct ScriptLesson<Step: ScriptStep>: TutorialLesson {
     }
 
     var reachedEnd: Bool { finished || (Step.endsWithSummary && isLast) }
+
+    var progress: LessonProgress? {
+        guard step.numbered else { return nil }
+        let numbered = Step.sequence.filter(\.numbered)
+        guard let index = numbered.firstIndex(of: step) else { return nil }
+        return LessonProgress(step: index + 1, total: numbered.count)
+    }
     var isClosed: Bool { finished }
     var forcesRealTime: Bool { false }
 
@@ -279,6 +331,13 @@ struct ScriptLesson<Step: ScriptStep>: TutorialLesson {
                 continue
             }
             if phase == .holding {
+                if gate(i) == nil, let back = s.fallback(i), let index = Step.sequence.firstIndex(of: back) {
+                    stepIndex = index
+                    phase = Self.startPhase(step)
+                    baseline = LessonBaseline(i)
+                    advanced = true
+                    break
+                }
                 if s.kind != .pause, s.isComplete(i, from: baseline), advance(i) {
                     advanced = true
                     continue
@@ -343,7 +402,8 @@ struct ScriptLesson<Step: ScriptStep>: TutorialLesson {
             return LessonScene(plateBar: true)
         case .running, .waiting:
             let live = step.kind == .live && step.target != nil
-            return LessonScene(target: live ? step.target : nil, ringOnly: live, plateBar: true)
+            return LessonScene(target: live ? step.target : nil, alsoTargets: live ? step.alsoTargets : [],
+                               ringOnly: live, plateBar: true)
         case .holding:
             if let gate = gate(i) {
                 return LessonScene(bubble: gate.bubble, target: gate.target, dims: true, passThrough: true,
@@ -356,7 +416,8 @@ struct ScriptLesson<Step: ScriptStep>: TutorialLesson {
                 bubble?.role = .skip
             }
             let waits = s.kind != .pause
-            return LessonScene(bubble: bubble, target: s.target, dims: !s.freeHands, passThrough: waits,
+            return LessonScene(bubble: bubble, target: s.target, alsoTargets: s.alsoTargets, dims: !s.freeHands,
+                               passThrough: waits,
                                ringOnly: s.freeHands, pausedTag: waits && !s.freeHands,
                                plateBar: s.platesWhileHolding && s.plate(i) != nil)
         }

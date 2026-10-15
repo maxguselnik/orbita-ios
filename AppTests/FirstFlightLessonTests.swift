@@ -34,8 +34,26 @@ struct FirstFlightLessonTests {
         return t
     }
 
-    private func input(_ t: FlightTelemetry, throttle: Double = 1, yaw: Bool = false) -> LessonInput {
-        LessonInput(telemetry: t, throttle: throttle, yawRightHeld: yaw)
+    private func input(_ t: FlightTelemetry, throttle: Double = 1, yaw: Bool = false, map: Bool = false,
+                       autoBurn: Bool = false) -> LessonInput {
+        var i = LessonInput(telemetry: t, throttle: throttle, yawRightHeld: yaw)
+        i.mapOpen = map
+        i.autoBurn = autoBurn
+        return i
+    }
+
+    private func node(toBurn: Double = 120, remaining: Double = 25, done: Bool = false) -> ManeuverStatus {
+        ManeuverStatus(node: ManeuverNode(time: 1_000), timeToNode: toBurn + 2, deltaV: 25, remainingDeltaV: remaining,
+                       burnTime: 4, timeToBurn: toBurn, isDone: done)
+    }
+
+    /// Подъём закончен: Ап 85 км, корабль ещё в атмосфере, тяга 0.
+    private var coasting: FlightTelemetry { flight(altitude: 60_000, apo: 85_000, toApo: 150) }
+
+    private func withNode(_ t: FlightTelemetry, _ status: ManeuverStatus? = nil) -> FlightTelemetry {
+        var copy = t
+        copy.maneuver = status ?? node()
+        return copy
     }
 
     /// Урок, доведённый до шага `target`: на каждом шаге подаётся нужная телеметрия.
@@ -50,7 +68,10 @@ struct FirstFlightLessonTests {
             (.follow, input(flight(altitude: 10_500, pitchDegrees: 40))),
             (.separate, input(flight(altitude: 20_000, fuel: 0, action: .none))),
             (.apoapsisCut, input(flight(altitude: 40_000, apo: 85_000), throttle: 0)),
-            (.warpToApoapsis, input(flight(altitude: 70_000, apo: 85_000, toApo: 20))),
+            (.openMap, input(coasting, throttle: 0, map: true)),
+            (.circularize, input(withNode(coasting), throttle: 0, map: true)),
+            (.execute, input(withNode(coasting, node(toBurn: -5, remaining: 0.05, done: true)),
+                             throttle: 0, map: true, autoBurn: true)),
         ]
         for (step, i) in script {
             if l.step == target { break }
@@ -58,6 +79,13 @@ struct FirstFlightLessonTests {
             if step == .separate { l.update(input(flight(altitude: 20_000, fuel: 0)), delta: 0.02) }
             if step == .apoapsisCut { l.update(input(flight(altitude: 40_000, apo: 85_000)), delta: 0.02) }
             if step == .turn { l.update(input(flight(altitude: 1_500), yaw: true), delta: 0.02) }
+            if step == .execute {
+                // Автопрожиг запускается, потом заканчивается выходом на орбиту.
+                l.update(input(withNode(coasting), throttle: 0, map: true, autoBurn: true), delta: 0.02)
+                l.update(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000, toApo: 10), throttle: 0, map: true),
+                         delta: 0.02)
+                continue
+            }
             l.update(i, delta: 0.02)
         }
         return l
@@ -67,7 +95,8 @@ struct FirstFlightLessonTests {
 
     @Test func stepsGoInDocumentedOrder() {
         #expect(LessonStep.allCases == [.intro, .throttleMax, .launch, .vertical, .turn, .follow, .separate,
-                                        .apoapsisCut, .warpToApoapsis, .circularize, .finish])
+                                        .apoapsisCut, .openMap, .circularize, .execute, .finish])
+        #expect(LessonStep.numberedCount == 10)
     }
 
     @Test func introHoldsPhysicsUntilAcknowledged() {
@@ -143,28 +172,90 @@ struct FirstFlightLessonTests {
         l.update(input(flight(altitude: 41_000, pitchDegrees: 20, apo: 80_500), throttle: 1), delta: 0.02)
         #expect(l.phase == .holding && l.holdsPhysics)
         l.update(input(flight(altitude: 41_000, pitchDegrees: 20, apo: 80_500), throttle: 0), delta: 0.02)
-        #expect(l.step == .warpToApoapsis && l.phase == .holding)
+        #expect(l.step == .openMap && l.phase == .holding)
     }
 
-    @Test func warpStepStartsOnWarpAndEndsNearApoapsis() {
-        var l = lesson(at: .warpToApoapsis)
-        let far = flight(altitude: 60_000, apo: 85_000, toApo: 120)
-        l.update(input(far, throttle: 0), delta: 0.02)
-        #expect(l.phase == .holding)
-        l.update(input(flight(altitude: 60_000, apo: 85_000, toApo: 120, warpIndex: 2), throttle: 0), delta: 0.02)
-        #expect(l.step == .warpToApoapsis && l.phase == .running)
-        l.update(input(flight(altitude: 79_000, apo: 85_000, toApo: 45, warpIndex: 2), throttle: 0), delta: 0.02)
-        #expect(l.step == .warpToApoapsis)
-        l.update(input(flight(altitude: 80_000, apo: 85_000, toApo: 29), throttle: 0), delta: 0.02)
-        #expect(l.step == .circularize && l.phase == .running)
+    @Test func apoapsisStepHighlightsApoapsisRowAndThrottleWithPlainText() {
+        let l = lesson(at: .apoapsisCut)
+        var t = flight(altitude: 35_000, pitchDegrees: 20, apo: 80_500)
+        t.altitude = 35_000
+        var armed = l
+        armed.update(input(t, throttle: 1), delta: 0.02)
+        let scene = armed.scene(input(t, throttle: 1))
+        #expect(scene.target == .throttle && scene.alsoTargets == [.apoapsis])
+        let text = scene.bubble?.text ?? ""
+        #expect(text.contains(HUDFormat.distance(35_000)) && text.contains("80 км") && text.contains("тягу до 0"))
+        #expect(scene.bubble?.why != nil)
     }
 
-    @Test func orbitFinishesLessonAndHoldsOnSummary() {
+    @Test func openMapStepWaitsForMapButton() {
+        var l = lesson(at: .openMap)
+        l.update(input(coasting, throttle: 0), delta: 0.02)
+        #expect(l.step == .openMap && l.holdsPhysics)
+        #expect(l.scene(input(coasting, throttle: 0)).target == .mapButton)
+        l.update(input(coasting, throttle: 0, map: true), delta: 0.02)
+        #expect(l.step == .circularize && l.phase == .holding)
+    }
+
+    @Test func circularizeStepPointsAtGoalButtonAndEndsWithTheNode() {
         var l = lesson(at: .circularize)
-        l.update(input(flight(altitude: 80_000, apo: 84_000, peri: 60_000, toApo: 10)), delta: 0.02)
+        let scene = l.scene(input(coasting, throttle: 0, map: true))
+        #expect(scene.target == .mapCircularize && scene.dims && scene.passThrough)
+        l.update(input(coasting, throttle: 0, map: true), delta: 0.02)
         #expect(l.step == .circularize)
-        l.update(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000, toApo: 10)), delta: 0.02)
+        l.update(input(withNode(coasting), throttle: 0, map: true), delta: 0.02)
+        #expect(l.step == .execute && l.phase == .holding)
+        #expect(l.scene(input(withNode(coasting), throttle: 0, map: true)).target == .mapExecute)
+    }
+
+    @Test func mapStepAsksToReopenClosedMapAndFlightStepAsksToCloseIt() {
+        let l = lesson(at: .circularize)
+        let closed = l.scene(input(coasting, throttle: 0))
+        #expect(closed.target == .mapButton && closed.bubble?.button == nil)
+        let flightStep = lesson(at: .apoapsisCut)
+        var armed = flightStep
+        armed.update(input(flight(altitude: 41_000, apo: 80_500)), delta: 0.02)
+        let open = armed.scene(input(flight(altitude: 41_000, apo: 80_500), map: true))
+        #expect(open.target == .mapFlight)
+    }
+
+    @Test func executeStepRunsOnAutoBurnAndEndsInOrbit() {
+        var l = lesson(at: .execute)
+        l.update(input(withNode(coasting), throttle: 0, map: true), delta: 0.02)
+        #expect(l.step == .execute && l.phase == .holding && l.holdsPhysics)
+        l.update(input(withNode(coasting), throttle: 0, map: true, autoBurn: true), delta: 0.02)
+        #expect(l.phase == .running && !l.holdsPhysics && !l.forcesRealTime)
+        // Пока автопрожиг идёт, шаг не кончается, даже если Пе уже выше атмосферы.
+        let burning = input(flight(altitude: 79_000, apo: 84_000, peri: 72_000, toApo: 10), throttle: 0.4,
+                            map: true, autoBurn: true)
+        l.update(burning, delta: 0.02)
+        #expect(l.step == .execute)
+        l.update(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000, toApo: 10), throttle: 0, map: true),
+                 delta: 0.02)
         #expect(l.step == .finish && l.phase == .holding && l.holdsPhysics)
+    }
+
+    @Test func deletingNodeBeforeBurnReturnsToCircularize() {
+        var l = lesson(at: .execute)
+        l.update(input(coasting, throttle: 0, map: true), delta: 0.02)
+        #expect(l.step == .circularize && l.phase == .holding)
+    }
+
+    @Test func burnThatMissesTheOrbitFailsStep() {
+        var l = lesson(at: .execute)
+        l.update(input(withNode(coasting), throttle: 0, map: true, autoBurn: true), delta: 0.02)
+        #expect(l.phase == .running)
+        l.update(input(flight(altitude: 80_000, apo: 84_000, peri: 40_000, toApo: 10), throttle: 0, map: true),
+                 delta: 0.02)
+        #expect(l.phase == .failed && l.failure?.contains("не вывел") == true)
+    }
+
+    @Test func progressCountsVisibleSteps() {
+        #expect(FirstFlightLesson().progress == nil)
+        #expect(lesson(at: .throttleMax).progress == LessonProgress(step: 1, total: 10))
+        #expect(lesson(at: .execute).progress == LessonProgress(step: 10, total: 10))
+        #expect(lesson(at: .finish).progress == nil)
+        #expect(LessonProgress(step: 3, total: 10).text == "Шаг 3 из 10")
     }
 
     // MARK: - Ошибки и откат
@@ -189,15 +280,6 @@ struct FirstFlightLessonTests {
         #expect(l.pitchErrorTime == 0)
         l.update(input(flight(altitude: 5_000, pitchDegrees: 90)), delta: 2.5)
         #expect(l.phase == .running)
-    }
-
-    @Test func apoapsisDroppingDuringCircularizationFailsStep() {
-        var l = lesson(at: .circularize)
-        l.update(input(flight(altitude: 80_000, apo: 84_000, peri: 50_000, toApo: 10)), delta: 0.02)
-        #expect(l.phase == .running)
-        l.update(input(flight(altitude: 80_000, apo: 70_000, peri: 50_000, toApo: 10)), delta: 0.02)
-        #expect(l.phase == .failed)
-        #expect(l.failure?.contains("Апоцентр") == true)
     }
 
     @Test func dismissFailureContinuesWithoutRestore() {
@@ -259,11 +341,10 @@ struct FirstFlightLessonTests {
         #expect(!scene.dims && scene.plateBar && scene.bubble == nil)
         #expect(live.plate(input(flight(altitude: 500)))?.head.contains("высота") == true)
 
-        let circle = lesson(at: .circularize)
-        #expect(circle.forcesRealTime)
-
-        var end = lesson(at: .circularize)
-        end.update(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000, toApo: 10)), delta: 0.02)
+        var end = lesson(at: .execute)
+        end.update(input(withNode(coasting), throttle: 0, map: true, autoBurn: true), delta: 0.02)
+        end.update(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000, toApo: 10), throttle: 0, map: true),
+                   delta: 0.02)
         let finish = end.scene(input(flight(altitude: 80_000, apo: 84_000, peri: 72_000)))
         #expect(end.reachedEnd)
         #expect(finish.bubble?.role == .hangar && finish.bubble?.exitTitle == "Остаться на орбите")
@@ -271,29 +352,64 @@ struct FirstFlightLessonTests {
 
     @Test func liveStepsHavePlates() {
         let t = flight(altitude: 640, apo: 85_000, peri: 34_000)
-        #expect(LessonStep.vertical.plate(t, phase: .running)?.head.contains("высота") == true)
-        #expect(LessonStep.circularize.plate(t, phase: .running)?.tail.contains("70 км") == true)
-        #expect(LessonStep.finish.plate(t, phase: .holding) == nil)
+        #expect(LessonStep.vertical.plate(input(t), phase: .running)?.head.contains("высота") == true)
+        var burning = t
+        burning.maneuver = node(toBurn: -3, remaining: 12)
+        let plate = LessonStep.execute.plate(input(burning), phase: .running)
+        #expect(plate?.value == HUDFormat.speed(12) && plate?.tail.contains("из 25") == true)
+        #expect(LessonStep.finish.plate(input(t), phase: .holding) == nil)
     }
 
-    @Test func bubbleStaysOnScreenAndOffTheCutout() {
-        let screen = CGSize(width: 852, height: 393)
-        let bubble = CGSize(width: 260, height: 90)
-        let holes: [CGRect] = [
-            CGRect(x: 0, y: 90, width: 162, height: 40),     // карточка миссии
-            CGRect(x: 322, y: 191, width: 78, height: 104),  // дуга тяги
-            CGRect(x: 60, y: 300, width: 162, height: 52),   // кнопка ступени
-            CGRect(x: 693, y: 240, width: 52, height: 52),   // ▶ крестовины (у правого края)
-            CGRect(x: 6, y: 0, width: 160, height: 36),      // ускорение времени
-        ]
-        for hole in holes {
-            let origin = TutorialLayout.bubbleOrigin(hole: hole, bubble: bubble, screen: screen)
-            let rect = CGRect(origin: origin, size: bubble)
-            #expect(CGRect(origin: .zero, size: screen).contains(rect))
-            #expect(!rect.intersects(hole))
-        }
-        let centered = TutorialLayout.bubbleOrigin(hole: nil, bubble: bubble, screen: screen)
-        #expect(centered == CGPoint(x: 296, y: 151.5))
+    // MARK: - Раскладка плашки и стрелка
+
+    private let screen = CGSize(width: 852, height: 393)
+    private let stack = CGSize(width: TutorialLayout.plaqueWidth, height: 80)
+
+    @Test func stackSitsTopCenterUnlessItCoversTheTarget() {
+        let top = TutorialLayout.stackFrame(size: stack, screen: screen, holes: [], top: 88, bottom: 140)
+        #expect(top == CGRect(x: 236, y: 88, width: 380, height: 80))
+        // Цель внизу (дуга тяги) — плашка остаётся сверху.
+        let throttle = CGRect(x: 322, y: 191, width: 78, height: 104)
+        #expect(TutorialLayout.stackFrame(size: stack, screen: screen, holes: [throttle], top: 88, bottom: 140) == top)
+        // Цель под плашкой сверху (сводка карты) — плашка уходит вниз по центру.
+        let summary = CGRect(x: 170, y: 50, width: 260, height: 60)
+        let moved = TutorialLayout.stackFrame(size: stack, screen: screen, holes: [summary], top: 6, bottom: 64)
+        #expect(moved.minY == screen.height - 64 - stack.height && moved.midX == screen.width / 2)
+        #expect(!moved.intersects(summary))
+    }
+
+    @Test func arrowLeavesThePlaqueEdgeAndStopsShortOfTheTarget() throws {
+        let plaque = CGRect(x: 236, y: 88, width: 380, height: 80)
+        // Цель справа внизу (кнопка «Выполнить манёвр»).
+        let hole = CGRect(x: 700, y: 300, width: 140, height: 62)
+        let arrow = try #require(TutorialLayout.arrow(from: plaque, to: hole))
+        let onEdge = abs(arrow.start.x - plaque.maxX) < 1e-6 || abs(arrow.start.y - plaque.maxY) < 1e-6
+        #expect(onEdge && plaque.insetBy(dx: -0.001, dy: -0.001).contains(arrow.start))
+        #expect(!hole.contains(arrow.end))
+        #expect(hole.insetBy(dx: -TutorialLayout.arrowGap - 0.5, dy: -TutorialLayout.arrowGap - 0.5).contains(arrow.end))
+        // Направление — от плашки к цели.
+        #expect(arrow.end.x > arrow.start.x && arrow.end.y > arrow.start.y)
+
+        // Цель слева сверху (ускорение времени): стрелка выходит из верхнего края плашки и идёт влево-вверх.
+        let warp = CGRect(x: 6, y: 0, width: 160, height: 36)
+        let back = try #require(TutorialLayout.arrow(from: plaque, to: warp))
+        #expect(abs(back.start.y - plaque.minY) < 1e-6 && back.start.x > plaque.minX)
+        #expect(back.end.x < back.start.x && back.end.y < back.start.y)
+    }
+
+    @Test func arrowIsHiddenWhenTargetIsAdjacentOrCovered() {
+        let plaque = CGRect(x: 236, y: 88, width: 380, height: 80)
+        #expect(TutorialLayout.arrow(from: plaque, to: CGRect(x: 300, y: 100, width: 50, height: 30)) == nil)
+        #expect(TutorialLayout.arrow(from: plaque, to: CGRect(x: 300, y: 172, width: 100, height: 20)) == nil)
+        #expect(TutorialLayout.arrow(from: plaque, to: CGRect(x: 300, y: 200, width: 100, height: 40)) != nil)
+    }
+
+    @Test func edgePointLiesOnTheBorder() {
+        let rect = CGRect(x: 0, y: 0, width: 100, height: 40)
+        func close(_ a: CGPoint, _ b: CGPoint) -> Bool { abs(a.x - b.x) < 1e-6 && abs(a.y - b.y) < 1e-6 }
+        #expect(close(TutorialLayout.edgePoint(of: rect, towards: CGPoint(x: 300, y: 20)), CGPoint(x: 100, y: 20)))
+        #expect(close(TutorialLayout.edgePoint(of: rect, towards: CGPoint(x: 50, y: -100)), CGPoint(x: 50, y: 0)))
+        #expect(close(TutorialLayout.edgePoint(of: rect, towards: CGPoint(x: 50, y: 20)), CGPoint(x: 50, y: 20)))
     }
 
     // MARK: - Модель полёта

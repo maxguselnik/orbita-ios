@@ -7,7 +7,7 @@ import SwiftUI
 /// Раскладка Б4 «лаконичный»: сверху слева время и ускорение, по центру высотомер и строка совета, справа экипаж
 /// и кнопки Карта/Камера; слева стопка ступеней и кнопка действия; снизу по центру кольцо навбола (тяга, перегрузка,
 /// SAS, RCS), справа джойстик и MAX/0; при включённом РСУ — поступательный джойстик между ступенью и навболом.
-/// Карта (`model.map.isOpen`): навбол и джойстик уходят, справа — панель узла манёвра, по центру — подписи отметок
+/// Карта (`model.map.isOpen`): навбол остаётся для ручной тяги и SAS, справа — панель узла, по центру — подписи отметок
 /// и ручки Δv (`MapOverlay`).
 struct FlightHUDView: View {
     let model: FlightHUDModel
@@ -20,7 +20,7 @@ struct FlightHUDView: View {
     var onSpaceCenter: () -> Void = {}
     /// Начислить науку за итог полёта (один раз на полёт, `GameFlow.finishFlight`); модель HUD о `GameFlow` не знает.
     var onFinish: (MissionRecord) -> (fresh: [Milestone], science: Int) = { _ in ([], 0) }
-    /// Урок из меню паузы: новый полёт по уроку (модель HUD о `GameFlow` не знает); «Все кнопки» идут поверх полёта.
+    /// Урок из меню паузы: новый полёт по уроку (модель HUD о `GameFlow` не знает).
     var onTutorial: (TutorialID) -> Void = { _ in }
 
     @AppStorage(HUDHint.doneKey) private var hintsDone = false
@@ -49,8 +49,14 @@ struct FlightHUDView: View {
             }
 
             if mapOpen {
-                MapLayer(model: model)
+                MapLayer(model: model, hintsEnabled: hintsEnabled && !inLesson)
+                NavballCluster(model: model, ascentEnabled: false)
+                    .padding(.bottom, NavballCluster.lift)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                    .ignoresSafeArea(.container, edges: .bottom)
                 MapFocusPicker(model: model, showLegend: $showLegend)
+                    .padding(.bottom, Self.mapFocusBottom)
+                    .ignoresSafeArea(.container, edges: .bottom)
             } else {
                 FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
             }
@@ -70,25 +76,28 @@ struct FlightHUDView: View {
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
-                if hintsEnabled, !inLesson, !hintsDone, let hint = model.hint, !model.isPaused,
+                if hintsEnabled, !inLesson, !hintsDone, !mapOpen, let hint = model.hint, !model.isPaused,
                    hint != .stage, hint != .throttle {
                     HintBanner(hint: hint) { model.dismissHints() }
                         .frame(width: 300)
                         .transition(.opacity)
                 }
             }
-            .padding(.top, mapOpen ? 54 : (inLesson ? 120 : 60))
+            .padding(.top, mapOpen ? (inLesson ? 100 : 54) : (inLesson ? 176 : 60))
         }
+        .overlay(alignment: .top) {
+            // Подсказка по долгому нажатию: в уроке — над плашкой шага (поверх высотомера), иначе под высотомером.
+            if let line = model.controlHint {
+                ControlHintBanner(text: line.text)
+                    .id(line.id)
+                    .padding(.top, mapOpen ? 54 : (inLesson ? 6 : 100))
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.2), value: model.controlHint)
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .animation(.easeOut(duration: 0.2), value: model.hint)
         .overlay(alignment: .topTrailing) { stagePanel }
-        .overlay(alignment: .bottom) {
-            if mapOpen, !model.isPaused {
-                // Пошаговая подсказка карты: над переключателем фокуса, центр экрана свободен.
-                MapHintHost(model: model, hintsEnabled: hintsEnabled && !inLesson)
-                    .padding(.bottom, HUDStyle.minTouch + 16)
-            }
-        }
         .overlay {
             if mapOpen, showLegend, !model.isPaused {
                 MapLegendView(onClose: { showLegend = false })
@@ -118,6 +127,7 @@ struct FlightHUDView: View {
                 PauseMenu(model: model, onHangar: onHangar, onTutorial: onTutorial)
             }
         }
+        .environment(\.showControlHint, { [model] text in model.showControlHint(text) })
         .onAppear {
             driver.frameRate = frameRate
             driver.start { [model] now in model.tick(now: now) }
@@ -131,6 +141,9 @@ struct FlightHUDView: View {
             }
         }
     }
+
+    /// Фокус карты расположен над навболом; его нижняя часть уходит за физический край экрана.
+    private static let mapFocusBottom = NavballCluster.height + NavballCluster.lift + 8
 
     /// Панель ступеней выезжает слева от правых иконок; джойстик и MAX остаются доступными.
     @ViewBuilder private var stagePanel: some View {
@@ -280,7 +293,7 @@ struct ManeuverBadgeHost: View {
 
     var body: some View {
         if let status = model.telemetry.maneuver {
-            ManeuverBadge(status: status) { model.toggleMap() }
+            ManeuverBadge(status: status, autoText: model.autoBurnText) { model.toggleMap() }
         }
     }
 }
@@ -289,6 +302,7 @@ struct ManeuverBadgeHost: View {
 /// справа — панель узла манёвра и «Ступень».
 struct MapLayer: View {
     let model: FlightHUDModel
+    var hintsEnabled = true
 
     var body: some View {
         ZStack {
@@ -302,7 +316,7 @@ struct MapLayer: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
             HStack(alignment: .bottom, spacing: 8) {
                 MapLeftColumn(model: model)
-                MapCenterColumn(model: model)
+                MapCenterColumn(model: model, hintsEnabled: hintsEnabled)
                 MapSideColumn(model: model)
             }
             .padding(.top, 50)
@@ -310,7 +324,7 @@ struct MapLayer: View {
     }
 }
 
-/// Левая колонка карты: SAS (вкл/выкл и «по узлу») и кнопка «Полёт».
+/// Левая колонка карты: цели «Куда летим?» сверху, внизу SAS (вкл/выкл и «по узлу») и кнопка «Полёт».
 struct MapLeftColumn: View {
     let model: FlightHUDModel
 
@@ -318,6 +332,7 @@ struct MapLeftColumn: View {
 
     var body: some View {
         VStack(spacing: 6) {
+            MapGoalsColumn(model: model)
             Spacer(minLength: 0)
             MapSASRow(model: model)
             MapToggleButton(model: model)

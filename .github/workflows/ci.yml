@@ -12,6 +12,7 @@ concurrency:
 jobs:
   physics-linux:
     name: OrbitPhysics (Linux)
+    if: "!contains(github.event.head_commit.message, '[build-only]') && !contains(github.event.pull_request.title, '[build-only]')"
     runs-on: ubuntu-latest
     container: swift:6.0-noble
     steps:
@@ -36,14 +37,21 @@ jobs:
           UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; phones=[x for rt,r in d.items() if 'iOS' in rt for x in r if x['name'].startswith('iPhone')]; exact=[x for x in phones if x['name']=='iPhone 16 Pro']; print((exact or phones)[-1]['udid'])")
           echo "Симулятор: $UDID"
           echo "SCREENS_UDID=$UDID" >> "$GITHUB_ENV"
-      - name: Сборка (под симулятор, с тестами)
+          # Загрузка симулятора параллельно сборке сокращает ожидание снимков.
+          xcrun simctl boot "$UDID" || true
+      - name: Сборка под симулятор
+        env:
+          BUILD_ONLY: ${{ contains(github.event.head_commit.message, '[build-only]') || contains(github.event.pull_request.title, '[build-only]') }}
         run: |
           set -o pipefail
+          BUILD_ACTION=build-for-testing
+          if [ "$BUILD_ONLY" = "true" ]; then BUILD_ACTION=build; fi
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
             -destination "platform=iOS Simulator,id=$SCREENS_UDID" \
-            -derivedDataPath build -configuration Debug build-for-testing \
+            -derivedDataPath build -configuration Debug "$BUILD_ACTION" \
             CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
       - name: Регрессии рендера и HUD
+        if: "!contains(github.event.head_commit.message, '[build-only]') && !contains(github.event.pull_request.title, '[build-only]')"
         run: |
           set -o pipefail
           xcodebuild -project Orbita.xcodeproj -scheme Orbita \
@@ -60,6 +68,34 @@ jobs:
         run: |
           PICK=$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[screens: *\([^]]*\)\].*/\1/p' | head -1)
           if [ -z "$PICK" ] || [ "$PICK" = "none" ]; then echo "Снимки пропущены (нет метки [screens: …])"; mkdir -p screens; exit 0; fi
+          if [ "$PICK" = "planets" ]; then
+            mkdir -p screens
+            xcrun simctl bootstatus "$SCREENS_UDID" -b
+            xcrun simctl install "$SCREENS_UDID" build/Build/Products/Debug-iphonesimulator/Orbita.app
+            PLANET_DATA=$(xcrun simctl get_app_container "$SCREENS_UDID" com.maxguselnik.orbita data)
+            for MODE in map flight surface; do
+              rm -f "$PLANET_DATA/Documents/planet-$MODE-terra.ready" "$PLANET_DATA/Documents/planet-$MODE-luna.ready"
+              PLANET_ARGS=(-planet-preview)
+              if [ "$MODE" = "flight" ]; then PLANET_ARGS+=(-flight-render); fi
+              if [ "$MODE" = "surface" ]; then PLANET_ARGS+=(-flight-render -surface-closeup); fi
+              xcrun simctl launch --console "$SCREENS_UDID" com.maxguselnik.orbita "${PLANET_ARGS[@]}" > "screens/planets-$MODE.log" 2>&1 &
+              PLANET_LAUNCH_PID=$!
+              for SECOND in $(seq 1 120); do
+                if [ -f "$PLANET_DATA/Documents/planet-$MODE-terra.ready" ] && [ -f "$PLANET_DATA/Documents/planet-$MODE-luna.ready" ]; then break; fi
+                sleep 1
+              done
+              if [ ! -f "$PLANET_DATA/Documents/planet-$MODE-terra.ready" ] || [ ! -f "$PLANET_DATA/Documents/planet-$MODE-luna.ready" ]; then
+                cat "screens/planets-$MODE.log"
+                echo "::error::Planet scene was not ready"
+                exit 1
+              fi
+              sleep 2
+              xcrun simctl io "$SCREENS_UDID" screenshot "screens/planets-$MODE-native.png"
+              xcrun simctl terminate "$SCREENS_UDID" com.maxguselnik.orbita || true
+              wait "$PLANET_LAUNCH_PID" || true
+            done
+            exit 0
+          fi
           if [ "$PICK" = "all" ]; then PICK=$(cat screens-all.txt); fi
           if [ "$PICK" = "default" ]; then PICK=$(cat screens.txt); fi
           scripts/ci-screens.sh $PICK

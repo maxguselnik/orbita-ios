@@ -4,7 +4,7 @@ import OrbitPhysics
 /// Шаги урока «Первый полёт» по порядку. Пороги — из `AscentGuide`, шаги совпадают с `MissionChecklist`.
 enum LessonStep: Int, CaseIterable, Sendable {
     case intro, throttleMax, launch, vertical, turn, follow, separate
-    case apoapsisCut, warpToApoapsis, circularize, finish
+    case apoapsisCut, openMap, circularize, execute, finish
 
     /// Тангаж, до которого игрок разворачивает нос на шаге «разворот», град.
     static let turnPitch = 80.0
@@ -13,10 +13,6 @@ enum LessonStep: Int, CaseIterable, Sendable {
     /// Отклонение носа от целевого тангажа, град, и время, с, после которых шаг считается ошибочным.
     static let pitchLimit = 15.0
     static let pitchTime = 3.0
-    /// Ап ниже этого значения на шаге скругления считается падением (с запасом от `cutoffApoapsis`), м.
-    static let apoapsisFloor = AscentGuide.cutoffApoapsis - 5_000
-    /// До апоцентра столько секунд — конец шага «лететь до Ап», с.
-    static let apoapsisArrival = 30.0
     /// Порог «тяга выставлена»: доля шкалы.
     static let throttleHigh = 0.95
     static let throttleLow = 0.05
@@ -24,10 +20,22 @@ enum LessonStep: Int, CaseIterable, Sendable {
     var kind: LessonKind {
         switch self {
         case .intro, .finish: .pause
-        case .vertical, .follow, .circularize: .live
+        case .vertical, .follow: .live
         default: .wait
         }
     }
+
+    /// Где идёт шаг: скругление — на карте, прочие — в полёте.
+    var screen: LessonScreen {
+        switch self {
+        case .circularize, .execute: .map
+        case .openMap, .finish: .any
+        default: .flight
+        }
+    }
+
+    /// «Шаг N из M»: вводный и итоговый шаги не считаются.
+    static var numberedCount: Int { allCases.count - 2 }
 
     /// Подсвечиваемый элемент в фазе ожидания действия.
     var target: LessonElement? {
@@ -36,10 +44,15 @@ enum LessonStep: Int, CaseIterable, Sendable {
         case .throttleMax, .apoapsisCut: .throttle
         case .launch, .separate: .stageButton
         case .turn: .dpadRight
-        case .warpToApoapsis: .warp
+        case .openMap: .mapButton
+        case .circularize: .mapCircularize
+        case .execute: .mapExecute
         default: nil
         }
     }
+
+    /// Дополнительная рамка: «Ап 80 км» у высотомера рядом с тягой.
+    var alsoTargets: [LessonElement] { self == .apoapsisCut ? [.apoapsis] : [] }
 
     /// Следит ли шаг за отклонением носа от метки (фазы разворота и следования).
     var watchesPitch: Bool {
@@ -67,7 +80,7 @@ enum LessonStep: Int, CaseIterable, Sendable {
         case .turn: return i.yawRightHeld
         case .separate: return t.nextStageAction != .separate
         case .apoapsisCut: return i.throttle <= Self.throttleLow
-        case .warpToApoapsis: return t.warpIndex > 0 || Self.arrivedAtApoapsis(t)
+        case .execute: return i.autoBurn
         default: return false
         }
     }
@@ -84,8 +97,9 @@ enum LessonStep: Int, CaseIterable, Sendable {
         case .follow: return t.altitude >= Self.followAltitude || Self.stageEmpty(t)
         case .separate: return trigger(i) || Self.apoapsis(t) >= AscentGuide.cutoffApoapsis
         case .apoapsisCut: return isArmed(t) && trigger(i)
-        case .warpToApoapsis: return Self.arrivedAtApoapsis(t)
-        case .circularize: return (t.orbit?.periapsisAltitude ?? -.infinity) > AscentGuide.spaceAltitude
+        case .openMap: return i.mapOpen
+        case .circularize: return t.maneuver != nil
+        case .execute: return !i.autoBurn && Self.inOrbit(t)
         }
     }
 
@@ -94,10 +108,9 @@ enum LessonStep: Int, CaseIterable, Sendable {
         return stage.fuelCapacity > 0 && stage.fuelFraction < 0.01
     }
 
-    static func arrivedAtApoapsis(_ t: FlightTelemetry) -> Bool {
-        if let peri = t.orbit?.periapsisAltitude, peri > AscentGuide.spaceAltitude { return true }
-        guard let toApo = t.orbit?.timeToApoapsis, toApo.isFinite else { return false }
-        return toApo <= apoapsisArrival
+    /// Перицентр выше атмосферы Терры: орбита.
+    static func inOrbit(_ t: FlightTelemetry) -> Bool {
+        (t.orbit?.periapsisAltitude ?? -.infinity) > AscentGuide.spaceAltitude
     }
 
     static func apoapsis(_ t: FlightTelemetry) -> Double {
@@ -153,6 +166,13 @@ struct FirstFlightLesson: Equatable {
                 checkFailure(i, delta: delta)
             } else if phase == .holding {
                 if step.isComplete(i) { advance(t); advanced = true; continue }
+                // Узел удалили до запуска автопрожига: снова «Скруглить орбиту».
+                if step == .execute, gate(i) == nil, t.maneuver == nil {
+                    step = .circularize
+                    phase = Self.startPhase(step, t)
+                    advanced = true
+                    break
+                }
                 if step.trigger(i) { phase = .running }
             } else if phase == .running {
                 if step.isComplete(i) { advance(t); advanced = true; continue }
@@ -206,10 +226,9 @@ struct FirstFlightLesson: Equatable {
             if pitchErrorTime > LessonStep.pitchTime {
                 fail("Нос ушёл на \(Int(error.rounded()))° от метки")
             }
-        } else if step == .circularize {
-            let apo = LessonStep.apoapsis(t)
-            if t.orbit != nil, apo < LessonStep.apoapsisFloor {
-                fail("Апоцентр падает: держите ПРОГРАДИЕНТ")
+        } else if step == .execute {
+            if t.maneuver == nil, !i.autoBurn, !LessonStep.inOrbit(t) {
+                fail("Манёвр не вывел на орбиту — повторите шаг")
             }
         }
     }
@@ -227,35 +246,50 @@ extension LessonStep {
         switch self {
         case .intro:
             return LessonBubble(title: "Цель урока",
-                                text: "Выйти на орбиту 80 км. Шаги и прогресс — в карточке слева.", button: "Понятно")
+                                text: "Выйти на орбиту 80 км. Шаги и прогресс — в карточке слева.", button: "Понятно",
+                                why: "Орбита — это когда корабль летит вокруг Терры так быстро, что не падает.")
         case .throttleMax:
-            return LessonBubble(title: "Тяга", text: "Проведите пальцем по дуге вверх до MAX.", button: nil)
+            return LessonBubble(title: "Тяга", text: "Проведите пальцем по дуге вверх до MAX.", button: nil,
+                                why: "Полная тяга нужна, чтобы оторваться от площадки и набрать скорость.")
         case .launch:
-            return LessonBubble(title: "Пуск", text: "Нажмите ПУСК — двигатели запустятся.", button: nil)
+            return LessonBubble(title: "Пуск", text: "Нажмите ПУСК — двигатели запустятся.", button: nil,
+                                why: "Пока двигатели не зажжены, ракета стоит на месте.")
         case .turn:
             return LessonBubble(title: "Разворот на восток",
-                                text: "Удерживайте ▶, пока тангаж не станет \(Int(Self.turnPitch))°.", button: nil)
+                                text: "Удерживайте ▶, пока тангаж не станет \(Int(Self.turnPitch))°.", button: nil,
+                                why: "Орбита — это не высота, а скорость вбок. Чем раньше нос уходит к востоку, тем лучше разгон.")
         case .separate:
             return LessonBubble(title: "Топливо кончилось",
-                                text: "Нижняя ступень пуста. Нажмите ОТДЕЛИТЬ.", button: nil)
+                                text: "Нижняя ступень пуста. Нажмите ОТДЕЛИТЬ.", button: nil,
+                                why: "Пустая ступень — лишний вес. Без неё верхняя ступень разгоняется лучше.")
         case .apoapsisCut:
-            return LessonBubble(title: "Апоцентр 80 км",
-                                text: "Высшая точка уже 80 км. Опустите тягу до 0.", button: nil)
-        case .warpToApoapsis:
-            let left = t.orbit?.timeToApoapsis.map { HUDFormat.countdown($0) } ?? HUDFormat.dash
-            return LessonBubble(title: "Ускорение времени",
-                                text: "До Ап \(left). Нажмите ▶▶, игра сама замедлится перед ним.", button: nil)
+            let now = HUDFormat.distance(t.altitude)
+            return LessonBubble(title: "Тяга 0",
+                                text: "Сейчас \(now). Двигатель уже разогнал ракету — дальше она сама долетит до 80 км (Ап). Опустите тягу до 0.",
+                                button: nil,
+                                why: "Ап — высшая точка полёта. Она уже 80 км, топливо больше не жжём: оно нужно для выхода на орбиту.")
+        case .openMap:
+            return LessonBubble(title: "Карта", text: "Нажмите кнопку «Карта» справа вверху.", button: nil,
+                                why: "Орбиту планируют на карте: там видна траектория и точка, где включать двигатель.")
+        case .circularize:
+            return LessonBubble(title: "Скруглить орбиту", text: "Нажмите «Скруглить орбиту» слева.", button: nil,
+                                why: "Сейчас ракета летит по дуге и упадёт обратно. Игра поставит узел в высшей точке — там нужно добавить скорость вбок.")
+        case .execute:
+            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа внизу.",
+                                button: nil,
+                                why: "Корабль сам долетит до узла, развернётся и включит двигатель на нужное время.")
         case .finish:
             let apo = HUDFormat.distance(t.orbit?.apoapsisAltitude)
             let peri = HUDFormat.distance(t.orbit?.periapsisAltitude)
             return LessonBubble(title: "Вы на орбите!", text: "Ап \(apo), Пе \(peri). Урок пройден.", button: "В ангар")
-        case .vertical, .follow, .circularize:
+        case .vertical, .follow:
             return nil
         }
     }
 
     /// Живая плашка для шага в полёте (nil — плашки нет).
-    func plate(_ t: FlightTelemetry, phase: LessonPhase) -> LivePlate? {
+    func plate(_ i: LessonInput, phase: LessonPhase) -> LivePlate? {
+        let t = i.telemetry
         let pitch = Int(Self.pitchDegrees(t).rounded())
         let target = Int(AscentGuide.targetPitchDegrees(altitude: t.altitude, heightAboveTerrain: t.heightAboveTerrain).rounded())
         switch self {
@@ -273,13 +307,9 @@ extension LessonStep {
         case .apoapsisCut:
             return LivePlate(head: "Следуйте метке · Ап ", value: HUDFormat.distance(t.orbit?.apoapsisAltitude),
                              tail: " → 80 км")
-        case .warpToApoapsis:
-            return LivePlate(head: "Летим до апоцентра · до Ап ",
-                             value: HUDFormat.countdown(t.orbit?.timeToApoapsis))
-        case .circularize:
-            return LivePlate(head: "SAS «Прогрейд» и тяга MAX · Пе ",
-                             value: HUDFormat.distance(t.orbit?.periapsisAltitude), tail: " → 70 км")
-        case .intro, .throttleMax, .launch, .finish:
+        case .execute:
+            return LivePlate.burn(i)
+        case .intro, .throttleMax, .launch, .openMap, .circularize, .finish:
             return nil
         }
     }
@@ -291,8 +321,13 @@ extension FirstFlightLesson: TutorialLesson {
     var stepIndex: Int { step.rawValue }
     var reachedEnd: Bool { step == .finish }
     var isClosed: Bool { false }
-    /// К скруглению игра сама возвращается к ×1.
-    var forcesRealTime: Bool { step == .circularize }
+    /// Автопрожиг сам выбирает ускорение (в атмосфере — физическое ×4, выше — рельсы).
+    var forcesRealTime: Bool { false }
+
+    var progress: LessonProgress? {
+        guard step != .intro, step != .finish else { return nil }
+        return LessonProgress(step: step.rawValue, total: LessonStep.numberedCount)
+    }
 
     @discardableResult
     mutating func acknowledge(_ i: LessonInput) -> Bool { acknowledge(i.telemetry) }
@@ -303,17 +338,32 @@ extension FirstFlightLesson: TutorialLesson {
 
     mutating func didRestore(_ i: LessonInput) { didRestore(i.telemetry) }
 
+    /// Шаг не на своём экране (карта вместо полёта и наоборот): попросить открыть или закрыть карту.
+    func gate(_ i: LessonInput) -> LessonGate? {
+        guard phase == .holding, step.kind != .pause else { return nil }
+        switch step.screen {
+        case .map: return i.mapOpen ? nil : .openMap
+        case .flight: return i.mapOpen ? .closeMap : nil
+        case .any: return nil
+        }
+    }
+
     func scene(_ i: LessonInput) -> LessonScene {
         let t = i.telemetry
         switch phase {
         case .holding:
+            if let gate = gate(i) {
+                return LessonScene(bubble: gate.bubble, target: gate.target, dims: true, passThrough: true,
+                                   pausedTag: true)
+            }
             var bubble = step.bubble(t)
             if step == .finish {
                 bubble?.role = .hangar
                 bubble?.exitTitle = "Остаться на орбите"
             }
             let waits = bubble?.button == nil
-            return LessonScene(bubble: bubble, target: step.target, dims: true, passThrough: waits, pausedTag: waits)
+            return LessonScene(bubble: bubble, target: step.target, alsoTargets: step.alsoTargets, dims: true,
+                               passThrough: waits, pausedTag: waits)
         case .ready:
             return LessonScene(bubble: .restart, dims: true)
         case .waiting, .running, .failed:
@@ -323,7 +373,7 @@ extension FirstFlightLesson: TutorialLesson {
 
     func plate(_ i: LessonInput) -> LivePlate? {
         switch phase {
-        case .running, .waiting: step.plate(i.telemetry, phase: phase)
+        case .running, .waiting: step.plate(i, phase: phase)
         case .holding, .ready, .failed: nil
         }
     }

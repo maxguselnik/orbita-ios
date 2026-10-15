@@ -7,10 +7,11 @@ enum GaugeSide {
 }
 
 /// Геометрия дуг-приборов на кольце. Углы — в экранных координатах (y вниз): 0° — право, 90° — низ,
-/// 180° — лево, 270° — верх. Левая дуга идёт от 145° (низ-лево, у края экрана) до 215° (верх-лево),
-/// правая — зеркально: от 35° до −35°. Значение 0…1 откладывается снизу вверх.
+/// 180° — лево, 270° — верх. Кольцо опущено так, что его низ уходит за край экрана, поэтому дуги — в верхней
+/// половине: левая от 180° (лево, «9 часов») до 250° (верх-лево), правая — зеркально: от 0° до −70°.
+/// Значение 0…1 откладывается снизу вверх.
 enum GaugeMath {
-    static let startDegrees = 145.0
+    static let startDegrees = 180.0
     static let spanDegrees = 70.0
 
     static func degrees(side: GaugeSide, fraction: Double) -> Double {
@@ -76,7 +77,7 @@ struct GaugeTicksShape: Shape {
     }
 }
 
-/// Кольцо навбола (макет Б4): круг 184 pt, нижние 34 pt уходят за край экрана. Внутри — навбол, сверху — табло
+/// Кольцо навбола (макет Б4): круг 156 pt, нижние 26 pt уходят за край экрана. Внутри — навбол, сверху — табло
 /// скорости, в верхних углах — RCS (слева) и SAS со стрелкой выбора режима (справа); на кольце слева дуга тяги
 /// (тянется пальцем), справа дуга перегрузки.
 struct NavballCluster: View {
@@ -90,10 +91,11 @@ struct NavballCluster: View {
     static let size: CGFloat = 156
     /// Строка «RCS · скорость · SAS» над кольцом (зоны касания 36 pt) и полная ширина кластера.
     static let rowHeight: CGFloat = 36
-    static let width: CGFloat = 196
+    static let width: CGFloat = 276
     static let height: CGFloat = rowHeight + size
-    /// Подъём кластера над нижним краем: ничего интерактивного ближе 40 pt к низу (там системный жест «домой»).
-    static let lift: CGFloat = 14
+    /// Подъём кластера над нижним краем; отрицательный — низ кольца уходит за край (шар виден целиком).
+    /// Дуга остаётся над зоной системного жеста; кнопки тяги вынесены влево от неё.
+    static let lift: CGFloat = -26
     static let ballDiameter: CGFloat = 98
     /// Левый верхний угол кольца и его центр в координатах кластера.
     static let ringOrigin = CGPoint(x: (width - size) / 2, y: rowHeight)
@@ -116,13 +118,13 @@ struct NavballCluster: View {
                 .position(Self.center)
             ClusterRCSButton(model: model)
                 .tutorialAnchor(.rcs)
-                .position(x: 24, y: Self.rowHeight / 2)
+                .position(x: Self.center.x - 74, y: Self.rowHeight / 2)
             SpeedLCD(telemetry: t, frame: frame) { model.toggleSpeedFrame() }
                 .tutorialAnchor(.speed)
                 .position(x: Self.width / 2, y: Self.rowHeight / 2)
             ClusterSASButton(model: model)
                 .tutorialAnchor(.sas)
-                .position(x: Self.width - 31, y: Self.rowHeight / 2)
+                .position(x: Self.center.x + 67, y: Self.rowHeight / 2)
         }
         .frame(width: Self.width, height: Self.height)
     }
@@ -166,6 +168,7 @@ struct SpeedLCD: View {
         .accessibilityLabel(frame == .orbit ? "Орбитальная скорость \(HUDFormat.speed(speed))"
                                             : "Скорость относительно поверхности \(HUDFormat.speed(speed))")
         .accessibilityHint("Переключить орбита или поверхность")
+        .longPressHint("Скорость: орб — от центра Терры, пов — от земли. Тап переключает")
     }
 }
 
@@ -202,6 +205,7 @@ struct ClusterRCSButton: View {
         .buttonStyle(HUDPressStyle())
         .accessibilityLabel(on ? "Выключить РСУ" : "Включить РСУ")
         .accessibilityValue(rcs.available ? "монотоплива \(HUDFormat.percent(rcs.monoFraction))" : "нет блоков")
+        .longPressHint("РСУ — малые двигатели для точных сдвигов и стыковки")
     }
 }
 
@@ -246,6 +250,7 @@ struct ClusterSASButton: View {
             }
             .buttonStyle(HUDPressStyle())
             .accessibilityLabel(on ? "Выключить SAS, сейчас: " + SASGrid.fullName(current) : "Включить SAS")
+            .longPressHint("SAS — автопилот: сам держит нос, куда вы указали")
 
             Button {
                 picking = true
@@ -258,6 +263,7 @@ struct ClusterSASButton: View {
             }
             .buttonStyle(HUDPressStyle())
             .accessibilityLabel("Режим SAS: " + (on ? SASGrid.fullName(current) : "выключен"))
+            .longPressHint("▾ — режим SAS: держать, прогрейд, ретро, узел…")
             .accessibilityHint("Выбрать режим")
             .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -292,24 +298,29 @@ struct ThrottleGauge: View {
     let model: FlightHUDModel
     var guide: HUDAction?
 
-    /// Центры меток MAX и 0 в координатах кластера: слева от дуги, зона касания 44 pt. Нижняя метка стоит так, чтобы
-    /// её зона не опускалась ниже конца дуги (низ кластера ≥ 40 pt от края экрана).
-    static var maxLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 50) }
-    static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 106) }
+    /// Метки вынесены влево: их зоны касания не пересекают перетаскивание дуги.
+    static var maxLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 22) }
+    static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 78) }
     static let labelTouch = CGSize(width: 44, height: 44)
-    /// Центр подписи «ТЯГА N %».
-    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 12, y: NavballCluster.ringOrigin.y + 78) }
+    /// Подпись опущена на 20 % относительно прежнего отступа 45 pt.
+    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 54) }
     /// Радиус ручки.
     static let knobRadius: CGFloat = 7
 
-    /// Рамка для обучения: дуга тяги вместе с метками MAX и 0 (координаты кластера).
+    /// Рамка обучения охватывает и дугу, и вынесенные влево кнопки.
     static var lessonRect: CGRect {
-        CGRect(x: NavballCluster.ringOrigin.x - 30, y: NavballCluster.ringOrigin.y + 26, width: 78, height: 104)
+        let maxRect = CGRect(x: maxLabelCenter.x - labelTouch.width / 2,
+                             y: maxLabelCenter.y - labelTouch.height / 2,
+                             width: labelTouch.width, height: labelTouch.height)
+        let zeroRect = CGRect(x: zeroLabelCenter.x - labelTouch.width / 2,
+                              y: zeroLabelCenter.y - labelTouch.height / 2,
+                              width: labelTouch.width, height: labelTouch.height)
+        return touchRect.union(maxRect).union(zeroRect)
     }
 
-    /// Зона касания дуги в координатах кластера: от верхнего до нижнего конца дуги, ниже — ничего.
+    /// Зона касания дуги в координатах кластера: от верхнего до нижнего конца дуги (и 12 pt ниже «9 часов»), ниже — ничего.
     static var touchRect: CGRect {
-        CGRect(x: NavballCluster.ringOrigin.x - 4, y: NavballCluster.ringOrigin.y + 28, width: 52, height: 100)
+        CGRect(x: NavballCluster.ringOrigin.x - 4, y: NavballCluster.ringOrigin.y + 3, width: 64, height: 87)
     }
 
     var body: some View {
@@ -415,6 +426,7 @@ struct ThrottleEndLabel: View {
         .buttonStyle(HUDPressStyle())
         .disabled(!enabled)
         .accessibilityLabel(label)
+        .longPressHint(title == "MAX" ? "MAX — полная тяга" : "0 — выключить тягу")
     }
 }
 
@@ -451,7 +463,7 @@ struct GForceGauge: View {
                 .font(.system(size: 8, weight: .semibold).monospacedDigit())
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .position(x: NavballCluster.ringOrigin.x + size + 12, y: NavballCluster.ringOrigin.y + 105)
+                .position(x: NavballCluster.ringOrigin.x + size + 12, y: NavballCluster.ringOrigin.y + 68)
         }
         .allowsHitTesting(false)
         .accessibilityElement()
