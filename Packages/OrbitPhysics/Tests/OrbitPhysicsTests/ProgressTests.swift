@@ -60,6 +60,37 @@ struct ProgressTests {
         #expect(again.fresh.isEmpty && again.science == 1 + 1 + 2 + 3)
     }
 
+    @Test func flightAwardCountsEachMilestoneOncePerFlight() {
+        var p = GameProgress(mode: .science)
+        var flight = FlightAward()
+        let space = MissionRecord(launched: true, maxAltitude: 90_000, reachedSpace: true)
+        let first = flight.credit(space, to: &p)
+        #expect(first.science == 2 + 4 + 8 && p.science == 14)
+        // Итоги открыты повторно (пауза, выход в ангар): ничего не добавляется, итог тот же.
+        let again = flight.credit(space, to: &p)
+        #expect(again.science == 14 && p.science == 14 && again.fresh == first.fresh)
+        // «Продолжить»: новая веха в том же полёте начисляется.
+        var orbit = space
+        orbit.reachedOrbit = true
+        let more = flight.credit(orbit, to: &p)
+        #expect(more.science == 14 + 12 && p.science == 26 && more.fresh.last == .orbit)
+        // Перезапуск: новая попытка получает повторную четверть.
+        flight.reset()
+        let retry = flight.credit(MissionRecord(launched: true), to: &p)
+        #expect(retry.fresh.isEmpty && retry.science == 1 && p.science == 27)
+    }
+
+    @Test func flightAwardSkipsLessonPart() {
+        var p = GameProgress(mode: .science)
+        var flight = FlightAward()
+        let lesson = MissionRecord(launched: true, maxAltitude: 90_000, reachedSpace: true)
+        flight.skip(lesson)
+        var after = lesson
+        after.reachedOrbit = true
+        let r = flight.credit(after, to: &p)
+        #expect(r.fresh == [.orbit] && r.science == 12 && p.science == 12)
+    }
+
     @Test func progressRoundTripsJSON() throws {
         var p = GameProgress(mode: .science, science: 7)
         p.research(.rocketry)

@@ -153,9 +153,15 @@ public struct GameProgress: Sendable, Hashable, Codable {
     /// Возвращает новые вехи и всю начисленную науку (для экрана итогов).
     @discardableResult
     public mutating func award(_ mission: MissionRecord) -> (fresh: [Milestone], science: Int) {
+        award(Milestone.reached(in: mission))
+    }
+
+    /// Начислить науку за вехи: новые — полностью, повторные — `repeatScience`.
+    @discardableResult
+    public mutating func award(_ reached: [Milestone]) -> (fresh: [Milestone], science: Int) {
         var fresh: [Milestone] = []
         var gained = 0
-        for m in Milestone.reached(in: mission) {
+        for m in reached {
             if milestones.insert(m).inserted {
                 fresh.append(m)
                 gained += m.science
@@ -172,4 +178,34 @@ public struct GameProgress: Sendable, Hashable, Codable {
         var seen = Set<PartID>()
         return design.parts.filter { !isUnlocked($0) && seen.insert($0).inserted }
     }
+}
+
+/// Начисление за один полёт: каждая веха — не больше раза за полёт, сколько бы раз ни открывались итоги
+/// или ни продолжался полёт; перезапуск — новый полёт (`reset`). Итог — всё начисленное за полёт.
+public struct FlightAward: Sendable, Hashable {
+    /// Вехи полёта, уже учтённые (начисленные или пропущенные в уроке).
+    public private(set) var counted: Set<Milestone> = []
+    /// Новые за игру вехи этого полёта и вся начисленная за полёт наука.
+    public private(set) var fresh: [Milestone] = []
+    public private(set) var science = 0
+
+    public init() {}
+
+    /// Начислить вехи `mission`, ещё не учтённые в этом полёте. Возвращает итог полёта.
+    @discardableResult
+    public mutating func credit(_ mission: MissionRecord, to progress: inout GameProgress) -> (fresh: [Milestone], science: Int) {
+        let pending = Milestone.reached(in: mission).filter { !counted.contains($0) }
+        counted.formUnion(pending)
+        let r = progress.award(pending)
+        fresh += r.fresh
+        science += r.science
+        return (fresh, science)
+    }
+
+    /// Учесть вехи без начисления (пройдены в уроке до выхода из него).
+    public mutating func skip(_ mission: MissionRecord) {
+        counted.formUnion(Milestone.reached(in: mission))
+    }
+
+    public mutating func reset() { self = FlightAward() }
 }
