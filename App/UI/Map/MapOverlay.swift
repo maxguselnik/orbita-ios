@@ -45,6 +45,16 @@ struct MapOverlayFrame: View {
         let labels = MapLabel.layout(snapshot.markers, map: map, obstacles: Self.obstacles(model, node: node))
         ZStack(alignment: .topLeading) {
             Canvas { context, _ in
+                var bodyPoints: [CGPoint] = []
+                for id in [BodyID.sol, .vella, .terra, .arda, .taros, .luna] {
+                    guard let p = map.project(.zero, body: id), p.x.isFinite, p.y.isFinite,
+                          !bodyPoints.contains(where: { hypot($0.x - p.x, $0.y - p.y) < 32 }) else { continue }
+                    bodyPoints.append(p)
+                    let dot = Path(ellipseIn: CGRect(x: p.x - 2, y: p.y - 2, width: 4, height: 4))
+                    context.fill(dot, with: .color(.white.opacity(0.8)))
+                    let text = Text(Bodies.body(id).name).font(.system(size: 11, weight: .medium)).foregroundColor(.white)
+                    context.draw(text, at: CGPoint(x: p.x + 8, y: p.y + 8), anchor: .topLeading)
+                }
                 for label in labels {
                     label.draw(in: &context)
                 }

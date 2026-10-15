@@ -48,7 +48,10 @@ protocol FlightRenderer: AnyObject {
 
 /// Фокус камеры карты.
 enum MapFocus: String, CaseIterable, Sendable {
-    case vessel, terra, luna
+    case vessel, terra, luna, sol, vella, arda, taros
+
+    var bodyID: BodyID? { BodyID(rawValue: rawValue) }
+    static func body(_ id: BodyID) -> MapFocus { MapFocus(rawValue: id.rawValue) ?? .terra }
 }
 
 /// Данные карты: прогноз траектории, орбита после узла, отметки. Считает `MapModel` (ведущий).

@@ -10,9 +10,8 @@ enum TerrainMaterial {
     private static let library = MTLCreateSystemDefaultDevice()?.makeDefaultLibrary()
 
     static func make(_ texture: TextureResource?, body: BodyID) -> any Material {
-        let fallback = body == .terra
-            ? UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1)
-            : UIColor(white: 0.5, alpha: 1)
+        let fallback = PlanetAppearance.color(body)
+        if body == .sol { return UnlitMaterial(color: fallback) }
         guard let texture else { return SimpleMaterial(color: fallback, roughness: 1, isMetallic: false) }
         var base = PhysicallyBasedMaterial()
         base.baseColor = .init(tint: .white, texture: .init(texture))
@@ -20,7 +19,7 @@ enum TerrainMaterial {
         base.metallic = .init(floatLiteral: 0)
         // Убирает отражение студийного окружения по краю диска с орбиты.
         base.specular = .init(floatLiteral: 0)
-        guard let library else { return base }
+        guard body != .taros, let library else { return base }
         do {
             let shader = CustomMaterial.SurfaceShader(named: "terrainSurface", in: library)
             var material = try CustomMaterial(from: base, surfaceShader: shader)

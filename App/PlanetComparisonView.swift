@@ -8,10 +8,19 @@ import SwiftUI
 struct PlanetComparisonView: View {
     var flightMode = false
     var closeup = false
+    var newWorlds = false
     var body: some View {
         HStack(spacing: 0) {
-            PlanetComparisonViewport(body: .terra, title: "ТЕРРА", flightMode: flightMode, closeup: closeup)
-            PlanetComparisonViewport(body: .luna, title: "ЛУНА", flightMode: flightMode, closeup: closeup)
+            if newWorlds {
+                PlanetComparisonViewport(body: .vella, title: "ВЕЛЛА", flightMode: flightMode, closeup: closeup)
+                PlanetComparisonViewport(body: .arda, title: "АРДА", flightMode: flightMode, closeup: closeup)
+                if !closeup {
+                    PlanetComparisonViewport(body: .taros, title: "ТАРОС", flightMode: flightMode, closeup: false)
+                }
+            } else {
+                PlanetComparisonViewport(body: .terra, title: "ТЕРРА", flightMode: flightMode, closeup: closeup)
+                PlanetComparisonViewport(body: .luna, title: "ЛУНА", flightMode: flightMode, closeup: closeup)
+            }
         }
         .background(.black)
         .ignoresSafeArea()
@@ -56,11 +65,11 @@ private struct PlanetComparisonViewport: View {
         var snapshot = FlightSim(design: .orbit).snapshot
         renderer.targetFrameRate = 60
         let mode = closeup ? "surface" : flightMode ? "flight" : "map"
-        let name = bodyID == .terra ? "terra" : "luna"
+        let name = bodyID.rawValue
         let readyFile = URL.documentsDirectory.appendingPathComponent("planet-\(mode)-\(name).ready")
         var written = false
         if flightMode {
-            let direction = bodyID == .terra ? Vec3(1, 0.55, 0.3) : Vec3(-0.6, 1, 0.25)
+            let direction = PlanetInspection.direction(bodyID)
             snapshot.vessels[0].body = bodyID
             snapshot.vessels[0].position = direction.normalized * (Bodies.body(bodyID).radius + 80_000)
             renderer.inspectionBody = bodyID
@@ -76,16 +85,17 @@ private struct PlanetComparisonViewport: View {
         }
         snapshot.vessels = []
         renderer.isMapMode = true
-        renderer.mapFocus = bodyID == .terra ? .terra : .luna
+        renderer.mapFocus = .body(bodyID)
         renderer.viewSize = size
         renderer.updateMap(.empty)
         renderer.update(snapshot: snapshot, events: [], frameDelta: 0)
         // Те же полушария, что были показаны в отдельном предпросмотре.
-        let azimuth = bodyID == .terra ? atan2(0.55, 1.0) : atan2(1.0, -0.6)
-        let elevation = bodyID == .terra ? atan2(0.3, hypot(1.0, 0.55)) : atan2(0.25, hypot(-0.6, 1.0))
+        let direction = PlanetInspection.direction(bodyID)
+        let azimuth = atan2(direction.y, direction.x)
+        let elevation = atan2(direction.z, hypot(direction.x, direction.y))
         renderer.apply(CameraInput(orbitDelta: SIMD2(Float(azimuth - MapCamera.defaultAzimuth),
                                                      Float(elevation - MapCamera.defaultElevation)),
-                                   zoomFactor: 0.7))
+                                   zoomFactor: bodyID == .terra || bodyID == .luna ? 0.7 : 0.9))
         renderer.update(snapshot: snapshot, events: [], frameDelta: 1)
         driver.frameRate = .hz60
         driver.start { [renderer, snapshot] _ in
@@ -94,5 +104,16 @@ private struct PlanetComparisonViewport: View {
                 written = (try? Data("ready".utf8).write(to: readyFile, options: .atomic)) != nil
             }
         }
+    }
+}
+
+/// Один ракурс для сравнения карты и полёта, всегда над освещённой стороной новых миров.
+enum PlanetInspection {
+    static func distance(_ id: BodyID) -> Double { id == .terra || id == .luna ? 2.88 : 3.7 }
+    static func direction(_ id: BodyID) -> Vec3 {
+        if id == .terra { return Vec3(1, 0.55, 0.3) }
+        if id == .luna { return Vec3(-0.6, 1, 0.25) }
+        let sun = World.position(of: .sol, relativeTo: id, at: 0).normalized
+        return sun + Vec3.unitZ.cross(sun) * 0.5 + Vec3.unitZ * 0.25
     }
 }

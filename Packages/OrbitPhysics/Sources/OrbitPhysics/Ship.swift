@@ -338,9 +338,8 @@ struct Ship: Sendable, Hashable {
 
     /// Шаг нагрева: поток `flux` (Вт/м² на открытую площадь) по направлению `d`, излучение, обмен с соседями.
     /// Возвращает id перегретых деталей и встречает ли поток экран.
-    mutating func thermalStep(flow d: Vec3, flux: Double, dt: Double) -> (destroyed: [Int], shieldFacing: Bool) {
-        // Холодный корабль без потока: считать нечего.
-        guard flux > 0 || parts.contains(where: { $0.temperature > Self.ambientTemperature + 1 }) else { return ([], false) }
+    mutating func thermalStep(flow d: Vec3, flux: Double, dt: Double,
+                              environment: ThermalEnvironment = .init()) -> (destroyed: [Int], shieldFacing: Bool) {
         var dq = Array(repeating: 0.0, count: parts.count)
         var facing = false
         if flux > 0 && d.lengthSquared > 0.5 {
@@ -361,13 +360,10 @@ struct Ship: Sendable, Hashable {
                 dq[i] += q
             }
         }
-        let ta = Self.ambientTemperature
-        let ta4 = ta * ta * ta * ta
         var index: [Int: Int] = [:]
         for (i, p) in parts.enumerated() { index[p.uid] = i }
         for (i, p) in parts.enumerated() {
             let t = p.temperature
-            dq[i] -= Self.emissivitySigma * surfaceArea(i) * (t * t * t * t - ta4)
             if let pid = p.parent, let j = index[pid] {
                 let flow = Self.conductance * (parts[j].temperature - t)
                 dq[i] += flow
@@ -376,21 +372,30 @@ struct Ship: Sendable, Hashable {
         }
         var destroyed: [Int] = []
         for i in parts.indices {
-            parts[i].temperature = max(ta, parts[i].temperature + dq[i] * dt / heatCapacity(i))
+            parts[i].temperature = max(3, parts[i].temperature + dq[i] * dt / heatCapacity(i))
+            exchangeHeat(i, dt: dt, environment: environment)
             if parts[i].temperature > temperatureLimit(i) { destroyed.append(parts[i].uid) }
         }
         return (destroyed, facing)
     }
 
-    /// Остывание излучением за `dt` без потока (рельсы, вакуум): точное решение dT/dt = −k·T⁴.
-    mutating func cool(dt: Double) {
+    /// Устойчивый обмен с окружающей средой, включая большие интервалы на рельсах.
+    /// Излучение в вакууме и конвекция в газе имеют разные равновесные температуры.
+    private mutating func exchangeHeat(_ i: Int, dt: Double, environment: ThermalEnvironment) {
+        let area = surfaceArea(i), capacity = heatCapacity(i)
+        let t = parts[i].temperature
+        let ta = environment.radiationTemperature
+        let radiation = Self.emissivitySigma * area / capacity * (t + ta) * (t * t + ta * ta)
+        let convection = 8 * environment.density.squareRoot() * area / capacity
+        let rate = radiation + convection
+        guard rate > 0 else { return }
+        let equilibrium = (radiation * ta + convection * environment.airTemperature) / rate
+        parts[i].temperature = max(3, equilibrium + (t - equilibrium) * exp(-rate * dt))
+    }
+
+    mutating func cool(dt: Double, environment: ThermalEnvironment = .init()) {
         guard dt > 0 else { return }
-        let ta = Self.ambientTemperature
-        for i in parts.indices where parts[i].temperature > ta + 0.01 {
-            let k = Self.emissivitySigma * surfaceArea(i) / heatCapacity(i)
-            let t = parts[i].temperature
-            parts[i].temperature = max(ta, 1 / cbrt(1 / (t * t * t) + 3 * k * dt))
-        }
+        for i in parts.indices { exchangeHeat(i, dt: dt, environment: environment) }
     }
 
     /// Удалить разрушенную деталь: её поддеревья, кроме оставшегося с корнем (или с командной деталью, если

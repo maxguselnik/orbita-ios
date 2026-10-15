@@ -336,7 +336,7 @@ public final class FlightSim: FlightSimulation {
         if v.isActive && rcsTranslationCommand(v.ship) != nil { return .thrust }
         if v.isOnSurface { return nil }
         let alt = v.r.length - Bodies.body(v.body).radius
-        if alt < World.railsMinimumAltitude(v.body) { return v.body == .terra ? .atmosphere : .terrain }
+        if alt < World.railsMinimumAltitude(v.body) { return Bodies.body(v.body).atmosphereHeight > 0 ? .atmosphere : .terrain }
         return nil
     }
 
@@ -478,7 +478,7 @@ public final class FlightSim: FlightSimulation {
 
     private func pressure(of v: Vessel) -> Double {
         let b = Bodies.body(v.body)
-        return b.density(altitude: v.r.length - b.radius) / Bodies.terra.seaLevelDensity
+        return b.relativePressure(altitude: v.r.length - b.radius)
     }
 
     private func step(_ h: Double) {
@@ -524,7 +524,7 @@ public final class FlightSim: FlightSimulation {
         let up = s.r / rm
         let alt = rm - b.radius
         let rho = b.density(altitude: alt)
-        let p = rho / Bodies.terra.seaLevelDensity
+        let p = b.relativePressure(altitude: alt)
         let m = s.ship.mass
         let stageNo = s.ship.decouplerCount
 
@@ -567,7 +567,7 @@ public final class FlightSim: FlightSimulation {
                 s.rcsTranslation = .zero
                 rcsUse = 0
                 lastProperAccel = g
-                s.ship.cool(dt: h)
+                s.ship.cool(dt: h, environment: World.thermalEnvironment(body: s.body, position: s.r, time: time))
                 vessels[ai] = s
                 return
             }
@@ -657,7 +657,8 @@ public final class FlightSim: FlightSimulation {
         // Как у `heating`: медленнее ~900 м/с конвективный нагрев не растёт (взлёт в плотном воздухе не греет).
         let fast: Double = clamp((va - Self.heatingOnsetSpeed) / Self.heatingOnsetSpeed, 0, 1)
         let flux: Double = rho > 0 && fast > 0 ? Self.heatFluxCoefficient * rho.squareRoot() * va * va * va * fast : 0
-        let thermal = s.ship.thermalStep(flow: s.q.conjugate.rotate(vh), flux: flux, dt: h)
+        let thermal = s.ship.thermalStep(flow: s.q.conjugate.rotate(vh), flux: flux, dt: h,
+                                         environment: World.thermalEnvironment(body: s.body, position: s.r, time: time))
         s.shieldFacing = thermal.shieldFacing
         if !thermal.destroyed.isEmpty && burnUp(&s, thermal.destroyed) {
             // Сгорела командная деталь — авария.
@@ -678,7 +679,7 @@ public final class FlightSim: FlightSimulation {
         if rm2 <= surfR {
             let vRel = s.v - spin.cross(s.r)
             let speed = vRel.length
-            if speed > s.ship.crashTolerance {
+            if !b.hasSolidSurface || speed > s.ship.crashTolerance {
                 s.r = dir * surfR
                 s.situation = .crashed
                 events.append(.crash(speed: speed))
@@ -838,7 +839,7 @@ public final class FlightSim: FlightSimulation {
     /// Скорость для навигации: у Терры ниже 36 км — относительно воздуха.
     private func navVelocity(_ s: Vessel) -> Vec3 {
         let alt = s.r.length - Bodies.body(s.body).radius
-        if s.body == .terra && alt < 36_000 { return s.v - World.spin(s.body).cross(s.r) }
+        if Bodies.body(s.body).atmosphereHeight > 0 && alt < Bodies.body(s.body).atmosphereHeight * 0.52 { return s.v - World.spin(s.body).cross(s.r) }
         return s.v
     }
 
@@ -908,13 +909,7 @@ public final class FlightSim: FlightSimulation {
     private func checkSOI(_ k: Int) {
         let v = vessels[k]
         guard !v.isOnSurface, v.situation != .crashed else { return }
-        var to: BodyID?
-        if v.body == .terra {
-            if (v.r - World.lunaPosition(at: time)).length < Bodies.luna.soiRadius { to = .luna }
-        } else if v.r.length > Bodies.luna.soiRadius {
-            to = .terra
-        }
-        guard let target = to else { return }
+        guard let target = World.soiTarget(body: v.body, position: v.r, time: time) else { return }
         let sv = World.convert(StateVector(position: v.r, velocity: v.v), from: v.body, to: target, time: time)
         vessels[k].r = sv.position
         vessels[k].v = sv.velocity
@@ -953,7 +948,6 @@ public final class FlightSim: FlightSimulation {
         lastRailsKeplerCalls = 0
         // На рельсах — только остывание.
         for k in vessels.indices where vessels[k].isActive {
-            vessels[k].ship.cool(dt: total)
             vessels[k].shieldFacing = false
         }
         // Отделённые ступени в атмосфере на рельсах не моделируются — удаляются.
@@ -963,6 +957,7 @@ public final class FlightSim: FlightSimulation {
             return b.density(altitude: d.r.length - b.radius) > 0
         }
         if active.isOnSurface || active.situation == .crashed {
+            coolOnRails(activeIndex, dt: total, at: time + total)
             railsOthers(total)
             time += total
             for k in vessels.indices where vessels[k].isGrounded { updateLanded(k) }
@@ -989,17 +984,18 @@ public final class FlightSim: FlightSimulation {
                 horizon = min(horizon, t + nudge)
                 event = .low
             }
-            if s.body == .luna,
+            if b.parent != nil,
                let t = Kepler.timeToRadius(b.soiRadius, position: s.r, velocity: s.v, mu: mu, outbound: true),
                t < horizon {
                 horizon = min(horizon, t + nudge)
                 event = .soi
             }
             var end: StateVector?
-            if s.body == .terra {
-                switch lunaEntrySearch(s, horizon: horizon, calls: &calls) {
+            if !Bodies.children(of: s.body).isEmpty {
+                switch World.childEntry(body: s.body, state: StateVector(position: s.r, velocity: s.v),
+                                        time: time, horizon: horizon, calls: &calls, budget: Self.railsKeplerBudget) {
                 case .none: break
-                case .entry(let t, let sv):
+                case .entry(let t, let sv, _):
                     horizon = t
                     end = sv
                     event = .soi
@@ -1019,7 +1015,7 @@ public final class FlightSim: FlightSimulation {
             // Страховка (почти параболическая орбита, где аналитика не применяется):
             // конец участка ниже минимальной высоты или за SOI — ищем пересечение бисекцией.
             if event == nil {
-                let outside = s.body == .luna && sv.position.length > b.soiRadius
+                let outside = b.parent != nil && sv.position.length > b.soiRadius
                 if sv.position.length < rLow || outside {
                     var lo = 0.0, hi = horizon
                     var hiState = sv
@@ -1027,7 +1023,7 @@ public final class FlightSim: FlightSimulation {
                         let mid = 0.5 * (lo + hi)
                         let m = Kepler.propagate(position: s.r, velocity: s.v, mu: mu, dt: mid)
                         calls += 1
-                        if m.position.length < rLow || (s.body == .luna && m.position.length > b.soiRadius) {
+                        if m.position.length < rLow || (b.parent != nil && m.position.length > b.soiRadius) {
                             hi = mid
                             hiState = m
                         } else {
@@ -1041,6 +1037,7 @@ public final class FlightSim: FlightSimulation {
             }
             vessels[idx].r = sv.position
             vessels[idx].v = sv.velocity
+            coolOnRails(idx, dt: horizon, at: time + horizon)
             railsOthers(horizon)
             time += horizon
             rem -= horizon
@@ -1049,9 +1046,9 @@ public final class FlightSim: FlightSimulation {
             checkSOI(idx)
             for k in vessels.indices where k != idx { checkSOI(k) }
             // Смена SOI сбрасывает ускорение (checkSOI → resetWarp).
-            if vessels[idx].body != oldBody { break }
+            if vessels[idx].body != oldBody || vessels[idx].situation == .crashed { break }
             if event == .low {
-                resetWarp(s.body == .terra ? .atmosphere : .terrain)
+                resetWarp(b.atmosphereHeight > 0 ? .atmosphere : .terrain)
                 break
             }
             if event == .budget {
@@ -1069,57 +1066,20 @@ public final class FlightSim: FlightSimulation {
         return max(0, rem)
     }
 
-    private enum EntrySearch {
-        case none
-        case entry(Double, StateVector)
-        case budget(Double, StateVector)
-    }
-
-    /// Поиск входа в SOI Луны на интервале [0, horizon] для корабля в системе Терры.
-    ///
-    /// f(t) = |r − r_Луны| − R_SOI. Шаг выбирается так, чтобы f не могла обнулиться:
-    /// f(t+τ) ≥ f + f'·τ − A·τ²/2, где A — гарантированная граница |f''| в области
-    /// f ≤ 2f + 1000 км (радиус там не меньше rLo, скорость относительно Луны не больше v_rel).
-    /// Шаг не длиннее (1000 км + f)/v_rel — за него из этой области не выйти.
-    /// Вдали от Луны шаг большой, у границы сходится как метод Ньютона; касание SOI не дробит шаг.
-    private func lunaEntrySearch(_ s: Vessel, horizon: Double, calls: inout Int) -> EntrySearch {
-        let mu: Double = Bodies.terra.mu
-        let soi: Double = Bodies.luna.soiRadius
-        let rL: Double = Bodies.luna.orbitRadius
-        let el = OrbitElements(position: s.r, velocity: s.v, mu: mu)
-        if el.apoapsisRadius < rL - soi || el.periapsisRadius > rL + soi { return .none }
-        let omega: Double = World.lunaAngularRate
-        let vL: Double = rL * omega
-        let aL: Double = vL * omega
-        let alpha: Double = 2 / s.r.length - s.v.lengthSquared / mu
-        // Наименьший радиус на будущей траектории.
-        var rMin: Double = el.periapsisRadius
-        if el.timeToPeriapsis == nil { rMin = s.r.length }
-        func speed(_ r: Double) -> Double { max(0, mu * (2 / r - alpha)).squareRoot() }
-        let margin = 1_000_000.0
-        var t = 0.0
-        var st = StateVector(position: s.r, velocity: s.v)
-        while true {
-            let lp = World.lunaPosition(at: time + t)
-            let lv = World.lunaVelocity(at: time + t)
-            let d: Vec3 = st.position - lp
-            let dm: Double = d.length
-            let f: Double = dm - soi
-            if f <= 0 { return .entry(t, st) }
-            let fd: Double = d.dot(st.velocity - lv) / dm
-            let reach: Double = 2 * f + margin
-            let rLo: Double = max(rMin, rL - soi - reach, 1)
-            let vRel: Double = speed(rLo) + vL
-            let accBound: Double = vRel * vRel / soi + mu / (rLo * rLo) + aL
-            var dt: Double = (fd + (fd * fd + 2 * accBound * f).squareRoot()) / accBound
-            dt = min(dt, (f + margin) / vRel)
-            dt = max(dt, 0.2)
-            if t + dt >= horizon { return .none }
-            // Последний вызов бюджета — на итоговый шаг участка.
-            if calls >= Self.railsKeplerBudget - 1 { return .budget(t, st) }
-            t += dt
-            st = Kepler.propagate(position: s.r, velocity: s.v, mu: mu, dt: t)
-            calls += 1
+    private func coolOnRails(_ k: Int, dt: Double, at t: Double) {
+        let environment = World.thermalEnvironment(body: vessels[k].body, position: vessels[k].r, time: t)
+        vessels[k].ship.cool(dt: dt, environment: environment)
+        let ship = vessels[k].ship
+        let destroyed = ship.parts.indices.filter { ship.parts[$0].temperature > ship.temperatureLimit($0) }
+            .map { ship.parts[$0].uid }
+        if !destroyed.isEmpty {
+            var vessel = vessels[k]
+            if burnUp(&vessel, destroyed) {
+                vessel.situation = .crashed
+                events.append(.crash(speed: vessel.v.length))
+                resetWarp(.terrain)
+            }
+            vessels[k] = vessel
         }
     }
 
@@ -1204,7 +1164,7 @@ public final class FlightSim: FlightSimulation {
         let vAir = s.v - spin.cross(s.r)
         let va = vAir.length
         let rho = b.density(altitude: alt)
-        let p = rho / Bodies.terra.seaLevelDensity
+        let p = b.relativePressure(altitude: alt)
         let onRails = warpIndex >= TimeWarp.physicalCount
         let qd = 0.5 * rho * va * va
         var t = FlightTelemetry()
@@ -1214,7 +1174,10 @@ public final class FlightSim: FlightSimulation {
         t.surfaceSpeed = va
         t.verticalSpeed = s.v.dot(up)
         t.dynamicPressure = qd
-        t.mach = rho > 0 ? va / World.speedOfSound(altitude: alt) : 0
+        let environment = World.thermalEnvironment(body: s.body, position: s.r, time: time)
+        t.environmentTemperature = rho > 0 ? environment.airTemperature : nil
+        t.localGravity = b.mu / (rm * rm)
+        t.mach = rho > 0 ? va / World.speedOfSound(altitude: alt, body: s.body) : 0
         if !s.isOnSurface && s.situation != .crashed {
             t.orbit = OrbitElements(position: s.r, velocity: s.v, mu: b.mu).summary(body: b)
         }

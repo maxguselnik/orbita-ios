@@ -18,7 +18,7 @@ enum MapScale {
     static let lunaOrbit = Bodies.luna.orbitRadius / metersPerUnit
     static let lunaSOI = Bodies.luna.soiRadius / metersPerUnit
     /// Дальше всего — орбита Луны с её SOI целиком ×1.3.
-    static var maxDistance: Double { 1.3 * (lunaOrbit + lunaSOI) / tanHalfFov }
+    static var maxDistance: Double { 1.5 * Bodies.taros.orbitRadius / metersPerUnit / tanHalfFov }
 }
 
 /// Орбитальная камера карты: азимут/возвышение/расстояние вокруг фокуса, ось «верх» — +Z.

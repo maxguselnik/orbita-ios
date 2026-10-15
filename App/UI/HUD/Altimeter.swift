@@ -27,9 +27,20 @@ struct AltimeterPanel: View {
             Text(AltimeterMode.label(overTerrain: model.altimeterOverTerrain))
                 .font(.system(size: 8, weight: .semibold))
                 .foregroundStyle(HUDPalette.muted)
-            if t.body == .terra {
-                AtmosphereScale(altitude: t.altitude)
+            let body = Bodies.body(t.body)
+            if body.atmosphereHeight > 0 {
+                AtmosphereScale(altitude: t.altitude, atmosphereHeight: body.atmosphereHeight)
             }
+            HStack(spacing: 6) {
+                Text(String(format: "g %.2f", t.localGravity))
+                if let temperature = t.environmentTemperature {
+                    Text(String(format: "%.0f °C", temperature - 273.15))
+                } else {
+                    Text("ВАКУУМ")
+                }
+            }
+            .font(.system(size: 8, weight: .medium).monospacedDigit())
+            .foregroundStyle(HUDPalette.muted)
             if let apoapsis = Self.apoapsisToShow(t) {
                 ApoapsisRow(altitude: apoapsis)
                     .tutorialAnchor(.apoapsis)
@@ -111,6 +122,7 @@ struct OdometerRow: View {
 /// Шкала атмосферы Терры: справа поверхность, слева космос (70 км); жёлтый маркер — текущая высота.
 struct AtmosphereScale: View {
     let altitude: Double
+    var atmosphereHeight: Double = AscentGuide.spaceAltitude
 
     static let width: CGFloat = 100
 
@@ -121,7 +133,7 @@ struct AtmosphereScale: View {
     }
 
     var body: some View {
-        let position = CGFloat(Self.markerPosition(altitude: altitude))
+        let position = CGFloat(1 - min(max(altitude / max(1, atmosphereHeight), 0), 1))
         LinearGradient(stops: [
             .init(color: Color(red: 0.016, green: 0.024, blue: 0.043), location: 0),
             .init(color: Color(red: 0.07, green: 0.133, blue: 0.247), location: 0.4),

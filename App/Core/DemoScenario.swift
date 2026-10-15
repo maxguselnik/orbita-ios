@@ -51,6 +51,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case mapManeuver
     /// Карта при входе в сферу влияния Луны, фокус на Луне.
     case mapLuna
+    case systemMap, vellaOrbit, ardaOrbit, tarosOrbit, vellaSurface, ardaSurface
     /// Экипаж (5.4): все персонажи × все настроения крупно поверх полёта на площадке.
     case crewGallery
     /// Экипаж из трёх в HUD с принудительным настроением: площадка, подъём у max Q, орбита, вход в атмосферу,
@@ -69,14 +70,14 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Сцена открывается на карте.
     var opensMap: Bool {
         switch self {
-        case .map, .mapManeuver, .mapLuna: true
+        case .map, .mapManeuver, .mapLuna, .systemMap: true
         default: false
         }
     }
 
     /// Фокус камеры карты для сцены.
     var mapFocus: MapFocus {
-        self == .mapLuna ? .luna : .vessel
+        self == .systemMap ? .sol : (self == .mapLuna ? .luna : .vessel)
     }
 
     /// Экипаж сцены; nil — по местам кабин корабля.
@@ -110,6 +111,12 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
+        case .systemMap: return Self.planetOrbit(.terra)
+        case .vellaOrbit: return Self.planetOrbit(.vella)
+        case .ardaOrbit: return Self.planetOrbit(.arda)
+        case .tarosOrbit: return Self.planetOrbit(.taros)
+        case .vellaSurface: return Self.planetSurface(.vella)
+        case .ardaSurface: return Self.planetSurface(.arda)
         case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial,
              .crewGallery, .crewCalm:
             return FlightSim(design: .orbit)
@@ -216,6 +223,23 @@ enum DemoScenario: String, CaseIterable, Sendable {
         let side = nose.cross(up).normalized
         return FlightSim(design: design, body: .terra, position: r, velocity: v,
                          attitude: Quat(basisX: side, y: nose, z: side.cross(nose)))
+    }
+
+    private static func planetOrbit(_ id: BodyID) -> FlightSim {
+        let body = Bodies.body(id)
+        let up = World.position(of: .sol, relativeTo: id, at: 0).normalized
+        let r = up * (body.radius + max(80_000, body.atmosphereHeight + 30_000))
+        let v = Vec3.unitZ.cross(up).normalized * (body.mu / r.length).squareRoot()
+        return FlightSim(design: .luna, body: id, position: r, velocity: v)
+    }
+
+    private static func planetSurface(_ id: BodyID) -> FlightSim {
+        let up = World.position(of: .sol, relativeTo: id, at: 0).normalized
+        let height = Terrain.surfaceHeight(body: id, direction: up)
+        let r = up * (Bodies.body(id).radius + height + 0.1)
+        return FlightSim(design: .luna, body: id, position: r,
+                         velocity: World.surfaceVelocity(body: id, position: r),
+                         attitude: Quat(axis: .unitZ, angle: atan2(up.y, up.x) - .pi / 2))
     }
 
     /// Узел перелёта к Луне (`ManeuverPlanner.plan(.toLuna, …)`): гомановская фаза, Пе у Луны ≈ 30 км.

@@ -68,6 +68,16 @@ jobs:
         run: |
           PICK=$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[screens: *\([^]]*\)\].*/\1/p' | head -1)
           if [ -z "$PICK" ] || [ "$PICK" = "none" ]; then echo "Снимки пропущены (нет метки [screens: …])"; mkdir -p screens; exit 0; fi
+          if [ "$PICK" = "worldflight" ]; then
+            WORLD_GROUPS=new WORLD_MODES="map flight" scripts/ci-worlds.sh
+            SCREENS_APP_INSTALLED=1 scripts/ci-screens.sh tarosOrbit systemMap flight
+            exit 0
+          fi
+          if [ "$PICK" = "worlds" ]; then
+            scripts/ci-worlds.sh
+            SCREENS_APP_INSTALLED=1 scripts/ci-screens.sh systemMap vellaOrbit ardaOrbit tarosOrbit vellaSurface ardaSurface flight mapLuna
+            exit 0
+          fi
           if [ "$PICK" = "planets" ]; then
             mkdir -p screens
             xcrun simctl bootstatus "$SCREENS_UDID" -b

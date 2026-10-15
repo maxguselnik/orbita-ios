@@ -39,14 +39,12 @@ func perpendicular(_ hint: D3, to v: D3) -> D3 {
 /// (оси совпадают с физикой: Терра вращается вокруг +Z), со сдвигом на точку отсчёта.
 enum RenderFrame {
     /// Центр тела `body` в инерциальной системе тела `frame`.
-    static func bodyCenter(_ body: BodyID, in frame: BodyID, luna: D3) -> D3 {
-        if body == frame { return .zero }
-        return frame == .terra ? luna : -luna
+    static func bodyCenter(_ body: BodyID, in frame: BodyID, time: Double) -> D3 {
+        World.position(of: body, relativeTo: frame, at: time).d3
     }
 
-    /// Поворот «связанная с телом система → инерциальная».
-    static func bodyRotation(_ body: BodyID, terraRotation: Double) -> simd_quatd {
-        body == .terra ? simd_quatd(angle: terraRotation, axis: D3(0, 0, 1)) : simd_quatd(ix: 0, iy: 0, iz: 0, r: 1)
+    static func bodyRotation(_ body: BodyID, time: Double) -> simd_quatd {
+        simd_quatd(angle: World.rotation(body, at: time), axis: D3(0, 0, 1))
     }
 }
 

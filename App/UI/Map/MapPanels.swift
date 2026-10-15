@@ -17,6 +17,10 @@ enum MapText {
         switch body {
         case .terra: "Терры"
         case .luna: "Луны"
+        case .sol: "Сола"
+        case .vella: "Веллы"
+        case .arda: "Арды"
+        case .taros: "Тароса"
         }
     }
 
@@ -25,6 +29,10 @@ enum MapText {
         switch body {
         case .terra: "Террой"
         case .luna: "Луной"
+        case .sol: "Солом"
+        case .vella: "Веллой"
+        case .arda: "Ардой"
+        case .taros: "Таросом"
         }
     }
 
@@ -33,6 +41,10 @@ enum MapText {
         switch body {
         case .terra: "Терру"
         case .luna: "Луну"
+        case .sol: "Сол"
+        case .vella: "Веллу"
+        case .arda: "Арду"
+        case .taros: "Тарос"
         }
     }
 
@@ -322,6 +334,17 @@ struct MapFocusPicker: View {
 
     var body: some View {
         let focus = model.map.focus
+        VStack(spacing: 3) {
+        if let bodyID = focus.bodyID {
+            let body = Bodies.body(bodyID)
+            Text(body.name + String(format: " · g %.2f м/с² · средняя %.0f °C", body.surfaceGravity, body.surfaceTemperature - 273.15)
+                 + (body.hasSolidSurface ? "" : " · нет грунта"))
+                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .foregroundStyle(HUDPalette.muted)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        ScrollView(.horizontal, showsIndicators: false) {
         HStack(spacing: 4) {
             ForEach(MapFocus.allCases, id: \.self) { item in
                 Button {
@@ -347,6 +370,10 @@ struct MapFocusPicker: View {
             .accessibilityLabel("Легенда карты и подсказки")
             .longPressHint("«?» — что значат цвета и значки на карте")
         }
+        }
+        .frame(maxWidth: 430)
+        }
+        .frame(maxWidth: 430)
         .padding(4)
         .hudBackground()
         .tutorialAnchor(.mapFocus)
@@ -357,6 +384,10 @@ struct MapFocusPicker: View {
         case .vessel: "Корабль"
         case .terra: "Терра"
         case .luna: "Луна"
+        case .sol: "Система"
+        case .vella: "Велла"
+        case .arda: "Арда"
+        case .taros: "Тарос"
         }
     }
 }

@@ -72,6 +72,12 @@ public enum ManeuverPlanner {
             if el.eccentricity > 0.01 { goals.append(.circularize) }
             goals.append(.changeOrbit)
             return goals
+        default:
+            if !el.isClosed || el.apoapsisRadius > b.soiRadius {
+                return peAlt > rails && !outbound ? [.circularize] : []
+            }
+            guard peAlt > rails else { return [] }
+            return el.eccentricity > 0.01 ? [.circularize, .changeOrbit] : [.changeOrbit]
         }
     }
 

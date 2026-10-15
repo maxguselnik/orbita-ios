@@ -51,7 +51,7 @@ final class PlanetLOD {
         radius = Bodies.body(body).radius
         maxLevel = 10
         maxHeight = 4_500
-        minHeight = body == .terra ? 0 : -4_000
+        minHeight = body == .luna ? -4_000 : (body == .terra ? 0 : -1_000)
         slope = body == .terra ? 0.08 : 0.5
     }
 
