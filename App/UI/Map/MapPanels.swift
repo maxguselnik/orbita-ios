@@ -106,13 +106,23 @@ struct MapSASRow: View {
 /// Середина экрана на карте: сводка сверху слева, остальное — свободно для жестов и ручек.
 struct MapCenterColumn: View {
     let model: FlightHUDModel
+    var hintsEnabled = true
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            MapInfoPanel(snapshot: model.map.snapshot)
-                .tutorialAnchor(.mapSummary)
-            Spacer(minLength: 0)
+        // Сводка и подсказка делят одну область над контролами. Длинный текст прокручивается,
+        // поэтому в «Эксперт» он не перекрывает ни сводку, ни фокус карты и навбол.
+        ScrollView {
+            VStack(alignment: .leading, spacing: 6) {
+                MapInfoPanel(snapshot: model.map.snapshot)
+                    .tutorialAnchor(.mapSummary)
+                if model.mapExpert, !model.isPaused {
+                    MapHintHost(model: model, hintsEnabled: hintsEnabled)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .scrollIndicators(.hidden)
+        .padding(.bottom, NavballCluster.height + NavballCluster.lift + HUDStyle.minTouch + 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }

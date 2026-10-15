@@ -91,10 +91,10 @@ struct NavballCluster: View {
     static let size: CGFloat = 156
     /// Строка «RCS · скорость · SAS» над кольцом (зоны касания 36 pt) и полная ширина кластера.
     static let rowHeight: CGFloat = 36
-    static let width: CGFloat = 196
+    static let width: CGFloat = 276
     static let height: CGFloat = rowHeight + size
     /// Подъём кластера над нижним краем; отрицательный — низ кольца уходит за край (шар виден целиком).
-    /// Интерактивное (дуга тяги, метки MAX и 0) всё равно не ближе 40 pt к низу: там системный жест «домой».
+    /// Дуга остаётся над зоной системного жеста; кнопки тяги вынесены влево от неё.
     static let lift: CGFloat = -26
     static let ballDiameter: CGFloat = 98
     /// Левый верхний угол кольца и его центр в координатах кластера.
@@ -118,13 +118,13 @@ struct NavballCluster: View {
                 .position(Self.center)
             ClusterRCSButton(model: model)
                 .tutorialAnchor(.rcs)
-                .position(x: 24, y: Self.rowHeight / 2)
+                .position(x: Self.center.x - 74, y: Self.rowHeight / 2)
             SpeedLCD(telemetry: t, frame: frame) { model.toggleSpeedFrame() }
                 .tutorialAnchor(.speed)
                 .position(x: Self.width / 2, y: Self.rowHeight / 2)
             ClusterSASButton(model: model)
                 .tutorialAnchor(.sas)
-                .position(x: Self.width - 31, y: Self.rowHeight / 2)
+                .position(x: Self.center.x + 67, y: Self.rowHeight / 2)
         }
         .frame(width: Self.width, height: Self.height)
     }
@@ -298,19 +298,24 @@ struct ThrottleGauge: View {
     let model: FlightHUDModel
     var guide: HUDAction?
 
-    /// Центры меток MAX и 0 в координатах кластера: слева от дуги, зона касания 44 pt. Метка 0 — чуть выше начала
-    /// дуги, чтобы её зона не опускалась ближе 40 pt к низу экрана; MAX — под кнопкой RCS, без пересечения с ней.
-    static var maxLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 22) }
-    static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 8, y: NavballCluster.ringOrigin.y + 68) }
+    /// Метки вынесены влево: их зоны касания не пересекают перетаскивание дуги.
+    static var maxLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 22) }
+    static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 78) }
     static let labelTouch = CGSize(width: 44, height: 44)
-    /// Центр подписи «ТЯГА N %».
-    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 12, y: NavballCluster.ringOrigin.y + 45) }
+    /// Подпись опущена на 20 % относительно прежнего отступа 45 pt.
+    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 54) }
     /// Радиус ручки.
     static let knobRadius: CGFloat = 7
 
-    /// Рамка для обучения: дуга тяги вместе с метками MAX и 0 (координаты кластера).
+    /// Рамка обучения охватывает и дугу, и вынесенные влево кнопки.
     static var lessonRect: CGRect {
-        CGRect(x: NavballCluster.ringOrigin.x - 30, y: NavballCluster.ringOrigin.y, width: 94, height: 92)
+        let maxRect = CGRect(x: maxLabelCenter.x - labelTouch.width / 2,
+                             y: maxLabelCenter.y - labelTouch.height / 2,
+                             width: labelTouch.width, height: labelTouch.height)
+        let zeroRect = CGRect(x: zeroLabelCenter.x - labelTouch.width / 2,
+                              y: zeroLabelCenter.y - labelTouch.height / 2,
+                              width: labelTouch.width, height: labelTouch.height)
+        return touchRect.union(maxRect).union(zeroRect)
     }
 
     /// Зона касания дуги в координатах кластера: от верхнего до нижнего конца дуги (и 12 pt ниже «9 часов»), ниже — ничего.

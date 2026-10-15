@@ -38,6 +38,7 @@ final class PlanetLOD {
 
     /// Сколько патчей сейчас на экране (для отладки и бюджета).
     var visibleCount: Int { visible.count }
+    var finestVisibleLevel: UInt8 { shown.map(\.level).max() ?? 0 }
     /// Фактическая видимость сущностей (для диагностики перекрывающихся уровней LOD).
     var renderedPatches: [PatchKey] { records.compactMap { $0.value.entity?.isEnabled == true ? $0.key : nil } }
 
