@@ -13,14 +13,15 @@ struct TutorialAnchorKey: PreferenceKey {
 
 extension View {
     /// Отдаёт рамку вью урока под ключом элемента (к раскладке и касаниям отношения не имеет).
+    /// Дополняет рамки вложенных вью, а не заменяет их: иначе внешний ключ (`.corner`) стирает внутренний (`.mapButton`).
     func tutorialAnchor(_ element: LessonElement) -> some View {
-        anchorPreference(key: TutorialAnchorKey.self, value: .bounds) { [element: $0] }
+        transformAnchorPreference(key: TutorialAnchorKey.self, value: .bounds) { $0[element] = $1 }
     }
 
-    /// То же, но элемент может отсутствовать (nil — рамка не отдаётся).
+    /// То же, но элемент может отсутствовать (nil — рамка не отдаётся, рамки вложенных вью остаются).
     func tutorialAnchor(optional element: LessonElement?) -> some View {
-        anchorPreference(key: TutorialAnchorKey.self, value: .bounds) { anchor in
-            element.map { [$0: anchor] } ?? [:]
+        transformAnchorPreference(key: TutorialAnchorKey.self, value: .bounds) { value, anchor in
+            if let element { value[element] = anchor }
         }
     }
 }
