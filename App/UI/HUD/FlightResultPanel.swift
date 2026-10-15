@@ -7,7 +7,7 @@ struct FlightResultPanel: View {
     let result: FlightResult
     let onHangar: () -> Void
     let onSpaceCenter: () -> Void
-    /// Начисляет науку за вехи полёта; повторный вызов в том же полёте вернёт нули.
+    /// Начисляет ещё не учтённые вехи полёта и возвращает итог полёта (повторный вызов ничего не добавляет).
     let onFinish: (MissionRecord) -> (fresh: [Milestone], science: Int)
     let onRetry: () -> Void
     let onContinue: () -> Void

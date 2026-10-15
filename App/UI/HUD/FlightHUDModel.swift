@@ -168,6 +168,10 @@ final class FlightHUDModel {
         }
     }
 
+    /// Перед перезапуском и при выходе из урока — итоги полёта на этот момент (начисление науки; подключает RootView).
+    @ObservationIgnored var onRestart: ((MissionRecord) -> Void)?
+    @ObservationIgnored var onTutorialExit: ((MissionRecord) -> Void)?
+
     /// Интерактивный урок (nil — обычный полёт). Пока он держит физику на паузе, `tick` принимает ввод, но не двигает мир.
     private(set) var tutorial: TutorialController?
     /// Меню ускорения времени открывалось (счётчик); перерисовки не вызывает.
@@ -398,6 +402,7 @@ final class FlightHUDModel {
 
     /// «Выйти из урока»: полёт продолжается обычным.
     func exitTutorial() {
+        if tutorial?.isActive == true { onTutorialExit?(telemetry.mission) }
         tutorial?.exit()
         feedback?.setPaused(isPaused)
     }
@@ -445,6 +450,7 @@ final class FlightHUDModel {
 
     /// Перезапуск полёта.
     func restart() {
+        onRestart?(telemetry.mission)
         executor = nil
         autoBurnText = nil
         maneuverGoal = nil
