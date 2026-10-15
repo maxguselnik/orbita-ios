@@ -1134,6 +1134,7 @@ public final class FlightSim: FlightSimulation {
         let b = Bodies.body(s.body)
         let alt = s.r.length - b.radius
         if s.body == .luna { mission.enteredLunaSOI = true }
+        if PlanetTransfer.planets.contains(s.body) { mission.visitedPlanets.insert(s.body) }
         if s.body == .terra && alt > b.atmosphereHeight { mission.reachedSpace = true }
         if !s.isOnSurface && s.situation != .crashed {
             let el = OrbitElements(position: s.r, velocity: s.v, mu: b.mu)
@@ -1143,6 +1144,10 @@ public final class FlightSim: FlightSimulation {
             }
             if closed && s.body == .luna && el.periapsisRadius - b.radius > 10_000 {
                 mission.lunaOrbit = true
+            }
+            if closed && PlanetTransfer.planets.contains(s.body)
+                && el.periapsisRadius - b.radius > World.railsMinimumAltitude(s.body) {
+                mission.orbitedPlanets.insert(s.body)
             }
         }
         if s.situation == .landed && s.body == .luna { mission.landedLuna = true }

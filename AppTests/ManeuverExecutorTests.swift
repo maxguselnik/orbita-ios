@@ -45,6 +45,17 @@ struct ManeuverExecutorTests {
         #expect(second.commands.isEmpty && second.phase == .warping)
     }
 
+    /// Смена сферы влияния сбросила рельсы на долгом перелёте: ускорение до узла просим снова, один раз.
+    @Test func soiChangeRequestsWarpAgain() {
+        var ex = ManeuverExecutor()
+        var t = telemetry(status(toBurn: 3_000_000))
+        #expect(ex.step(t, mass: mass).commands == [.setSAS(.maneuver), .warpToManeuver])
+        t.warpIndex = 0
+        t.body = .sol
+        #expect(ex.step(t, mass: mass).commands == [.warpToManeuver])
+        #expect(ex.step(t, mass: mass).commands.isEmpty)
+    }
+
     @Test func noWarpWhenBurnIsClose() {
         var near = ManeuverExecutor()
         #expect(near.step(telemetry(status(toBurn: ManeuverStatus.warpLead + 5)), mass: mass).commands == [.setSAS(.maneuver)])
