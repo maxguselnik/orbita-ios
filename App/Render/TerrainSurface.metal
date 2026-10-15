@@ -65,7 +65,10 @@ void terrainSurface(realitykit::surface_parameters params) {
     float2 uv = params.geometry().uv0();
     constexpr sampler atlasSampler(address::clamp_to_edge, filter::linear, mip_filter::linear,
                                     max_anisotropy(8));
-    float3 color = float3(params.textures().base_color().sample(atlasSampler, uv).rgb);
+    // У CGImage-текстуры строки идут сверху вниз. В PBR это делает RealityKit;
+    // в CustomMaterial инверсию V нужно повторить явно, отдельно от координат тела.
+    float2 atlasUV = float2(uv.x, 1.0f - uv.y);
+    float3 color = float3(params.textures().base_color().sample(atlasSampler, atlasUV).rgb);
     float4 config = params.uniforms().custom_parameter();
     bool lunar = config.y > 0.5f;
     float3 direction = surfaceDirection(uv, config.z, config.w);
