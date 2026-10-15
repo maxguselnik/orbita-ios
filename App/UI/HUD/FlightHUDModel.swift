@@ -606,10 +606,8 @@ final class FlightHUDModel {
     /// поставить узел или перенести существующий в эту точку.
     func mapTap(at point: CGPoint) {
         guard map.isOpen else { return }
-        if let body = tappedBody(at: point) {
-            routeTo(body)
-            return
-        }
+        // В уроке маршрут по тапу не ставится: шаги ведут своими кнопками.
+        if tutorial?.isActive != true, let body = tappedBody(at: point), routeTo(body) { return }
         guard mapExpert, let time = map.orbitPick(at: point) else { return }
         placeManeuver(at: time)
     }
@@ -618,9 +616,11 @@ final class FlightHUDModel {
     static let bodyTapRadius: CGFloat = 32
 
     /// Тело под пальцем: ближайший к касанию центр Луны, планеты или Терры в пределах `bodyTapRadius`.
+    /// Тело, у которого корабль сейчас, не выбирается: там тап — по своей орбите.
     private func tappedBody(at point: CGPoint) -> BodyID? {
         var best: (id: BodyID, d: CGFloat)?
-        for id in [BodyID.luna, .terra, .vella, .arda, .taros] {
+        let here = activeVesselState?.body
+        for id in [BodyID.luna, .terra, .vella, .arda, .taros] where id != here {
             guard let p = map.project(.zero, body: id) else { continue }
             let d = hypot(p.x - point.x, p.y - point.y)
             if d <= Self.bodyTapRadius, d < (best?.d ?? .infinity) { best = (id, d) }
@@ -639,15 +639,16 @@ final class FlightHUDModel {
     }
 
     /// Маршрут по тапу на тело: та же цель, что у кнопки; недоступна сейчас — тост с подсказкой.
-    private func routeTo(_ body: BodyID) {
-        guard let goal = Self.routeGoal(to: body) else { return }
+    /// false — тело не цель (тап уходит дальше, к орбите).
+    private func routeTo(_ body: BodyID) -> Bool {
+        guard let goal = Self.routeGoal(to: body) else { return false }
         guard availableGoals.contains(goal) else {
-            if let vessel = activeVesselState, vessel.body == body { return }
             notify("«\(MapGoalsColumn.title(goal))» отсюда сейчас недоступно")
-            return
+            return true
         }
         planManeuver(goal)
         if maneuverGoal == goal { notify("Маршрут: \(MapGoalsColumn.title(goal))") }
+        return true
     }
 
     /// Узел в момент `time`; если узел уже есть — переносится с тем же импульсом.
@@ -948,8 +949,13 @@ final class FlightHUDModel {
 
     /// Ожидание окна к планете на рельсах: карта показывает «Систему» и отсчёт, после — прежний фокус.
     private func updatePlanetWait(_ t: FlightTelemetry) {
+        // Закрытая карта фокус не трогает: вернётся при следующем открытии.
+        guard map.isOpen else {
+            if planetWaitText != nil { planetWaitText = nil }
+            return
+        }
         var text: String?
-        if map.isOpen, let goal = maneuverGoal, goal.planet != nil, t.body == .terra,
+        if let goal = maneuverGoal, goal.planet != nil, t.body == .terra,
            t.warpIndex >= TimeWarp.physicalCount, let m = t.maneuver, m.timeToBurn > Self.planetWaitMinimum {
             text = "\(MapGoalsColumn.title(goal)): окно через \(HUDFormat.countdown((m.timeToBurn / 60).rounded() * 60))"
         }
@@ -1000,8 +1006,16 @@ final class FlightHUDModel {
         StageStatus(remaining: t.stages.count, chute: t.chute, action: t.nextStageAction, hasSolid: t.stages.first?.hasSolid ?? false)
     }
 
+    /// Множитель для кнопки: «до узла» он меняется каждый кадр — до одной значащей цифры (×700 000),
+    /// чтобы кнопка и меню не перерисовывались каждый кадр.
+    nonisolated static func displayedWarp(_ factor: Double) -> Double {
+        guard factor.isFinite, factor > (TimeWarp.levels.last ?? 1) else { return factor }
+        let p = pow(10, floor(log10(factor)))
+        return floor(factor / p) * p
+    }
+
     private static func warpStatus(_ t: FlightTelemetry) -> WarpStatus {
-        WarpStatus(index: t.warpIndex, factor: t.warpFactor, blocked: t.warpBlocked)
+        WarpStatus(index: t.warpIndex, factor: displayedWarp(t.warpFactor), blocked: t.warpBlocked)
     }
 
     private static func solidLocked(_ t: FlightTelemetry) -> Bool {

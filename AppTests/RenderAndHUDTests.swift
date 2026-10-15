@@ -187,6 +187,10 @@ struct RenderAndHUDTests {
         #expect(WarpButtons.target(current: 0, step: 1) == 1)
         #expect(WarpButtons.target(current: last, step: 1) == nil)
         #expect(WarpButtons.target(current: last, step: -1) == last - 1)
+        // «До узла» множитель на кнопке округлён, чтобы не меняться каждый кадр.
+        #expect(FlightHUDModel.displayedWarp(743_218) == 700_000)
+        #expect(FlightHUDModel.displayedWarp(100_000) == 100_000)
+        #expect(FlightHUDModel.displayedWarp(10) == 10)
     }
 
     @Test func odometerShowsSixDigitsAndSwitchesToKilometers() {

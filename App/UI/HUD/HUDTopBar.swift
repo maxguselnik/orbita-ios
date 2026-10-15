@@ -96,7 +96,7 @@ struct WarpButtons: View {
         .disabled(target == nil)
         .opacity(target == nil || locked ? 0.4 : 1)
         .accessibilityLabel(step < 0 ? "Медленнее" : "Быстрее")
-        .longPressHint(step < 0 ? "Медленнее: время идёт как обычно на ×1"
+        .longPressHint(step < 0 ? "Медленнее: на уровень ниже; ×1 — обычное время"
                                 : "Быстрее: долгие перелёты проходят быстрее (у атмосферы и при тяге нельзя выше ×4)")
     }
 

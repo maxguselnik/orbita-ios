@@ -1372,7 +1372,6 @@ public final class FlightSim: FlightSimulation {
                               timeToBurn: toBurn, isDone: maneuverDone)
     }
 
-    /// Момент остановки `warpToManeuver`: начало прожига − `warpLead` (время симуляции).
     /// Множитель времени сейчас: уровень `warpIndex`, а «до узла» на верхнем уровне — `TimeWarp.maneuverRate`.
     private func currentWarpRate() -> Double {
         let base = TimeWarp.levels[warpIndex]
@@ -1381,6 +1380,7 @@ public final class FlightSim: FlightSimulation {
         return TimeWarp.maneuverRate(remaining: stop - time)
     }
 
+    /// Момент остановки `warpToManeuver`: начало прожига − `warpLead` (время симуляции).
     private func maneuverWarpStopTime() -> Double? {
         guard let node = maneuverNode else { return nil }
         let burn = maneuverBurnTime(pressure: pressure(of: active))

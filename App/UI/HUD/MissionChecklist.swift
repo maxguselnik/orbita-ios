@@ -66,7 +66,7 @@ enum AltimeterMode {
     static func label(overTerrain: Bool, body: BodyID, altitude: Double) -> String {
         if overTerrain { return "над землёй" }
         let b = Bodies.body(body)
-        if b.atmosphereHeight > 0, body == .terra, altitude < b.atmosphereHeight { return "над морем" }
+        if body == .terra, altitude < b.atmosphereHeight { return "над морем" }
         return "над " + MapText.instrumental(body)
     }
 }
