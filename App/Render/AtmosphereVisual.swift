@@ -16,6 +16,16 @@ final class AtmosphereVisual {
     static var haloDiscsEnabled = false
 
     let root = Entity()
+    private let bodyID: BodyID
+    private var body: CelestialBody { Bodies.body(bodyID) }
+    private var atmosphereColor: F3 {
+        switch bodyID {
+        case .vella: F3(0.95, 0.72, 0.34)
+        case .arda: F3(0.91, 0.53, 0.35)
+        case .taros: F3(0.67, 0.78, 0.85)
+        default: F3(0.42, 0.68, 1)
+        }
+    }
 
     // Лимб: кольца в плоскости, перпендикулярной направлению на центр планеты.
     private static let limbCount = 8
@@ -39,7 +49,8 @@ final class AtmosphereVisual {
     private var discs: [ModelEntity] = []
     private var lastHaloKey = -1
 
-    init() {
+    init(body: BodyID = .terra) {
+        bodyID = body
         root.addChild(hazeRoot)
         root.addChild(haloRoot)
         root.addChild(limbRoot)
@@ -109,7 +120,7 @@ final class AtmosphereVisual {
         let scale = f.terraScale
         let c = f.terraCenter * scale
         let d = simd_length(c)
-        let rs = Bodies.terra.radius * scale
+        let rs = body.radius * scale
         let altFade = Self.smooth((f.altitude - 2_500) / 10_000)
         guard tex.isReady, let hat = tex.hat, rings.count == n, altFade > 0.01, d > rs * 1.0005 else {
             limbRoot.isEnabled = false
@@ -118,7 +129,7 @@ final class AtmosphereVisual {
         // Касательная до планеты, угловой радиус диска, толщина слоя атмосферы в углах.
         let t = (d * d - rs * rs).squareRoot()
         let thetaR = asin(min(rs / d, 0.9999))
-        let delta = clampd(Self.limbHeight * scale / t, 0.01, 0.2)
+        let delta = clampd(body.atmosphereHeight * 0.6 * scale / t, 0.01, 0.2)
         let x0 = tan(thetaR)
         // Предел ширины: шаг между кольцами не больше полуширины колпака (иначе щели).
         let x1 = min(tan(min(thetaR + delta, 1.5)), x0 * (1 + 0.13 * Double(n - 1)))
@@ -138,7 +149,7 @@ final class AtmosphereVisual {
         if key != lastLimbKey {
             lastLimbKey = key
             let k = CGFloat(0.55 + 0.45 * lit)
-            let tint = UIColor(red: 0.42 * k, green: 0.68 * k, blue: 1.0 * k, alpha: 1)
+            let tint = UIColor(red: CGFloat(atmosphereColor.x) * k, green: CGFloat(atmosphereColor.y) * k, blue: CGFloat(atmosphereColor.z) * k, alpha: 1)
             let base = Float(0.6 * lit * altFade * norm)
             for (i, e) in rings.enumerated() {
                 let fall = pow(1 - Float(i) / Float(n), 1.7)
@@ -179,8 +190,8 @@ final class AtmosphereVisual {
     private func updateHaze(_ f: AtmosphereFrame) {
         let alt = f.altitude
         let b = clampd(f.skyBrightness, 0, 1)
-        let fade = Self.smooth(1 - alt / 50_000) * clampd(b * 1.5, 0, 1)
-        guard f.frameBody == .terra, alt < 70_000, fade > 0.01, tubes.count == Self.hazeAngles.count else {
+        let fade = Self.smooth(1 - alt / (body.atmosphereHeight * 0.72)) * clampd(b * 1.5, 0, 1)
+        guard f.frameBody == bodyID, alt < body.atmosphereHeight, fade > 0.01, tubes.count == Self.hazeAngles.count else {
             hazeRoot.isEnabled = false
             return
         }
@@ -193,13 +204,13 @@ final class AtmosphereVisual {
             lastHazeKey = key
             let c = Palette.sample(Palette.skyRow, 0.5)
             let k = Float(0.25 + 0.75 * b)
-            let rgb = F3(Float(c.x), Float(c.y), Float(c.z)) * k
+            let rgb = (bodyID == .terra ? F3(Float(c.x), Float(c.y), Float(c.z)) : atmosphereColor) * k
             let m = Self.material(rgb: rgb, opacity: Float(0.14 * fade))
             for t in tubes { t.model?.materials = [m] }
         }
 
         // Радиусы растут с высотой, но меньше дальности горизонта.
-        let planetR = Bodies.terra.radius
+        let planetR = body.radius
         let horizon = (2 * planetR * max(alt, 200)).squareRoot()
         let base = 3_000 + alt * 0.35
         let dip = acos(planetR / (planetR + max(alt, 0)))
@@ -218,7 +229,7 @@ final class AtmosphereVisual {
         let scale = f.terraScale
         let c = f.terraCenter * scale
         let d = simd_length(c)
-        let rs = Bodies.terra.radius * scale
+        let rs = body.radius * scale
         let h = Self.haloThickness * scale
         let altFade = Self.smooth((f.altitude - 20_000) / 60_000)
         guard discs.count == Self.haloWeights.count, d > (rs + h) * 1.02, altFade > 0.01, d > 1 else {

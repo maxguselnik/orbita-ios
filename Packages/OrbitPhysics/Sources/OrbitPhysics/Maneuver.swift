@@ -77,7 +77,7 @@ public struct Trajectory: Sendable {
     /// Возврат в SOI Терры: время выхода и перицентр у Терры.
     public var returnToTerra: Encounter? {
         for (i, p) in patches.enumerated() {
-            if case .exitSOI(let b) = p.end, i + 1 < patches.count {
+            if case .exitSOI(let b) = p.end, b == .terra, i + 1 < patches.count {
                 let next = patches[i + 1]
                 return Encounter(body: b, time: next.startTime,
                                  periapsisAltitude: next.elements.periapsisRadius - Bodies.body(b).radius)
@@ -149,46 +149,41 @@ public enum TrajectoryPredictor {
             let b = Bodies.body(frame)
             let el = OrbitElements(position: r, velocity: v, mu: b.mu)
             let canChange = k < maxPatches - 1
-            var horizon: Double
-            var n: Int
-            if frame == .terra {
-                horizon = el.isClosed ? min(el.period, 6e6) : 6e6
-                n = 520
+            let horizon: Double
+            if b.parent == nil {
+                horizon = el.isClosed ? min(el.period, 3e8) : 3e8
             } else {
                 let vinf = max(0, v.lengthSquared - 2 * b.mu / r.length).squareRoot()
                 horizon = min(el.isClosed ? el.period : .infinity, 4 * b.soiRadius / max(60, vinf))
-                if el.isClosed && el.apoapsisRadius > b.soiRadius { horizon = min(el.period, 6e6) }
-                n = 320
             }
-            func stop(_ rr: Vec3, _ dt: Double) -> PatchEnd? {
-                let rm = rr.length
-                if rm < b.radius { return .impact }
-                if frame == .terra {
-                    if canChange && (rr - World.lunaPosition(at: t0 + dt)).length < Bodies.luna.soiRadius {
-                        return .enterSOI(.luna)
-                    }
-                } else if rm > b.soiRadius {
-                    return .exitSOI(.terra)
-                }
-                return nil
-            }
-            var prev = 0.0
-            var endT = Double.infinity
+            var span = horizon
             var end = PatchEnd.none
-            for i in 1...n {
-                let dt = horizon * Double(i) / Double(n)
-                let rr = Kepler.propagate(position: r, velocity: v, mu: b.mu, dt: dt).position
-                if let e = stop(rr, dt) {
-                    var lo = prev, hi = dt
-                    for _ in 0..<40 {
-                        let mid = 0.5 * (lo + hi)
-                        if stop(Kepler.propagate(position: r, velocity: v, mu: b.mu, dt: mid).position, mid) != nil { hi = mid } else { lo = mid }
-                    }
-                    endT = t0 + hi
-                    end = e
-                    break
+            var endT = Double.infinity
+            // Высота и выход SOI — аналитически, без сотен проб Кеплера на каждом патче.
+            if let dt = Kepler.timeToRadius(b.radius, position: r, velocity: v, mu: b.mu, outbound: false), dt <= span {
+                span = dt
+                end = .impact
+                endT = t0 + dt
+            }
+            if let parent = b.parent,
+               let dt = Kepler.timeToRadius(b.soiRadius, position: r, velocity: v, mu: b.mu, outbound: true), dt < span {
+                span = dt + 0.01
+                end = .exitSOI(parent)
+                endT = t0 + span
+            }
+            if canChange {
+                var calls = 0
+                switch World.childEntry(body: frame, state: StateVector(position: r, velocity: v),
+                                        time: t0, horizon: span, calls: &calls, budget: 520) {
+                case .entry(let dt, _, let child):
+                    end = .enterSOI(child)
+                    endT = t0 + dt
+                case .budget(let dt, _):
+                    // Показываем только проверенный интервал: за ним встреча ещё не исключена.
+                    end = .none
+                    endT = t0 + dt
+                case .none: break
                 }
-                prev = dt
             }
             let patch = TrajectoryPatch(body: frame, startTime: t0, endTime: endT,
                                         start: StateVector(position: r, velocity: v), elements: el, end: end)

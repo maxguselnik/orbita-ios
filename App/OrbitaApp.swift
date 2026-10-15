@@ -8,7 +8,8 @@ struct OrbitaApp: App {
         WindowGroup {
             if ProcessInfo.processInfo.arguments.contains("-planet-preview") {
                 PlanetComparisonView(flightMode: ProcessInfo.processInfo.arguments.contains("-flight-render"),
-                                     closeup: ProcessInfo.processInfo.arguments.contains("-surface-closeup"))
+                                     closeup: ProcessInfo.processInfo.arguments.contains("-surface-closeup"),
+                                     newWorlds: ProcessInfo.processInfo.arguments.contains("-new-worlds"))
             } else {
                 RootView()
                     .environment(settings)

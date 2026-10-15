@@ -10,7 +10,7 @@ enum PlanetTextures {
 
     static func load(_ body: BodyID) async -> TextureResource? {
         if let cached = cache[body] { return cached }
-        let name = body == .terra ? "TerraSurface" : "LunaSurface"
+        guard let name = PlanetAppearance.textureName(body) else { return nil }
         // Asset Catalog может упаковать серую Луну в grayscale. Приводим оба атласа
         // к одинаковому sRGB RGBA перед RealityKit: загрузка не зависит от оптимизаций каталога.
         guard let source = UIImage(named: name)?.cgImage,

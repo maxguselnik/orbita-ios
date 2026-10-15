@@ -36,8 +36,8 @@ enum MapLineStyle: Int, CaseIterable, Sendable {
     static func patch(_ index: Int, body: BodyID, plan: Bool) -> MapLineStyle {
         if index == 0 { return plan ? .plan : .current }
         switch body {
-        case .luna: return plan ? .planEncounter : .encounter
-        case .terra: return plan ? .planBack : .back
+        case .luna, .vella, .arda, .taros: return plan ? .planEncounter : .encounter
+        case .terra, .sol: return plan ? .planBack : .back
         }
     }
 }
@@ -60,7 +60,7 @@ enum MapLines {
 
     /// Ломаные участков траектории. `lunaMap` — положение Луны (единицы карты) на время снимка:
     /// участки у Луны рисуются вокруг её текущего положения, как в KSP.
-    static func polylines(_ trajectory: Trajectory, plan: Bool, lunaMap: D3) -> [MapPolyline] {
+    static func polylines(_ trajectory: Trajectory, plan: Bool, time: Double) -> [MapPolyline] {
         var out: [MapPolyline] = []
         let unit = MapScale.metersPerUnit
         for (i, p) in trajectory.patches.enumerated() {
@@ -74,7 +74,7 @@ enum MapLines {
             }
             guard span.isFinite, span > 0 else { continue }
             let n = pointsPerPatch
-            let offset = p.body == .luna ? lunaMap : .zero
+            let offset = World.position(of: p.body, relativeTo: .terra, at: time).d3 / unit
             var pts: [D3] = []
             var times: [Double] = []
             pts.reserveCapacity(n + 1)

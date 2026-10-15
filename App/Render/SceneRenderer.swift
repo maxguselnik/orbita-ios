@@ -26,8 +26,7 @@ final class SceneRenderer: FlightRenderer {
     private let map = MapVisual()
     private let camera = PerspectiveCamera()
     private let sky = SkyVisual()
-    private let terra = PlanetLOD(body: .terra)
-    private let luna = PlanetLOD(body: .luna)
+    private let planets = Dictionary(uniqueKeysWithValues: BodyID.allCases.map { ($0, PlanetLOD(body: $0)) })
     private let pad = PadVisual()
     private var vessels: [VesselID: VesselVisual] = [:]
     private var rig = CameraRig()
@@ -37,6 +36,9 @@ final class SceneRenderer: FlightRenderer {
     private var explosions: [ExplosionVisual] = []
     private var exploded: Set<VesselID> = []
     private let atmosphere = AtmosphereVisual()
+    private let otherAtmospheres = Dictionary(uniqueKeysWithValues: [BodyID.vella, .arda, .taros].map {
+        ($0, AtmosphereVisual(body: $0))
+    })
     private let clouds = CloudVisual()
     private let backdrop = GroundBackdrop()
     private let cloudShell = CloudShell()
@@ -59,10 +61,10 @@ final class SceneRenderer: FlightRenderer {
         guard hasSurfaceTextures, hasCloudTexture || !CloudShell.enabled || !SoftTextures.enabled else { return false }
         if isMapMode { return map.areBodiesReady }
         if inspectionCloseup {
-            let lod = inspectionBody == .luna ? luna : terra
+            guard let lod = planets[inspectionBody ?? .terra] else { return false }
             return hasSurfaceDetail && lod.finestVisibleLevel == 10
         }
-        return inspectionBody == .luna ? luna.visibleCount > 0 : terra.visibleCount > 0
+        return (planets[inspectionBody ?? .terra]?.visibleCount ?? 0) > 0
     }
 
     init() {
@@ -74,10 +76,12 @@ final class SceneRenderer: FlightRenderer {
         root.addChild(flightRoot)
         root.addChild(map.root)
         flightRoot.addChild(sky.root)
-        flightRoot.addChild(terra.root)
-        flightRoot.addChild(luna.root)
+        for body in BodyID.allCases {
+            if let lod = planets[body] { flightRoot.addChild(lod.root) }
+        }
         flightRoot.addChild(pad.root)
         flightRoot.addChild(atmosphere.root)
+        for visual in otherAtmospheres.values { flightRoot.addChild(visual.root) }
         flightRoot.addChild(clouds.root)
         flightRoot.addChild(backdrop.root)
         flightRoot.addChild(cloudShell.root)
@@ -85,16 +89,22 @@ final class SceneRenderer: FlightRenderer {
         pad.root.isEnabled = false
 
         Task { [weak self] in
-            let terraTex = await PlanetTextures.load(.terra)
-            let lunaTex = await PlanetTextures.load(.luna)
+            var materials: [BodyID: any Material] = [:]
+            var texturesReady = true
+            var detailReady = true
+            for body in BodyID.allCases {
+                let texture = await PlanetTextures.load(body)
+                let material = TerrainMaterial.make(texture, body: body)
+                guard let self else { return }
+                self.planets[body]?.material = material
+                materials[body] = material
+                if body != .sol { texturesReady = texturesReady && texture != nil }
+                if Bodies.body(body).hasSolidSurface { detailReady = detailReady && material is CustomMaterial }
+            }
             guard let self else { return }
-            let terraMat = TerrainMaterial.make(terraTex, body: .terra)
-            let lunaMat = TerrainMaterial.make(lunaTex, body: .luna)
-            self.terra.material = terraMat
-            self.luna.material = lunaMat
-            self.map.setMaterials(terra: terraMat, luna: lunaMat)
-            self.hasSurfaceDetail = terraMat is CustomMaterial && lunaMat is CustomMaterial
-            self.hasSurfaceTextures = terraTex != nil && lunaTex != nil
+            self.map.setMaterials(materials)
+            self.hasSurfaceDetail = detailReady
+            self.hasSurfaceTextures = texturesReady
             // Облачный слой готовится после загрузки атласов: рельеф уже виден.
             let cloudTex = await CloudShell.makeTexture()
             self.cloudShell.setTexture(cloudTex)
@@ -190,7 +200,6 @@ final class SceneRenderer: FlightRenderer {
         renderTime += frameDelta
         let quality = governor.update(dt: frameDelta, target: 1 / max(30, targetFrameRate))
         let frame = active.body
-        let luna = snapshot.lunaPosition.d3
         // Разрушение детали: вспышка на её месте — до пересборки модели по новым parts/layout.
         for e in events {
             if case .partDestroyed(let id) = e { vessels[active.id]?.flash(part: id) }
@@ -223,20 +232,20 @@ final class SceneRenderer: FlightRenderer {
         case .heading:
             up = radial
             var v = active.velocity.d3
-            if frame == .terra, simd_length(pos) - Bodies.terra.radius < Bodies.terra.atmosphereHeight {
-                v -= simd_cross(World.spin(.terra).d3, pos)
+            if simd_length(pos) - Bodies.body(frame).radius < Bodies.body(frame).atmosphereHeight {
+                v -= simd_cross(World.spin(frame).d3, pos)
             }
             forward = simd_length(v) > 3 ? -simd_normalize(v) : -nose
         }
         let cam = rig.offset(forward: forward, up: up, dt: switched ? 0 : frameDelta)
         var eye = target + cam.offset
         if let inspectionBody {
-            let center = RenderFrame.bodyCenter(inspectionBody, in: frame, luna: luna)
-            let direction = inspectionBody == .terra ? D3(1, 0.55, 0.3) : D3(-0.6, 1, 0.25)
+            let center = RenderFrame.bodyCenter(inspectionBody, in: frame, time: snapshot.time)
+            let direction = PlanetInspection.direction(inspectionBody).d3
             if inspectionCloseup {
                 let radial = simd_normalize(direction)
                 let h = Terrain.surfaceHeight(body: inspectionBody, direction: vec3(radial))
-                eye = center + RenderFrame.bodyRotation(inspectionBody, terraRotation: snapshot.terraRotation)
+                eye = center + RenderFrame.bodyRotation(inspectionBody, time: snapshot.time)
                     .act(radial * (Bodies.body(inspectionBody).radius + h + 160))
             } else {
                 eye = center + simd_normalize(direction) * Bodies.body(inspectionBody).radius * 2.88
@@ -245,7 +254,7 @@ final class SceneRenderer: FlightRenderer {
 
         // Камера не уходит под грунт.
         let body = Bodies.body(frame)
-        let rot = RenderFrame.bodyRotation(frame, terraRotation: snapshot.terraRotation)
+        let rot = RenderFrame.bodyRotation(frame, time: snapshot.time)
         let eyeDir = simd_normalize(eye)
         let ground = Terrain.surfaceHeight(body: frame, direction: vec3(rot.inverse.act(eyeDir)))
         var clearance = simd_length(eye) - body.radius - ground
@@ -255,13 +264,17 @@ final class SceneRenderer: FlightRenderer {
             clearance = minClearance
         }
 
+        let sunDirection = simd_normalize(RenderFrame.bodyCenter(.sol, in: frame, time: snapshot.time) - eye)
+        sky.setSun(direction: sunDirection)
+
         // Тела: позиция, поворот, масштаб-импостор.
         let camToTarget = simd_length(target - eye)
         var terraScale = 1.0
-        for b in [BodyID.terra, .luna] {
-            let lod = b == .terra ? terra : self.luna
-            let center = RenderFrame.bodyCenter(b, in: frame, luna: luna) - eye
-            let brot = RenderFrame.bodyRotation(b, terraRotation: snapshot.terraRotation)
+        var bodyScales: [BodyID: Double] = [:]
+        for b in BodyID.allCases {
+            guard let lod = planets[b] else { continue }
+            let center = RenderFrame.bodyCenter(b, in: frame, time: snapshot.time) - eye
+            let brot = RenderFrame.bodyRotation(b, time: snapshot.time)
             let dist = simd_length(center)
             var scale = 1.0
             if b == frame {
@@ -273,13 +286,14 @@ final class SceneRenderer: FlightRenderer {
             } else {
                 scale = min(1, 1.6e6 / dist)
             }
+            bodyScales[b] = scale
             if b == .terra { terraScale = scale }
             lod.update(eyeBF: brot.inverse.act(-center), center: center, rotation: brot, scale: scale)
         }
 
         // Площадка.
-        let terraCenter = RenderFrame.bodyCenter(.terra, in: frame, luna: luna) - eye
-        let terraRot = RenderFrame.bodyRotation(.terra, terraRotation: snapshot.terraRotation)
+        let terraCenter = RenderFrame.bodyCenter(.terra, in: frame, time: snapshot.time) - eye
+        let terraRot = RenderFrame.bodyRotation(.terra, time: snapshot.time)
         let padRel = terraCenter + terraRot.act(pad.positionBF)
         let padOn = terraScale == 1 && simd_length(padRel) < 150_000
         if pad.root.isEnabled != padOn { pad.root.isEnabled = padOn }
@@ -292,7 +306,7 @@ final class SceneRenderer: FlightRenderer {
         for v in snapshot.vessels {
             seen.insert(v.id)
             let vis = visual(for: v)
-            let rel = RenderFrame.bodyCenter(v.body, in: frame, luna: luna) + v.position.d3 - eye
+            let rel = RenderFrame.bodyCenter(v.body, in: frame, time: snapshot.time) + v.position.d3 - eye
             // Разбившийся корабль скрыт: вместо него взрыв и обломки.
             let on = simd_length(rel) < 300_000 && !v.parts.isEmpty && v.situation != .crashed
             if vis.root.isEnabled != on { vis.root.isEnabled = on }
@@ -300,10 +314,9 @@ final class SceneRenderer: FlightRenderer {
             let pressure: Double
             if v.id == active.id {
                 pressure = snapshot.telemetry.staticPressure
-            } else if v.body == .terra {
-                pressure = exp(-max(0, simd_length(v.position.d3) - Bodies.terra.radius) / Bodies.terra.scaleHeight)
             } else {
-                pressure = 0
+                let b = Bodies.body(v.body)
+                pressure = b.relativePressure(altitude: simd_length(v.position.d3) - b.radius)
             }
             vis.update(v, relativePosition: rel, pressure: pressure, time: renderTime)
         }
@@ -329,7 +342,7 @@ final class SceneRenderer: FlightRenderer {
             let up = World.fromBodyFixed(ex.fixedDirection, body: ex.body, time: snapshot.time).d3
             ex.up = up
             ex.center = up * ex.fixedRadius
-            let rel = RenderFrame.bodyCenter(ex.body, in: frame, luna: luna) + ex.center - eye
+            let rel = RenderFrame.bodyCenter(ex.body, in: frame, time: snapshot.time) + ex.center - eye
             let on = simd_length(rel) < 300_000
             if ex.root.isEnabled != on { ex.root.isEnabled = on }
             guard on else { continue }
@@ -343,33 +356,44 @@ final class SceneRenderer: FlightRenderer {
         }
 
         // Небо: темнеет с высотой и ночью.
-        let localUp = simd_normalize(eye - RenderFrame.bodyCenter(frame, in: frame, luna: luna))
+        let localUp = simd_normalize(eye - RenderFrame.bodyCenter(frame, in: frame, time: snapshot.time))
         var brightness = 0.0
-        if frame == .terra {
-            let alt = simd_length(eye) - Bodies.terra.radius
-            if alt < Bodies.terra.atmosphereHeight {
-                let atm = pow(exp(-max(0, alt) / Bodies.terra.scaleHeight), 0.3)
-                let day = clampd(simd_dot(localUp, SkyVisual.sunDirection) * 2.5 + 0.35, 0.03, 1)
+        if body.atmosphereHeight > 0 {
+            let alt = simd_length(eye) - body.radius
+            if alt < body.atmosphereHeight {
+                let atm = pow(exp(-max(0, alt) / body.scaleHeight), 0.3)
+                let day = clampd(simd_dot(localUp, sunDirection) * 2.5 + 0.35, 0.03, 1)
                 brightness = atm * day
             }
         }
         sky.update(up: localUp, brightness: brightness)
-        sky.setFill(luna: frame == .luna)
+        sky.setFill(luna: body.atmosphereHeight == 0)
 
         // Атмосфера Терры: дымка, ореол, облака.
-        let terraRel = RenderFrame.bodyCenter(.terra, in: frame, luna: luna) - eye
+        let terraRel = RenderFrame.bodyCenter(.terra, in: frame, time: snapshot.time) - eye
         let atmo = AtmosphereFrame(
             time: renderTime, dt: frameDelta, terraCenter: terraRel, terraRotation: terraRot, terraScale: terraScale,
             up: simd_normalize(-terraRel), altitude: simd_length(terraRel) - Bodies.terra.radius,
-            skyBrightness: brightness, sun: SkyVisual.sunDirection, frameBody: frame, quality: quality)
+            skyBrightness: brightness, sun: sunDirection, frameBody: frame, quality: quality)
         atmosphere.update(atmo)
+        for (id, visual) in otherAtmospheres {
+            var local = atmo
+            let center = RenderFrame.bodyCenter(id, in: frame, time: snapshot.time) - eye
+            local.terraCenter = center
+            local.terraRotation = RenderFrame.bodyRotation(id, time: snapshot.time)
+            local.terraScale = bodyScales[id] ?? 1
+            local.up = simd_normalize(-center)
+            local.altitude = simd_length(center) - Bodies.body(id).radius
+            local.skyBrightness = frame == id ? brightness : 0
+            visual.update(local)
+        }
         clouds.update(atmo)
         backdrop.update(atmo)
         cloudShell.update(atmo)
 
         // Эффекты активного корабля: дым, потоки воздуха, конденсация, плазма.
         let t = snapshot.telemetry
-        let wind = frame == .terra ? simd_cross(World.spin(.terra).d3, pos) : .zero
+        let wind = simd_cross(World.spin(frame).d3, pos)
         let groundUnder = Terrain.surfaceHeight(body: frame, direction: vec3(rot.inverse.act(radial)))
         effects.update(VesselEffectFrame(
             time: renderTime, dt: frameDelta, vessel: active, vesselRel: pos - eye,
@@ -377,7 +401,7 @@ final class SceneRenderer: FlightRenderer {
             nozzlePositions: activeVisual.nozzlePositions,
             airVelocity: active.velocity.d3 - wind, windVelocity: wind, up: radial,
             heightAboveGround: t.heightAboveTerrain, groundRel: radial * (body.radius + max(0, groundUnder)) - eye,
-            telemetry: t, daylight: clampd(simd_dot(radial, SkyVisual.sunDirection) * 2.5 + 0.35, 0.03, 1),
+            telemetry: t, daylight: clampd(simd_dot(radial, sunDirection) * 2.5 + 0.35, 0.03, 1),
             quality: quality))
 
         // Камера в нуле; ближняя плоскость — по ближайшему объекту.
@@ -389,7 +413,7 @@ final class SceneRenderer: FlightRenderer {
         camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
         camera.camera.fieldOfViewInDegrees = Float(60 + 5 * shake.speedFeel)
         if let inspectionBody {
-            let center = RenderFrame.bodyCenter(inspectionBody, in: frame, luna: luna)
+            let center = RenderFrame.bodyCenter(inspectionBody, in: frame, time: snapshot.time)
             var look = center - eye
             if inspectionCloseup {
                 let radial = simd_normalize(eye - center)

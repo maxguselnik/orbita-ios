@@ -1,82 +1,115 @@
 import Foundation
 
-/// Мир: вращение Терры, Луна «на рельсах», переходы между системами координат.
+/// Иерархические круговые эфемериды и системы координат патченных коник.
 public enum World {
-    /// Угловая скорость вращения Терры вокруг +Z, рад/с.
-    public static let terraRotationRate: Double = 2 * Double.pi / Bodies.terra.rotationPeriod
-    /// Угловая скорость Луны по круговой орбите (из μ Терры), рад/с. Луна движется против часовой стрелки (как вращение Терры).
-    public static let lunaAngularRate: Double = (Bodies.terra.mu / pow(Bodies.luna.orbitRadius, 3.0)).squareRoot()
-    public static let lunaPeriod: Double = 2 * Double.pi / lunaAngularRate
-    /// Фаза Луны (угол от +X) в момент t = 0, рад.
-    public static let lunaInitialPhase: Double = 2.6
-    /// Направление на стартовую площадку в системе, связанной с Террой (экватор, долгота 0).
+    public static let terraRotationRate = 2 * Double.pi / Bodies.terra.rotationPeriod
+    public static let lunaAngularRate = orbitalRate(.luna)
+    public static let lunaPeriod = 2 * Double.pi / lunaAngularRate
+    public static let lunaInitialPhase = Bodies.luna.orbitPhase
     public static let padDirection = Vec3.unitX
 
+    public static func orbitalRate(_ id: BodyID) -> Double {
+        let b = Bodies.body(id)
+        guard let parent = b.parent, b.orbitRadius > 0 else { return 0 }
+        return (Bodies.body(parent).mu / pow(b.orbitRadius, 3)).squareRoot()
+    }
+
+    private static func relativeState(_ id: BodyID, at t: Double) -> StateVector {
+        let b = Bodies.body(id)
+        let rate = orbitalRate(id)
+        let a = b.orbitPhase + rate * t
+        let c: Double = cos(b.inclination), s: Double = sin(b.inclination)
+        let ca: Double = cos(a), sa: Double = sin(a)
+        let speed: Double = b.orbitRadius * rate
+        let p = Vec3(ca, sa * c, sa * s) * b.orbitRadius
+        let v = Vec3(-sa, ca * c, ca * s) * speed
+        return StateVector(position: p, velocity: v)
+    }
+
+    private static func absoluteState(_ id: BodyID, at t: Double) -> StateVector {
+        let local = relativeState(id, at: t)
+        guard let parent = Bodies.body(id).parent else { return local }
+        let p = absoluteState(parent, at: t)
+        return StateVector(position: p.position + local.position, velocity: p.velocity + local.velocity)
+    }
+
+    public static func position(of id: BodyID, relativeTo frame: BodyID, at t: Double) -> Vec3 {
+        if id == frame { return .zero }
+        // Родитель/спутник без вычитания двух больших гелиоцентрических координат.
+        if Bodies.body(id).parent == frame { return relativeState(id, at: t).position }
+        if Bodies.body(frame).parent == id { return -relativeState(frame, at: t).position }
+        return absoluteState(id, at: t).position - absoluteState(frame, at: t).position
+    }
+
+    public static func velocity(of id: BodyID, relativeTo frame: BodyID, at t: Double) -> Vec3 {
+        if id == frame { return .zero }
+        if Bodies.body(id).parent == frame { return relativeState(id, at: t).velocity }
+        if Bodies.body(frame).parent == id { return -relativeState(frame, at: t).velocity }
+        return absoluteState(id, at: t).velocity - absoluteState(frame, at: t).velocity
+    }
+
     public static func lunaPhase(at t: Double) -> Double { wrap2Pi(lunaInitialPhase + lunaAngularRate * t) }
+    public static func lunaPosition(at t: Double) -> Vec3 { relativeState(.luna, at: t).position }
+    public static func lunaVelocity(at t: Double) -> Vec3 { relativeState(.luna, at: t).velocity }
+    public static func terraRotation(at t: Double) -> Double { rotation(.terra, at: t) }
 
-    public static func lunaPosition(at t: Double) -> Vec3 {
-        let a = lunaInitialPhase + lunaAngularRate * t
-        return Vec3(cos(a), sin(a), 0) * Bodies.luna.orbitRadius
-    }
-
-    public static func lunaVelocity(at t: Double) -> Vec3 {
-        let a = lunaInitialPhase + lunaAngularRate * t
-        let s: Double = sin(a)
-        let c: Double = cos(a)
-        let speed: Double = Bodies.luna.orbitRadius * lunaAngularRate
-        return Vec3(-s, c, 0) * speed
-    }
-
-    /// Угол поворота Терры вокруг +Z, рад, в [0, 2π).
-    public static func terraRotation(at t: Double) -> Double { wrap2Pi(terraRotationRate * t) }
-
-    /// Угловая скорость вращения тела (вектор), рад/с.
     public static func spin(_ body: BodyID) -> Vec3 {
-        body == .terra ? Vec3(0, 0, terraRotationRate) : .zero
+        let period = Bodies.body(body).rotationPeriod
+        return period == 0 ? .zero : Vec3(0, 0, 2 * Double.pi / period)
     }
 
-    /// Инерциальная система тела → система, связанная с поверхностью.
+    public static func rotation(_ body: BodyID, at time: Double) -> Double { wrap2Pi(spin(body).z * time) }
     public static func toBodyFixed(_ p: Vec3, body: BodyID, time: Double) -> Vec3 {
-        guard body == .terra else { return p }
-        let a = terraRotationRate * time
-        let c = cos(a), s = sin(a)
+        let a = rotation(body, at: time), c = cos(a), s = sin(a)
         return Vec3(c * p.x + s * p.y, -s * p.x + c * p.y, p.z)
     }
-
-    /// Связанная с поверхностью система → инерциальная.
     public static func fromBodyFixed(_ p: Vec3, body: BodyID, time: Double) -> Vec3 {
-        guard body == .terra else { return p }
-        let a = terraRotationRate * time
-        let c = cos(a), s = sin(a)
+        let a = rotation(body, at: time), c = cos(a), s = sin(a)
         return Vec3(c * p.x - s * p.y, s * p.x + c * p.y, p.z)
     }
-
-    /// Поворот тела на момент `time` (для ориентаций).
     static func bodyRotation(_ body: BodyID, time: Double) -> Quat {
-        body == .terra ? Quat(axis: .unitZ, angle: terraRotationRate * time) : .identity
+        Quat(axis: .unitZ, angle: rotation(body, at: time))
     }
-
-    /// Скорость поверхности (и воздуха) в точке `position`, м/с.
-    public static func surfaceVelocity(body: BodyID, position: Vec3) -> Vec3 {
-        spin(body).cross(position)
-    }
-
-    /// Минимальная высота над уровнем моря, где разрешено ускорение «на рельсах».
+    public static func surfaceVelocity(body: BodyID, position: Vec3) -> Vec3 { spin(body).cross(position) }
     public static func railsMinimumAltitude(_ body: BodyID) -> Double {
-        body == .terra ? Bodies.terra.atmosphereHeight : 6_000
+        max(Bodies.body(body).atmosphereHeight, 6_000)
+    }
+    public static func speedOfSound(altitude: Double, body: BodyID = .terra) -> Double {
+        let b = Bodies.body(body)
+        return (1.4 * b.gasConstant * b.temperature(altitude: altitude)).squareRoot()
     }
 
-    /// Скорость звука на высоте, м/с.
-    public static func speedOfSound(altitude: Double) -> Double {
-        340.3 - 4.5e-3 * clamp(altitude, 0, 11_000)
-    }
-
-    /// Пересчёт состояния из системы `from` в систему `to` на момент `time`.
     public static func convert(_ s: StateVector, from: BodyID, to: BodyID, time: Double) -> StateVector {
-        if from == to { return s }
-        let lp = lunaPosition(at: time), lv = lunaVelocity(at: time)
-        if from == .terra { return StateVector(position: s.position - lp, velocity: s.velocity - lv) }
-        return StateVector(position: s.position + lp, velocity: s.velocity + lv)
+        StateVector(position: s.position + position(of: from, relativeTo: to, at: time),
+                    velocity: s.velocity + velocity(of: from, relativeTo: to, at: time))
+    }
+
+    public static func soiTarget(body: BodyID, position r: Vec3, time: Double) -> BodyID? {
+        for child in Bodies.children(of: body) {
+            if (r - position(of: child, relativeTo: body, at: time)).length < Bodies.body(child).soiRadius {
+                return child
+            }
+        }
+        let b = Bodies.body(body)
+        return r.length > b.soiRadius ? b.parent : nil
+    }
+
+    /// Газ и излучение считаются отдельно: в вакууме нет «температуры воздуха».
+    public static func thermalEnvironment(body id: BodyID, position r: Vec3, time: Double) -> ThermalEnvironment {
+        let b = Bodies.body(id)
+        let altitude = r.length - b.radius
+        let sun = position(of: .sol, relativeTo: id, at: time) - r
+        let daylight = id == .sol ? 1 : r.normalized.dot(sun.normalized)
+        let ground = b.temperature(altitude: 0, daylight: daylight)
+        let air = b.temperature(altitude: altitude, daylight: daylight)
+        let density = b.density(altitude: altitude)
+        // Средняя поглощённая звёздная энергия ∝ 1/d²; тень от текущего тела.
+        let distance = max(Bodies.sol.radius, sun.length)
+        let inShadow = id != .sol && r.dot(sun.normalized) < 0 && r.cross(sun.normalized).length < b.radius
+        let stellar = inShadow ? 3 : 278 * (Bodies.terra.orbitRadius / distance).squareRoot()
+        let view = min(0.5, 0.5 * pow(b.radius / max(b.radius, r.length), 2))
+        let radiation = pow(pow(stellar, 4) + view * pow(ground, 4), 0.25)
+        return ThermalEnvironment(airTemperature: air, radiationTemperature: radiation, density: density)
     }
 }
 
@@ -87,6 +120,7 @@ public enum Biome: String, Sendable, Hashable, Codable, CaseIterable {
     case launchPad, ocean, shores, lowlands, highlands, mountains, polarIce
     // Луна
     case lunarPlains, lunarCraters, lunarHighlands, lunarPoles
+    case vellaPlains, vellaHighlands, ardaDunes, ardaHighlands, ardaPolarIce, gasBands, stellarSurface
 }
 
 /// Процедурный рельеф: детерминированная функция от направления в системе, связанной с телом.
@@ -262,6 +296,13 @@ public enum Terrain {
                 h += 0.3 * c.depth * exp(-rim * rim)
             }
             return h
+        case .vella:
+            return 1_300 + 1_000 * sin(d.x * 9 + d.y * 4) + 650 * sin(d.z * 23 + d.x * 11)
+                + 180 * sin(d.y * 83 - d.z * 47) + 45 * sin(d.x * 311 + d.z * 217)
+        case .arda:
+            return 800 + 650 * sin(d.x * 7 - d.y * 3) + 420 * sin(d.y * 19 + d.z * 9)
+                + 130 * sin(d.z * 67 + d.x * 41) + 30 * sin(d.y * 283 + d.z * 191)
+        case .sol, .taros: return 0
         }
     }
 
@@ -294,6 +335,12 @@ public enum Terrain {
             if abs(lat) > 75 * Double.pi / 180 { return .lunarPoles }
             for c in craters where acos(clamp(d.dot(c.center), -1, 1)) < 1.2 * c.radius { return .lunarCraters }
             return height(body: .luna, direction: d) > 2_500 ? .lunarHighlands : .lunarPlains
+        case .vella: return height(body: body, direction: d) > 1_600 ? .vellaHighlands : .vellaPlains
+        case .arda:
+            if abs(lat) > 68 * Double.pi / 180 { return .ardaPolarIce }
+            return height(body: body, direction: d) > 1_100 ? .ardaHighlands : .ardaDunes
+        case .taros: return .gasBands
+        case .sol: return .stellarSurface
         }
     }
 }

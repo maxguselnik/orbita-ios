@@ -393,6 +393,10 @@ public struct FlightTelemetry: Sendable, Hashable {
     /// Плотность атмосферы вокруг, кг/м³ (0 — вакуум).
     public var atmosphereDensity: Double
     /// Нагрев при входе 0…1 (плазма, звук).
+    /// Температура воздуха, К; nil в вакууме (не температура деталей).
+    public var environmentTemperature: Double? = nil
+    /// Ускорение тяготения в текущей точке, м/с².
+    public var localGravity: Double = 0
     public var heating: Double
     /// Тепловое состояние деталей при входе в атмосферу (5.2).
     public var thermal = ThermalStatus()

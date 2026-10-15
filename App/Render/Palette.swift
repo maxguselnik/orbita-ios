@@ -328,6 +328,8 @@ enum Palette {
             g += 0.14 * craterShade * g
             let u = (g - 0.06) / 0.74
             return SIMD2(Float(clampd(u, 0.004, 0.996)), 0.5)
+        case .sol, .vella, .arda, .taros:
+            return SIMD2(0.5, 0.5) // Эти тела используют собственные готовые атласы.
         }
     }
 }

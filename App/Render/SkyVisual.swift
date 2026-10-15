@@ -132,6 +132,13 @@ final class SkyVisual {
         }
     }
 
+    func setSun(direction: D3) {
+        let sd = f3(direction)
+        sun.isEnabled = false // Видимый диск — настоящее тело Сол в общей сцене.
+        sunLight.look(at: -sd, from: .zero, relativeTo: nil)
+        fillLight.look(at: sd, from: .zero, relativeTo: nil)
+    }
+
     /// Заполняющий свет: у Терры 700, на Луне почти нет — тени рельефа контрастны.
     func setFill(luna: Bool) {
         fillLight.light.intensity = luna ? 60 : 700

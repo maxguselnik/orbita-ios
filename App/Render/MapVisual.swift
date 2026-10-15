@@ -13,8 +13,8 @@ final class MapVisual {
     let root = Entity()
     /// Инерциальная система Терры в единицах карты, сдвинутая на −фокус.
     private let content = Entity()
-    private let terraBody = ModelEntity()
-    private let lunaBody = ModelEntity()
+    private var bodyEntities: [BodyID: ModelEntity] = [:]
+    private var orbitEntities: [BodyID: ModelEntity] = [:]
     private let lunaGroup = Entity()
     private let soiSphere = ModelEntity()
     private let vesselMarker = ModelEntity()
@@ -40,7 +40,7 @@ final class MapVisual {
 
     private var map: MapSnapshot?
     /// Положение Луны на время снимка карты, единицы карты.
-    private var lunaAtMap = MapScale.lunaOrbit * D3(1, 0, 0)
+    private var lineOrigin = D3.zero
     private var polylines: [MapPolyline] = []
     private var staticLines: [MapPolyline] = []
     private var linesDirty = true
@@ -52,34 +52,35 @@ final class MapVisual {
     private var focusBlend = 1.0
     private var refocus = false
     private var bodiesRequested = false
-    private var terraMaterial: (any Material)?
-    private var lunaMaterial: (any Material)?
+    private var materials: [BodyID: any Material] = [:]
     private let cloudBody = ModelEntity()
     private var cloudTime = 0.0
-    private var terraMesh: MeshResource?
-    private var lunaMesh: MeshResource?
-    var areBodiesReady: Bool { terraMesh != nil && lunaMesh != nil }
+    private var bodyMeshes: [BodyID: MeshResource] = [:]
+    var areBodiesReady: Bool { bodyMeshes.count == BodyID.allCases.count }
 
     init() {
         root.isEnabled = false
         root.addChild(content)
         root.addChild(stars)
-        content.addChild(terraBody)
-        terraBody.addChild(cloudBody)
+        let sphere = MeshResource.generateSphere(radius: 1)
+        for id in BodyID.allCases {
+            let body = ModelEntity(mesh: sphere, materials: [SimpleMaterial(
+                color: PlanetAppearance.color(id), roughness: 1, isMetallic: false)])
+            body.scale = F3(repeating: Float(MapScale.radius(id)))
+            content.addChild(body)
+            bodyEntities[id] = body
+            if Bodies.body(id).parent == .sol {
+                let orbit = ModelEntity()
+                content.addChild(orbit)
+                orbitEntities[id] = orbit
+            }
+        }
+        bodyEntities[.terra]?.addChild(cloudBody)
         cloudBody.scale = F3(repeating: Float(1 + CloudShell.height / Bodies.terra.radius))
         cloudBody.isEnabled = false
         content.addChild(lunaGroup)
-        lunaGroup.addChild(lunaBody)
         lunaGroup.addChild(soiSphere)
         content.addChild(vesselMarker)
-
-        let sphere = MeshResource.generateSphere(radius: 1)
-        terraBody.model = ModelComponent(mesh: sphere, materials: [SimpleMaterial(
-            color: UIColor(red: 0.12, green: 0.32, blue: 0.55, alpha: 1), roughness: 0.9, isMetallic: false)])
-        terraBody.scale = F3(repeating: Float(MapScale.radius(.terra)))
-        lunaBody.model = ModelComponent(mesh: sphere, materials: [SimpleMaterial(
-            color: UIColor(white: 0.5, alpha: 1), roughness: 0.95, isMetallic: false)])
-        lunaBody.scale = F3(repeating: Float(MapScale.radius(.luna)))
 
         var soiMat = UnlitMaterial(color: UIColor(red: 0.55, green: 0.38, blue: 0.85, alpha: 1))
         soiMat.blending = .transparent(opacity: .init(floatLiteral: 0.06))
@@ -125,9 +126,8 @@ final class MapVisual {
     // MARK: - Тела
 
     /// Материалы с готовыми атласами рельефа, когда готовы.
-    func setMaterials(terra: any Material, luna: any Material) {
-        terraMaterial = terra
-        lunaMaterial = luna
+    func setMaterials(_ values: [BodyID: any Material]) {
+        materials = values
         applyBodyModels()
     }
 
@@ -161,51 +161,20 @@ final class MapVisual {
         guard !bodiesRequested else { return }
         bodiesRequested = true
         Task { [weak self] in
-            let terra = await Task.detached(priority: .userInitiated) { MapVisual.bodyMesh(.terra) }.value
-            let luna = await Task.detached(priority: .userInitiated) { MapVisual.bodyMesh(.luna) }.value
-            guard let self else { return }
-            self.terraMesh = terra.makeMesh(name: "mapTerra")
-            self.lunaMesh = luna.makeMesh(name: "mapLuna")
-            self.applyBodyModels()
+            for id in BodyID.allCases {
+                let geo = await Task.detached(priority: .userInitiated) { MapVisual.bodyMesh(id) }.value
+                guard let self else { return }
+                self.bodyMeshes[id] = geo.makeMesh(name: "map-" + id.rawValue)
+                self.applyBodyModels()
+            }
         }
     }
 
     private func applyBodyModels() {
-        if let mesh = terraMesh, let mat = terraMaterial {
-            terraBody.model = ModelComponent(mesh: mesh, materials: [mat])
-        }
-        if let mesh = lunaMesh, let mat = lunaMaterial {
-            lunaBody.model = ModelComponent(mesh: mesh, materials: [mat])
-        }
-    }
-
-    private func buildStars() {
-        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
-        func rnd() -> Float {
-            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
-            return Float(seed >> 40) / Float(1 << 24)
-        }
-        let levels: [CGFloat] = [0.35, 0.6, 0.95]
-        var builders = [MeshBuilder](repeating: MeshBuilder(), count: levels.count)
-        for _ in 0..<1_400 {
-            let z = 2 * rnd() - 1
-            let lon = 2 * Float.pi * rnd()
-            let rxy = (1 - z * z).squareRoot()
-            let dir = F3(rxy * cos(lon), rxy * sin(lon), z)
-            let mag = rnd()
-            let level = min(levels.count - 1, Int(mag * mag * Float(levels.count)))
-            let size: Float = 0.0012 + 0.0018 * mag
-            let t1 = simd_normalize(simd_cross(dir, abs(dir.z) < 0.9 ? F3(0, 0, 1) : F3(1, 0, 0)))
-            let t2 = simd_cross(dir, t1)
-            let i0 = builders[level].vertex(dir - t1 * size - t2 * size, -dir)
-            let i1 = builders[level].vertex(dir + t1 * size - t2 * size, -dir)
-            let i2 = builders[level].vertex(dir + t1 * size + t2 * size, -dir)
-            let i3 = builders[level].vertex(dir - t1 * size + t2 * size, -dir)
-            builders[level].quad(i0, i1, i2, i3, facing: -dir)
-        }
-        for (k, b) in builders.enumerated() {
-            guard let mesh = b.makeMesh(name: "mapStars") else { continue }
-            stars.addChild(ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: UIColor(white: levels[k], alpha: 1))]))
+        for id in BodyID.allCases {
+            if let mesh = bodyMeshes[id], let material = materials[id] {
+                bodyEntities[id]?.model = ModelComponent(mesh: mesh, materials: [material])
+            }
         }
     }
 
@@ -213,13 +182,12 @@ final class MapVisual {
 
     func updateMap(_ snapshot: MapSnapshot) {
         map = snapshot
-        lunaAtMap = World.lunaPosition(at: snapshot.time).d3 / MapScale.metersPerUnit
         polylines.removeAll(keepingCapacity: true)
         if let t = snapshot.trajectory {
-            polylines += MapLines.polylines(t, plan: false, lunaMap: lunaAtMap)
+            polylines += MapLines.polylines(t, plan: false, time: snapshot.time)
         }
         if let m = snapshot.maneuver {
-            polylines += MapLines.polylines(m.trajectory, plan: true, lunaMap: lunaAtMap)
+            polylines += MapLines.polylines(m.trajectory, plan: true, time: snapshot.time)
         }
         linesDirty = true
     }
@@ -245,24 +213,23 @@ final class MapVisual {
 
     /// Фокус (единицы карты, система Терры) по живому снимку.
     private func focusPoint(_ s: WorldSnapshot) -> (point: D3, body: BodyID) {
-        let luna = s.lunaPosition.d3 / MapScale.metersPerUnit
-        switch focus {
-        case .terra:
-            return (.zero, .terra)
-        case .luna:
-            return (luna, .luna)
-        case .vessel:
-            guard let v = s.vessels.first(where: { $0.id == s.activeVessel }) ?? s.vessels.first else {
-                return (.zero, .terra)
-            }
-            return (v.position.d3 / MapScale.metersPerUnit + (v.body == .luna ? luna : .zero), v.body)
+        if let id = focus.bodyID {
+            return (World.position(of: id, relativeTo: .terra, at: s.time).d3 / MapScale.metersPerUnit, id)
         }
+        guard let v = s.vessels.first(where: { $0.id == s.activeVessel }) ?? s.vessels.first else {
+            return (.zero, .terra)
+        }
+        let center = World.position(of: v.body, relativeTo: .terra, at: s.time).d3
+        return ((v.position.d3 + center) / MapScale.metersPerUnit, v.body)
     }
 
     /// Исходное расстояние: видна вся текущая траектория (у Луны — в пределах её SOI).
     private func defaultDistance(focus f: D3, body: BodyID) -> Double {
+        if focus == .sol { return Bodies.taros.orbitRadius / MapScale.metersPerUnit / MapScale.tanHalfFov * 1.15 }
         var extent = MapScale.radius(body) * 1.6
-        let cap = focus == .luna ? MapScale.lunaSOI : MapScale.lunaOrbit + MapScale.lunaSOI
+        if focus != .vessel { return extent / MapScale.tanHalfFov * 1.2 }
+        let b = Bodies.body(body)
+        let cap = b.soiRadius.isFinite ? b.soiRadius / MapScale.metersPerUnit : MapScale.maxDistance
         for line in polylines where !line.style.isPlan {
             for i in stride(from: 0, to: line.points.count, by: 4) {
                 extent = max(extent, min(cap, simd_length(line.points[i] - f)))
@@ -297,9 +264,10 @@ final class MapVisual {
 
         var eye = camera.step(dt: dt)
         // Камера не внутри тел.
-        let luna = s.lunaPosition.d3 / MapScale.metersPerUnit
         var surface = Double.infinity
-        for (center, r) in [(D3.zero, MapScale.radius(.terra)), (luna, MapScale.radius(.luna))] {
+        for id in BodyID.allCases {
+            let center = World.position(of: id, relativeTo: .terra, at: s.time).d3 / MapScale.metersPerUnit
+            let r = MapScale.radius(id)
             let rel = f + eye - center
             let d = simd_length(rel)
             let minD = r * 1.05
@@ -312,16 +280,29 @@ final class MapVisual {
         let v = MapViewState(focus: f, eye: eye, near: near, size: viewSize)
         view = v
 
-        content.position = f3(-f)
-        let terraRot = RenderFrame.bodyRotation(.terra, terraRotation: s.terraRotation)
-        terraBody.orientation = quatf(terraRot)
+        // Вычитаем Double-фокус до преобразования в Float, даже у далёких планет.
+        content.position = .zero
+        for id in BodyID.allCases {
+            let center = World.position(of: id, relativeTo: .terra, at: s.time).d3 / MapScale.metersPerUnit
+            bodyEntities[id]?.position = f3(center - f)
+            bodyEntities[id]?.orientation = quatf(RenderFrame.bodyRotation(id, time: s.time))
+            if let parent = Bodies.body(id).parent {
+                let origin = World.position(of: parent, relativeTo: .terra, at: s.time).d3 / MapScale.metersPerUnit
+                orbitEntities[id]?.position = f3(origin - f)
+            }
+        }
         cloudTime += dt
         cloudBody.orientation = simd_quatf(angle: Float(CloudShell.driftRate * cloudTime), axis: F3(0, 0, 1))
-        lunaGroup.position = f3(luna)
+        let luna = World.position(of: .luna, relativeTo: .terra, at: s.time).d3 / MapScale.metersPerUnit
+        lunaGroup.position = f3(luna - f)
+        let sun = World.position(of: .sol, relativeTo: .terra, at: s.time).d3 / MapScale.metersPerUnit
+        let lightDirection = f3(simd_normalize(sun - f - eye))
+        sunLight.look(at: -lightDirection, from: .zero, relativeTo: nil)
+        fillLight.look(at: lightDirection, from: .zero, relativeTo: nil)
         if let active = s.vessels.first(where: { $0.id == s.activeVessel }) ?? s.vessels.first {
-            let p = active.position.d3 / MapScale.metersPerUnit + (active.body == .luna ? luna : .zero)
+            let p = (active.position.d3 + World.position(of: active.body, relativeTo: .terra, at: s.time).d3) / MapScale.metersPerUnit
             vesselMarker.isEnabled = true
-            vesselMarker.position = f3(p)
+            vesselMarker.position = f3(p - f)
             let depth = max(near, simd_dot(p - f - eye, v.forward))
             vesselMarker.scale = F3(repeating: Float(v.unitsPerPoint(depth: depth) * 4.5))
         } else {
@@ -331,6 +312,10 @@ final class MapVisual {
         stars.scale = F3(repeating: Float(far * 0.95))
 
         rebuildLinesIfNeeded(unitsPerPoint: v.unitsPerPoint(depth: dist))
+        for (style, entity) in lineEntities {
+            if style == .lunaOrbit { entity.position = f3(-f) }
+            else if style != .lunaSOI { entity.position = f3(lineOrigin - f) }
+        }
 
         cam.transform = Transform(scale: .one, rotation: v.rotation, translation: f3(eye))
         cam.camera.fieldOfViewInDegrees = Float(MapScale.fovDegrees)
@@ -341,10 +326,26 @@ final class MapVisual {
     private func rebuildLinesIfNeeded(unitsPerPoint upp: Double) {
         let step = Int((log2(max(upp, 1e-9)) * 3).rounded())
         let rescale = step != builtScaleStep
-        guard rescale || linesDirty else { return }
+        let currentFocus = view?.focus ?? .zero
+        let moved = simd_length(currentFocus - lineOrigin) > max(1, upp * 32)
+        guard rescale || linesDirty || moved else { return }
+        lineOrigin = currentFocus
         let width = pow(2, Double(step) / 3)
         if rescale || staticDirty {
             for line in staticLines { setLines([line], style: line.style, width: width) }
+            for (id, entity) in orbitEntities {
+                let body = Bodies.body(id)
+                var line = MapLines.circle(radius: body.orbitRadius / MapScale.metersPerUnit,
+                                           segments: 256, style: .lunaOrbit)
+                let rotation = simd_quatd(angle: body.inclination, axis: D3(1, 0, 0))
+                line.points = line.points.map { rotation.act($0) }
+                line.normal = rotation.act(line.normal)
+                var builder = MeshBuilder()
+                MapLines.append(line, radius: width * 0.6, to: &builder)
+                if let mesh = builder.makeMesh(name: "orbit-" + id.rawValue) {
+                    entity.model = ModelComponent(mesh: mesh, materials: [UnlitMaterial(color: PlanetAppearance.color(id))])
+                }
+            }
             staticDirty = false
         }
         for style in MapLineStyle.allCases where style != .lunaOrbit && style != .lunaSOI {
@@ -361,7 +362,13 @@ final class MapVisual {
         mesh.uvs.removeAll(keepingCapacity: true)
         mesh.indices.removeAll(keepingCapacity: true)
         let radius = style.width * upp / 2
-        for line in lines { MapLines.append(line, radius: radius, to: &mesh) }
+        for source in lines {
+            var line = source
+            if style != .lunaOrbit && style != .lunaSOI {
+                line.points = line.points.map { $0 - lineOrigin }
+            }
+            MapLines.append(line, radius: radius, to: &mesh)
+        }
         guard let resource = mesh.makeMesh(name: "mapLine"), let mat = lineMaterials[style] else {
             if e.isEnabled { e.isEnabled = false }
             return
@@ -375,7 +382,8 @@ final class MapVisual {
     /// Точка в инерциальной системе тела (м, на время снимка карты) → экран.
     func project(_ position: Vec3, body: BodyID) -> CGPoint? {
         guard let view else { return nil }
-        let q = position.d3 / MapScale.metersPerUnit + (body == .luna ? lunaAtMap : .zero)
+        let center = World.position(of: body, relativeTo: .terra, at: map?.time ?? 0).d3
+        let q = (position.d3 + center) / MapScale.metersPerUnit
         return view.project(q)
     }
 
