@@ -31,7 +31,7 @@ struct AltimeterPanel: View {
         let t = model.telemetry
         VStack(spacing: 3) {
             OdometerRow(reading: AltimeterReading(altitude: shownAltitude(t)))
-            Text(AltimeterMode.label(overTerrain: model.altimeterOverTerrain))
+            Text(AltimeterMode.label(overTerrain: model.altimeterOverTerrain, body: t.body, altitude: t.altitude))
                 .font(.system(size: HUDFont.caption, weight: .semibold))
                 .foregroundStyle(HUDPalette.muted)
             let body = Bodies.body(t.body)
@@ -63,7 +63,7 @@ struct AltimeterPanel: View {
         .overlay(shape.strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
         .shadow(color: .black.opacity(0.4), radius: 5, y: 2)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Высота \(HUDFormat.distance(shownAltitude(t))) \(AltimeterMode.label(overTerrain: model.altimeterOverTerrain))")
+        .accessibilityLabel("Высота \(HUDFormat.distance(shownAltitude(t))) \(AltimeterMode.label(overTerrain: model.altimeterOverTerrain, body: t.body, altitude: t.altitude))")
     }
 
     /// Ап для строки «Ап …»: есть орбита, Ап выше 1 км и конечен, корабль не на грунте.

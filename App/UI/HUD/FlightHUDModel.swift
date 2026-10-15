@@ -104,6 +104,16 @@ final class FlightHUDModel {
     private(set) var deletedNode: ManeuverNode?
     @ObservationIgnored private var deletedNodeGoal: ManeuverGoal?
     @ObservationIgnored private var deletedNodeExpiry: TimeInterval = 0
+    /// Панели карты спрятаны кнопкой «глаз»: видны карта, время и «Полёт».
+    private(set) var mapPanelsHidden = false
+    /// «К Велле: окно через 12д 04:10», пока ускорение ждёт окна отлёта к планете; nil — не ждём.
+    private(set) var planetWaitText: String?
+    /// Фокус карты до автопереключения на «Систему» на время ожидания окна; nil — не переключали.
+    @ObservationIgnored private var warpFocusRestore: MapFocus?
+    /// За это ожидание «Систему» уже показали (ручной выбор фокуса не перебивается).
+    @ObservationIgnored private var planetWaitFocused = false
+    /// Ожидание дольше этого (с) показывает «Систему» и отсчёт.
+    static let planetWaitMinimum = 86_400.0
     /// Цели, доступные сейчас (обновляются не чаще 4 Гц, пока открыта карта).
     private(set) var availableGoals: [ManeuverGoal] = []
     /// Строка фазы автопрожига («Летим к узлу 31:41»); nil — автопрожиг не идёт. Меняется раз в секунду.
@@ -582,18 +592,62 @@ final class FlightHUDModel {
         resetAttitudeInput()
         resetTranslationInput()
         isPanelOpen = false
+        mapPanelsHidden = false
         map.isOpen.toggle()
         lastGoalsRefresh = -.infinity
     }
 
     func setMapFocus(_ focus: MapFocus) {
         map.focus = focus
+        warpFocusRestore = nil
     }
 
-    /// Тап по карте: по орбите — поставить узел или перенести существующий в эту точку. Только в «Эксперт».
+    /// Тап по карте: по Луне, планете или Терре — маршрут к ней (как кнопка цели); по орбите в «Эксперт» —
+    /// поставить узел или перенести существующий в эту точку.
     func mapTap(at point: CGPoint) {
-        guard map.isOpen, mapExpert, let time = map.orbitPick(at: point) else { return }
+        guard map.isOpen else { return }
+        if let body = tappedBody(at: point) {
+            routeTo(body)
+            return
+        }
+        guard mapExpert, let time = map.orbitPick(at: point) else { return }
         placeManeuver(at: time)
+    }
+
+    /// Радиус касания вокруг центра тела на карте, pt.
+    static let bodyTapRadius: CGFloat = 32
+
+    /// Тело под пальцем: ближайший к касанию центр Луны, планеты или Терры в пределах `bodyTapRadius`.
+    private func tappedBody(at point: CGPoint) -> BodyID? {
+        var best: (id: BodyID, d: CGFloat)?
+        for id in [BodyID.luna, .terra, .vella, .arda, .taros] {
+            guard let p = map.project(.zero, body: id) else { continue }
+            let d = hypot(p.x - point.x, p.y - point.y)
+            if d <= Self.bodyTapRadius, d < (best?.d ?? .infinity) { best = (id, d) }
+        }
+        return best?.id
+    }
+
+    /// Цель маршрута к телу: Луна — «К Луне», планета — «К планете», Терра — «Домой».
+    nonisolated static func routeGoal(to body: BodyID) -> ManeuverGoal? {
+        switch body {
+        case .luna: .toLuna
+        case .terra: .returnHome
+        case .sol: nil
+        default: ManeuverGoal.toPlanet(body)
+        }
+    }
+
+    /// Маршрут по тапу на тело: та же цель, что у кнопки; недоступна сейчас — тост с подсказкой.
+    private func routeTo(_ body: BodyID) {
+        guard let goal = Self.routeGoal(to: body) else { return }
+        guard availableGoals.contains(goal) else {
+            if let vessel = activeVesselState, vessel.body == body { return }
+            notify("«\(MapGoalsColumn.title(goal))» отсюда сейчас недоступно")
+            return
+        }
+        planManeuver(goal)
+        if maneuverGoal == goal { notify("Маршрут: \(MapGoalsColumn.title(goal))") }
     }
 
     /// Узел в момент `time`; если узел уже есть — переносится с тем же импульсом.
@@ -889,6 +943,34 @@ final class FlightHUDModel {
         if node == nil, maneuverGoal != nil { maneuverGoal = nil }
         let canWarp = Self.canWarp(t)
         if canWarpToManeuver != canWarp { canWarpToManeuver = canWarp }
+        updatePlanetWait(t)
+    }
+
+    /// Ожидание окна к планете на рельсах: карта показывает «Систему» и отсчёт, после — прежний фокус.
+    private func updatePlanetWait(_ t: FlightTelemetry) {
+        var text: String?
+        if map.isOpen, let goal = maneuverGoal, goal.planet != nil, t.body == .terra,
+           t.warpIndex >= TimeWarp.physicalCount, let m = t.maneuver, m.timeToBurn > Self.planetWaitMinimum {
+            text = "\(MapGoalsColumn.title(goal)): окно через \(HUDFormat.countdown((m.timeToBurn / 60).rounded() * 60))"
+        }
+        if text != nil, !planetWaitFocused {
+            planetWaitFocused = true
+            if map.focus != .sol {
+                warpFocusRestore = map.focus
+                map.focus = .sol
+            }
+        } else if text == nil, planetWaitFocused {
+            planetWaitFocused = false
+            if let restore = warpFocusRestore, map.focus == .sol { map.focus = restore }
+            warpFocusRestore = nil
+        }
+        if planetWaitText != text { planetWaitText = text }
+    }
+
+    /// «Глаз» на карте; в уроке панели не прячутся (шаги указывают на них).
+    func toggleMapPanels() {
+        guard tutorial?.isActive != true || mapPanelsHidden else { return }
+        mapPanelsHidden.toggle()
     }
 
     /// Что подсветить: совет помощника подъёма, затем «Ступень» при пустой ступени и для парашюта.

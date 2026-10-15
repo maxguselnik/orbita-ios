@@ -177,7 +177,7 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
                                 why: "Корабль сам долетит до узла, развернётся, сделает прожиг и поправит курс.")
         case .coast:
             let way = Self.timeToEncounter(i).map { "До Луны \(HUDFormat.countdown($0))." } ?? "До Луны несколько часов."
-            return LessonBubble(title: "Ускорение времени", text: way + " Нажмите ▶▶ вверху слева.", button: nil,
+            return LessonBubble(title: "Ускорение времени", text: way + " Нажмите «+» вверху слева.", button: nil,
                                 why: "Лететь долго. На ускорении время идёт быстрее; у Луны игра сама вернёт обычную скорость.")
         case .captureNode:
             return LessonBubble(title: "Захват", text: "Вы у Луны. Откройте карту и нажмите «Скруглить орбиту».",

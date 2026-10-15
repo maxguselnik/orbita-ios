@@ -223,6 +223,17 @@ public enum ChuteState: String, Sendable, Hashable, Codable {
 public enum TimeWarp {
     public static let levels: [Double] = [1, 2, 3, 4, 10, 100, 1_000, 10_000, 100_000]
     public static let physicalCount = 4
+    /// «До узла манёвра» при долгом ожидании (окно к планете) ускоряется выше верхнего уровня, но не больше этого.
+    public static let maneuverBoostMax = 1_000_000.0
+    /// Скорость «до узла» сходит к верхнему уровню так, что остаток ожидания проходит примерно за это время, с.
+    public static let maneuverBoostSeconds = 1.5
+
+    /// Скорость рельсов «до узла» при остатке `remaining` с: не ниже верхнего уровня, не выше `maneuverBoostMax`.
+    public static func maneuverRate(remaining: Double) -> Double {
+        let top = levels[levels.count - 1]
+        guard remaining.isFinite, remaining > 0 else { return top }
+        return min(maneuverBoostMax, max(top, remaining / maneuverBoostSeconds))
+    }
 }
 
 /// Итоги полёта активного корабля с момента старта (для экрана результата). Только растёт.
