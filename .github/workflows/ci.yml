@@ -60,14 +60,19 @@ jobs:
       - name: Снимки
         # По умолчанию снимков нет. Только по метке в сообщении коммита (push):
         # «[screens: ascent orbit]» — эти сцены; «[screens: default]» — набор screens.txt;
-        # «[screens: all]» — полный список (screens-all.txt). Берёт готовую сборку и загруженный симулятор.
+        # «[screens: all]» — полный список (screens-all.txt); «[screens: audit]» — кадры/логи на 6/20/60 с.
+        # Берёт готовую сборку и загруженный симулятор.
         if: github.event_name == 'push'
-        timeout-minutes: 15
+        timeout-minutes: 20
         env:
           COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           PICK=$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[screens: *\([^]]*\)\].*/\1/p' | head -1)
           if [ -z "$PICK" ] || [ "$PICK" = "none" ]; then echo "Снимки пропущены (нет метки [screens: …])"; mkdir -p screens; exit 0; fi
+          if [ "$PICK" = "audit" ]; then
+            scripts/ci-visual-audit.sh
+            exit 0
+          fi
           if [ "$PICK" = "worldflight" ]; then
             WORLD_GROUPS=new WORLD_MODES="map flight" scripts/ci-worlds.sh
             SCREENS_APP_INSTALLED=1 scripts/ci-screens.sh tarosOrbit systemMap flight
