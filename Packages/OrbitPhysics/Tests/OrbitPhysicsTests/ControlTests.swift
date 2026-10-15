@@ -60,7 +60,9 @@ struct ControlTests {
     @Test func telemetryOnPadAndAscent() {
         let sim = FlightSim(design: .orbit)
         var t = sim.snapshot.telemetry
-        #expect(abs(t.staticPressure - exp(-Terrain.padHeight / 5_600)) < 1e-9)
+        // Давление идеального газа: плотность × температура (тропосфера −6.5 К/км), относительно уровня моря Терры.
+        let h = Terrain.padHeight
+        #expect(abs(t.staticPressure - exp(-h / 5_600) * (288 - 0.0065 * h) / 288) < 1e-9)
         #expect(t.chute == .stowed && t.chuteSafe)
         #expect(t.orbit == nil && t.warpIndex == 0 && t.warpBlocked == nil)
         _ = sim.advance(realDelta: 0.1)
