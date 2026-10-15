@@ -49,19 +49,15 @@ struct FlightHUDView: View {
             }
 
             if mapOpen {
-                MapLayer(model: model, hintsEnabled: hintsEnabled && !inLesson)
+                MapLayer(model: model, hintsEnabled: hintsEnabled && !inLesson, showLegend: $showLegend)
                 // «Система» — масштаб планет: навбол там не нужен и закрывает орбиты.
-                if !model.mapPanelsHidden, model.map.focus != .sol {
+                if !model.mapPanelsHidden, !model.isSystemMap {
                     NavballCluster(model: model, ascentEnabled: false)
                         .padding(.bottom, NavballCluster.lift)
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
                         .ignoresSafeArea(.container, edges: .bottom)
                 }
-                if !model.mapPanelsHidden {
-                    MapFocusPicker(model: model, showLegend: $showLegend)
-                        .padding(.bottom, model.map.focus == .sol ? 8 : Self.mapFocusBottom)
-                        .ignoresSafeArea(.container, edges: .bottom)
-                }
+
             } else {
                 FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
             }
@@ -320,43 +316,46 @@ struct ManeuverBadgeHost: View {
 struct MapLayer: View {
     let model: FlightHUDModel
     var hintsEnabled = true
+    @Binding var showLegend: Bool
+    private var contentTop: CGFloat { model.tutorial?.isActive == true ? 104 : 58 }
 
     var body: some View {
-        ZStack {
-            MissionTimeBar(model: model)
-                .padding(.top, 6)
-                .padding(.leading, 6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            HStack(spacing: 0) {
-                HUDIconButton(systemImage: model.mapPanelsHidden ? "eye.slash" : "eye",
-                              label: model.mapPanelsHidden ? "Показать панели карты" : "Спрятать панели карты",
-                              isActive: model.mapPanelsHidden,
-                              hint: "Глаз: спрятать панели и посмотреть на карту целиком, повторный тап — вернуть") {
-                    model.toggleMapPanels()
+        GeometryReader { geometry in
+            ZStack {
+                MapNavigationHeader(model: model, showLegend: $showLegend)
+                    .frame(maxHeight: .infinity, alignment: .top)
+                if model.isSystemMap {
+                    // Обзор системы: боковых панелей нет, всё управление — в шапке и нижней полосе.
+                    SystemMapBottomBar(model: model)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                } else {
+                    if !model.mapPanelsHidden {
+                        HStack(alignment: .bottom, spacing: 8) {
+                            MapLeftColumn(model: model)
+                            MapCenterColumn(model: model, hintsEnabled: hintsEnabled)
+                            MapSideColumn(model: model)
+                        }
+                        .padding(.top, contentTop)
+                        .padding(.bottom, 54)
+                    }
+                    HStack(alignment: .bottom) {
+                        MapToggleButton(model: model).frame(width: MapLeftColumn.width)
+                        Spacer(minLength: 8)
+                        if model.isAutoBurning && model.mapPanelsHidden {
+                            ManeuverExecuteButton(model: model).frame(width: MapSideColumn.width)
+                        }
+                    }
+                    .padding(.bottom, 6)
+                    .frame(maxHeight: .infinity, alignment: .bottom)
                 }
-                StagePanelButton(model: model)
             }
-            .padding(.trailing, 4)
-            .padding(.top, 2)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            if model.mapPanelsHidden {
-                // Без панелей остаётся только «Полёт» — выход с карты.
-                MapToggleButton(model: model)
-                    .frame(width: MapLeftColumn.width)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-            } else {
-                HStack(alignment: .bottom, spacing: 8) {
-                    MapLeftColumn(model: model)
-                    MapCenterColumn(model: model, hintsEnabled: hintsEnabled)
-                    MapSideColumn(model: model)
-                }
-                .padding(.top, 50)
-            }
+            .frame(width: geometry.size.width, height: geometry.size.height)
+            .foregroundStyle(.white)
         }
     }
 }
 
-/// Левая колонка карты: цели «Куда летим?» сверху, внизу SAS (вкл/выкл и «по узлу») и кнопка «Полёт».
+/// Левая колонка карты: прокручиваемые цели и закреплённый SAS; «Полёт» находится в общей нижней строке.
 struct MapLeftColumn: View {
     let model: FlightHUDModel
 
@@ -364,10 +363,9 @@ struct MapLeftColumn: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            MapGoalsColumn(model: model)
-            Spacer(minLength: 0)
+            ScrollView { MapGoalsColumn(model: model) }
+                .scrollIndicators(.visible)
             MapSASRow(model: model)
-            MapToggleButton(model: model)
         }
         .frame(width: Self.width)
     }

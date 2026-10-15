@@ -104,8 +104,15 @@ final class FlightHUDModel {
     private(set) var deletedNode: ManeuverNode?
     @ObservationIgnored private var deletedNodeGoal: ManeuverGoal?
     @ObservationIgnored private var deletedNodeExpiry: TimeInterval = 0
-    /// Панели карты спрятаны кнопкой «глаз»: видны карта, время и «Полёт».
+    /// Панели убраны; навигация, время, «Полёт» и текущий «Стоп» остаются доступны.
     private(set) var mapPanelsHidden = false
+    private var mapSystemBrowsing = false
+    var isSystemMap: Bool { mapSystemBrowsing || map.focus == .sol }
+    var mapLocationText: String {
+        if map.focus == .sol { return "Обзор системы Сола" }
+        if map.focus == .vessel { return Bodies.body(telemetry.body).name + " · Корабль" }
+        return MapFocusPicker.name(map.focus)
+    }
     /// «К Велле: окно через 12д 04:10», пока ускорение ждёт окна отлёта к планете; nil — не ждём.
     private(set) var planetWaitText: String?
     /// Фокус карты до автопереключения на «Систему» на время ожидания окна; nil — не переключали.
@@ -308,7 +315,10 @@ final class FlightHUDModel {
     private func tutorialFrame(_ tutorial: TutorialController, delta: Double) {
         guard tutorial.isActive else { return }
         let held = tutorial.holdsPhysics
-        if tutorial.update(lessonInput(), delta: delta) { saveTutorialCheckpoint() }
+        if tutorial.update(lessonInput(), delta: delta) {
+            revealTutorialControls()
+            saveTutorialCheckpoint()
+        }
         // К скруглению игра сама возвращается к ×1.
         if tutorial.forcesRealTime, telemetry.warpIndex > 0 {
             send(.setWarp(index: 0))
@@ -363,14 +373,14 @@ final class FlightHUDModel {
     /// «Понятно» / «Дальше» / «Поехали» / «Готово» в пузыре урока.
     func tutorialAcknowledge() {
         guard let tutorial else { return }
-        if tutorial.acknowledge(lessonInput()) { saveTutorialCheckpoint() }
+        if tutorial.acknowledge(lessonInput()) { revealTutorialControls(); saveTutorialCheckpoint() }
         feedback?.setPaused(tutorial.holdsPhysics || isPaused)
     }
 
     /// «Дальше» на шаге «попробуйте»: пропустить.
     func tutorialSkip() {
         guard let tutorial else { return }
-        if tutorial.skip(lessonInput()) { saveTutorialCheckpoint() }
+        if tutorial.skip(lessonInput()) { revealTutorialControls(); saveTutorialCheckpoint() }
         feedback?.setPaused(tutorial.holdsPhysics || isPaused)
     }
 
@@ -598,14 +608,32 @@ final class FlightHUDModel {
     }
 
     func setMapFocus(_ focus: MapFocus) {
+        mapSystemBrowsing = focus == .sol || (focus != .vessel && isSystemMap)
         map.focus = focus
         warpFocusRestore = nil
+        // Даже повторный выбор корабля возвращает масштаб после случайного зума.
+        cameraReset()
+    }
+
+    func planRouteToFocusedBody() {
+        guard let body = map.focus.bodyID, body != .sol else { return }
+        if body == telemetry.body { setMapFocus(.vessel); return }
+        guard let goal = Self.routeGoal(to: body), availableGoals.contains(goal) else { return }
+        _ = routeTo(body)
+        // Результат планирования и «Выполнить» находятся в режиме корабля.
+        setMapFocus(.vessel)
+        mapPanelsHidden = false
     }
 
     /// Тап по карте: по Луне, планете или Терре — маршрут к ней (как кнопка цели); по орбите в «Эксперт» —
     /// поставить узел или перенести существующий в эту точку.
     func mapTap(at point: CGPoint) {
         guard map.isOpen else { return }
+        if isSystemMap {
+            if let body = tappedBody(at: point) { setMapFocus(.body(body)) }
+            return
+        }
+        guard !mapPanelsHidden else { return }
         // В уроке маршрут по тапу не ставится: шаги ведут своими кнопками.
         if tutorial?.isActive != true, let body = tappedBody(at: point), routeTo(body) { return }
         guard mapExpert, let time = map.orbitPick(at: point) else { return }
@@ -620,7 +648,7 @@ final class FlightHUDModel {
     private func tappedBody(at point: CGPoint) -> BodyID? {
         var best: (id: BodyID, d: CGFloat)?
         let here = activeVesselState?.body
-        for id in [BodyID.luna, .terra, .vella, .arda, .taros] where id != here {
+        for id in [BodyID.luna, .terra, .vella, .arda, .taros] where isSystemMap || id != here {
             guard let p = map.project(.zero, body: id) else { continue }
             let d = hypot(p.x - point.x, p.y - point.y)
             if d <= Self.bodyTapRadius, d < (best?.d ?? .infinity) { best = (id, d) }
@@ -973,10 +1001,20 @@ final class FlightHUDModel {
         if planetWaitText != text { planetWaitText = text }
     }
 
-    /// «Глаз» на карте; в уроке панели не прячутся (шаги указывают на них).
+    /// Панели можно убрать и во время урока; следующий шаг сам вернёт нужные контролы.
     func toggleMapPanels() {
-        guard tutorial?.isActive != true || mapPanelsHidden else { return }
         mapPanelsHidden.toggle()
+        if mapPanelsHidden { isPanelOpen = false }
+    }
+
+    private func revealTutorialControls() {
+        guard let target = tutorial?.display.target else { return }
+        let mapTargets: Set<LessonElement> = [.mapLuna, .mapSummary, .mapHandle, .mapToNode,
+            .mapSASNode, .mapPanel, .mapNode, .mapGoals, .mapExecute, .mapCircularize, .navball, .sas]
+        if map.isOpen && mapTargets.contains(target) {
+            mapPanelsHidden = false
+            if isSystemMap { setMapFocus(.vessel) }
+        }
     }
 
     /// Что подсветить: совет помощника подъёма, затем «Ступень» при пустой ступени и для парашюта.

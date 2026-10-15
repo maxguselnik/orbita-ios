@@ -124,7 +124,7 @@ private struct TutorialLayers: View {
         let mapOpen = model.map.isOpen
         let hasStack = scene.bubble != nil || scene.plateBar
         let frame = TutorialLayout.stackFrame(size: stackSize, screen: size, holes: holes,
-                                              top: mapOpen ? 6 : TutorialStackView.flightTop,
+                                              top: mapOpen ? 60 : TutorialStackView.flightTop,
                                               bottom: mapOpen ? TutorialStackView.mapBottom : TutorialStackView.flightBottom)
         ZStack(alignment: .topLeading) {
             if scene.dims {

@@ -18,8 +18,9 @@ struct CameraShake {
         let qn = clampd(t.dynamicPressure / Self.fullQ, 0, 1)
         let thrust = t.maxThrust > 0 ? clampd(t.thrust / t.maxThrust, 0, 1) : 0
         let air = clampd(t.staticPressure, 0, 1)
-        let nearGround = t.heightAboveTerrain < 150 && t.thrust > 0 ? 1 - t.heightAboveTerrain / 150 : 0
-        let target = min(1, qn * 0.85 + thrust * (0.12 + 0.18 * air) * (t.solidBurning ? 1.6 : 1) + nearGround * 0.5)
+        let grounded = t.situation == .landed || t.situation == .splashed || t.situation == .prelaunch
+        let nearGround = grounded ? 0 : thrust * (1 - clampd(t.heightAboveTerrain / 150, 0, 1))
+        let target = min(1, qn * 0.85 + thrust * (0.12 + 0.18 * air) * (t.solidBurning ? 1.6 : 1) + nearGround * 0.12)
         let k = 1 - exp(-max(0, dt) * 4)
         steady += (target - steady) * k
         speedFeel += (qn - speedFeel) * (1 - exp(-max(0, dt) * 1.5))
@@ -30,7 +31,7 @@ struct CameraShake {
             case .separation: kick = max(kick, 1)
             case .maxQ: kick = max(kick, 0.35)
             case .chuteOpened: kick = max(kick, 0.5)
-            case .touchdown(let speed), .splashdown(let speed): kick = max(kick, clampd(speed / 10, 0.2, 1))
+            case .touchdown(let speed), .splashdown(let speed): kick = max(kick, clampd(speed / 20, 0, 0.4))
             case .crash: kick = max(kick, 1.6)
             default: break
             }
