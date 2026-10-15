@@ -9,10 +9,22 @@ struct MapOverlay: View {
     let model: FlightHUDModel
 
     var body: some View {
-        TimelineView(.animation) { context in
-            MapOverlayFrame(model: model, date: context.date)
+        // Размер и вырезы экрана читаем из GeometryReader: ручки Δv не должны уходить под боковые колонки.
+        GeometryReader { geo in
+            let range = Self.handleRange(width: geo.size.width, insets: geo.safeAreaInsets)
+            TimelineView(.animation) { context in
+                MapOverlayFrame(model: model, date: context.date, handleRange: range)
+            }
         }
         .ignoresSafeArea()
+    }
+
+    /// Допустимые x центров ручек: между левой колонкой и правой (ширина колонки, отступ и половина касания).
+    static func handleRange(width: CGFloat, insets: EdgeInsets) -> ClosedRange<CGFloat>? {
+        let half = HUDStyle.minTouch / 2
+        let low = insets.leading + MapLeftColumn.width + 8 + half
+        let high = width - insets.trailing - MapSideColumn.width - 8 - half
+        return low < high ? low...high : nil
     }
 }
 
@@ -21,17 +33,26 @@ struct MapOverlayFrame: View {
     let model: FlightHUDModel
     /// Время кадра: новая дата — новая проекция.
     let date: Date
+    /// Куда по горизонтали можно ставить ручки Δv; nil — не ограничивать.
+    var handleRange: ClosedRange<CGFloat>?
+
+    /// Прижимает ручку внутрь центральной области.
+    private func inside(_ p: CGPoint) -> CGPoint {
+        guard let range = handleRange else { return p }
+        return CGPoint(x: min(max(p.x, range.lowerBound), range.upperBound), y: p.y)
+    }
 
     /// Подписи не должны ложиться на значок корабля, точку узла и ручки Δv.
-    private static func obstacles(_ model: FlightHUDModel, node: NodeHandleLayout?) -> [CGRect] {
+    private func obstacles(node: NodeHandleLayout?) -> [CGRect] {
         var obstacles: [CGRect] = []
-        if let vessel = vesselPoint(model) {
+        if let vessel = Self.vesselPoint(model) {
             obstacles.append(CGRect(x: vessel.x - 24, y: vessel.y - 24, width: 48, height: 48))
         }
         if let node {
             obstacles.append(CGRect(x: node.center.x - 12, y: node.center.y - 12, width: 24, height: 24))
             for item in model.mapExpert ? node.items : [] {
-                obstacles.append(CGRect(x: item.point.x - 22, y: item.point.y - 22, width: 44, height: 44))
+                let point = inside(item.point)
+                obstacles.append(CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44))
             }
         }
         return obstacles
@@ -42,7 +63,8 @@ struct MapOverlayFrame: View {
         let snapshot = map.snapshot
         let node = NodeHandleLayout(snapshot: snapshot, map: map)
         let nodeCenter = node?.center
-        let labels = MapLabel.layout(snapshot.markers, map: map, obstacles: Self.obstacles(model, node: node))
+        let busy = model.isAutoBurning
+        let labels = MapLabel.layout(snapshot.markers, map: map, obstacles: obstacles(node: node))
         ZStack(alignment: .topLeading) {
             Canvas { context, _ in
                 var bodyPoints: [CGPoint] = []
@@ -77,7 +99,9 @@ struct MapOverlayFrame: View {
                 ForEach(model.mapExpert ? node.items : []) { item in
                     ManeuverHandleKnob(handle: item.handle, direction: item.direction, model: model)
                         .tutorialAnchor(optional: item.handle == .prograde ? .mapHandle : nil)
-                        .position(item.point)
+                        .position(inside(item.point))
+                        .disabled(busy)
+                        .opacity(busy ? 0.35 : 1)
                 }
             }
         }
@@ -337,7 +361,7 @@ struct ManeuverHandleKnob: View {
             .contentShape(Circle())
             .overlay(alignment: .bottom) {
                 Text(Self.caption(handle))
-                    .font(.system(size: 9, weight: .heavy))
+                    .font(.system(size: HUDFont.caption, weight: .heavy))
                     .foregroundStyle(color)
                     .lineLimit(1)
                     .fixedSize()
