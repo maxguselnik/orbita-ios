@@ -12,6 +12,22 @@ enum HUDStyle {
     static let secondaryText = Color.white.opacity(0.65)
 }
 
+/// Шкала шрифтов интерфейса (макет docs/mockups/ui-polish.html): мельче 11 pt текста нет.
+enum HUDFont {
+    /// Подписи, единицы, счётчики.
+    static let caption: CGFloat = 11
+    /// Значения в узких местах: SAS, MAX/0, табло скорости, «ТЯГА».
+    static let small: CGFloat = 12
+    /// Основной текст, кнопки, тосты.
+    static let body: CGFloat = 13
+    /// Цифры приборов (высотомер, Δv).
+    static let value: CGFloat = 15
+    /// Заголовки панелей и диалогов.
+    static let title: CGFloat = 17
+    /// Крупные кнопки действия (ПУСК, Выполнить).
+    static let big: CGFloat = 20
+}
+
 /// Палитра «классической» раскладки: тёмные панели, зелёный — активное, оранжевый — главное действие.
 enum HUDPalette {
     static let panel = Color(red: 12 / 255, green: 16 / 255, blue: 24 / 255).opacity(0.85)
