@@ -17,8 +17,10 @@ final class GameFlow {
     }
     /// id проекта в Documents/ships, к которому относится `design` (nil — не сохранён).
     var shipID: String?
-    /// Итог последнего полёта начислен (по `flightID`), чтобы не начислять дважды.
-    private var awardedFlight = -1
+    /// Начисленное за текущий полёт: каждая веха — раз за полёт, перезапуск — новый счёт.
+    private var flightAward = FlightAward()
+    /// Игрок вышел из урока: дальше полёт обычный и даёт науку.
+    private var tutorialLeft = false
 
     private(set) var screen: Screen
     /// Проект в ангаре; каждое изменение сохраняется в Documents.
@@ -115,14 +117,31 @@ final class GameFlow {
     /// Деталь доступна в каталоге (песочница, открытая технология, сценарии CI).
     func isUnlocked(_ part: PartID) -> Bool { progress?.isUnlocked(part) ?? true }
 
-    /// Итог полёта: наука за вехи (один раз на полёт; уроки и сценарии CI — без науки).
+    /// Наука за вехи текущего полёта и за данные капсулы, стоящей на Терре: начисляет ещё не учтённое,
+    /// возвращает итог полёта (итоги, «Продолжить», выход в ангар, перезапуск). Уроки и сценарии CI — без науки.
     @discardableResult
-    func finishFlight(_ mission: MissionRecord) -> (fresh: [Milestone], science: Int) {
-        guard scenario == nil, tutorial == nil, awardedFlight != flightID, var p = progress else { return ([], 0) }
-        awardedFlight = flightID
-        let result = p.award(mission)
+    func finishFlight(_ t: FlightTelemetry) -> FlightAwardSummary {
+        guard scenario == nil, tutorial == nil || tutorialLeft, var p = progress else { return FlightAwardSummary() }
+        let recovered = t.science.recoverable ? t.science.data : []
+        let result = flightAward.credit(t.mission, recovered: recovered, to: &p)
         progress = p
-        return result
+        return FlightAwardSummary(fresh: result.fresh, science: result.science, data: flightAward.dataScience)
+    }
+
+    /// Архив начислений за данные (ценность новых результатов в панели «Наука»).
+    var scienceArchive: ScienceArchive { progress?.archive ?? ScienceArchive() }
+
+    /// «Повтор» / «Перезапуск»: начислить достигнутое, следующая попытка — новый счёт.
+    func restartFlight(_ t: FlightTelemetry) {
+        finishFlight(t)
+        flightAward.reset()
+    }
+
+    /// «Выйти из урока»: пройденное в уроке не начисляется, дальнейшее — как в обычном полёте.
+    func leaveTutorial(_ mission: MissionRecord) {
+        guard tutorial != nil, !tutorialLeft else { return }
+        tutorialLeft = true
+        flightAward.skip(mission)
     }
 
     /// Сохранить текущий проект в список проектов (новый id, если ещё не сохранён).
@@ -149,6 +168,8 @@ final class GameFlow {
         flushDesignSave()
         scenario = nil
         tutorial = nil
+        tutorialLeft = false
+        flightAward.reset()
         flightID += 1
         screen = .flight
     }
@@ -157,6 +178,8 @@ final class GameFlow {
     func startTutorial(_ id: TutorialID) {
         scenario = nil
         tutorial = id
+        tutorialLeft = false
+        flightAward.reset()
         TutorialProgress.markOffered()
         flightID += 1
         screen = .flight
@@ -174,6 +197,13 @@ final class GameFlow {
         if let tutorial { return tutorial.makeSimulation() }
         return FlightSim(design: design)
     }
+}
+
+/// Итог начисления за полёт для панели итогов: новые вехи, вся наука и из неё — за данные.
+struct FlightAwardSummary: Equatable {
+    var fresh: [Milestone] = []
+    var science = 0
+    var data = 0
 }
 
 /// Прогресс игры — Documents/progress.json.

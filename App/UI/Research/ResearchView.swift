@@ -273,7 +273,7 @@ struct MilestoneArchive: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Закрыть архив")
             }
-            Text("Новая веха даёт всю награду один раз; повтор — четверть.")
+            Text("Веха даёт науку один раз. Дальше наука — за данные приборов и экипажа, вернувшиеся на Терру.")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(HUDStyle.secondaryText)
             ScrollView {

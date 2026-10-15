@@ -153,7 +153,7 @@ private struct TutorialLayers: View {
 private struct TutorialPausedTag: View {
     var body: some View {
         Text("⏸ пауза — ждём действие")
-            .font(.system(size: 10, weight: .semibold))
+            .font(.system(size: HUDFont.caption, weight: .semibold))
             .foregroundStyle(HUDPalette.advice)
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
@@ -326,7 +326,7 @@ private struct TutorialPlaque: View {
             HStack(spacing: 6) {
                 if let progress {
                     Text(progress.text.uppercased())
-                        .font(.system(size: 10, weight: .heavy))
+                        .font(.system(size: HUDFont.caption, weight: .heavy))
                         .foregroundStyle(Self.accent)
                 }
                 Text(bubble.title)
@@ -410,7 +410,7 @@ private struct TutorialPlateView: View {
         HStack(spacing: 8) {
             if let progress, failure == nil {
                 Text("\(progress.step)/\(progress.total)")
-                    .font(.system(size: 10, weight: .heavy))
+                    .font(.system(size: HUDFont.caption, weight: .heavy))
                     .foregroundStyle(HUDPalette.advice)
             }
             if let failure {
@@ -434,7 +434,7 @@ private struct TutorialPlateView: View {
             }
             Button(action: onExit) {
                 Image(systemName: "xmark")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: HUDFont.caption, weight: .bold))
                     .foregroundStyle(HUDPalette.muted)
                     .frame(width: 32, height: 32)
                     .contentShape(Rectangle())

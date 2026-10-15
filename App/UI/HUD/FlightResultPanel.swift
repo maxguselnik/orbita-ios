@@ -5,14 +5,16 @@ import SwiftUI
 /// Рассчитана на ширину между колонками управления (≈ 430 pt).
 struct FlightResultPanel: View {
     let result: FlightResult
+    /// Результатов, потерянных с разбитым кораблём (0 — не показывать).
+    var lostData = 0
     let onHangar: () -> Void
     let onSpaceCenter: () -> Void
-    /// Начисляет науку за вехи полёта; повторный вызов в том же полёте вернёт нули.
-    let onFinish: (MissionRecord) -> (fresh: [Milestone], science: Int)
+    /// Начисляет ещё не учтённые вехи полёта и возвращает итог полёта (повторный вызов ничего не добавляет).
+    let onFinish: (MissionRecord) -> FlightAwardSummary
     let onRetry: () -> Void
     let onContinue: () -> Void
 
-    @State private var award: (fresh: [Milestone], science: Int)?
+    @State private var award: FlightAwardSummary?
 
     var body: some View {
         let m = result.mission
@@ -36,6 +38,7 @@ struct FlightResultPanel: View {
                     achievement("Луна (SOI)", m.enteredLunaSOI)
                     achievement("Орбита Луны", m.lunaOrbit)
                     achievement("Посадка на Луну", m.landedLuna)
+                    achievement("Другая планета", !m.visitedPlanets.isEmpty)
                     achievement("Возврат", m.returnedFromSpace)
                 }
                 .frame(width: 150, alignment: .leading)
@@ -46,7 +49,7 @@ struct FlightResultPanel: View {
             HStack(spacing: 8) {
                 button("В ангар", systemImage: "wrench.and.screwdriver", action: onHangar)
                 button("В космоцентр", systemImage: "building.2", action: onSpaceCenter)
-                button("Повтор", systemImage: "arrow.counterclockwise", action: onRetry)
+                button("Начать заново", systemImage: "arrow.counterclockwise", action: onRetry)
                 if result.canContinue {
                     button("Продолжить", systemImage: "play.fill", primary: true, action: onContinue)
                 }
@@ -62,13 +65,26 @@ struct FlightResultPanel: View {
         }
     }
 
-    /// «+⚛ N» и новые вехи; пусто, если науку не начисляли (урок, сценарий, повтор).
+    /// «+⚛ N  Данные D  Вехи M», новые вехи и потерянные данные; без науки и потерь — пусто (урок, сценарий).
     @ViewBuilder private var awardLine: some View {
-        if let award, award.science > 0 {
+        if let award, award.science > 0 || lostData > 0 {
             VStack(spacing: 2) {
-                Text("+⚛ \(award.science)")
-                    .font(.system(size: 17, weight: .heavy).monospacedDigit())
-                    .foregroundStyle(HUDStyle.accent)
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    if award.science > 0 {
+                        Text("+⚛ \(award.science)")
+                            .font(.system(size: 17, weight: .heavy).monospacedDigit())
+                            .foregroundStyle(HUDStyle.accent)
+                    }
+                    if award.data > 0 {
+                        split("Данные", award.data)
+                        split("Вехи", award.science - award.data)
+                    }
+                }
+                if lostData > 0 {
+                    Text("Потеряно с кораблём: \(lostData) " + (lostData == 1 ? "результат" : lostData < 5 ? "результата" : "результатов"))
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(Color(red: 1.0, green: 0.54, blue: 0.48))
+                }
                 if !award.fresh.isEmpty {
                     Text("Новые вехи: " + award.fresh.map(\.title).joined(separator: ", "))
                         .font(.system(size: 11.5, weight: .semibold))
@@ -79,6 +95,14 @@ struct FlightResultPanel: View {
             }
             .accessibilityElement(children: .combine)
         }
+    }
+
+    private func split(_ label: String, _ value: Int) -> some View {
+        HStack(spacing: 3) {
+            Text(label).foregroundStyle(HUDStyle.secondaryText)
+            Text("\(value)").foregroundStyle(.white)
+        }
+        .font(.system(size: 12, weight: .semibold).monospacedDigit())
     }
 
     private func stat(_ label: String, _ value: String) -> some View {

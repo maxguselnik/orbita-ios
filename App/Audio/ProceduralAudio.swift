@@ -41,7 +41,7 @@ final class ProceduralAudio: FlightAudio {
         control.thrust = crashed ? 0 : thrust
         control.solid = (t.solidBurning && !crashed) ? 1 : 0
         // Статическое давление в атм: логарифмически, чтобы разреженный воздух ещё был слышен.
-        let p = max(t.staticPressure, 0)
+        let p = min(max(t.staticPressure, 0), 1.5) // плотные атмосферы (Велла, Тарос) не раздувают громкость
         control.air = p > 0 ? min(max(log10(p / 1e-4) / 4, 0), 1) : 0
         control.wind = crashed ? 0 : min(max(t.dynamicPressure / 25_000, 0), 1)
         control.heat = crashed ? 0 : min(max(t.heating, 0), 1)

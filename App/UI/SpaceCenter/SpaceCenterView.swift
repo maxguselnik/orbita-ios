@@ -236,7 +236,7 @@ struct BuildingLabel: View {
                     .lineLimit(1)
                 if !status.subtitle.isEmpty {
                     Text(status.subtitle)
-                        .font(.system(size: 10.5, weight: .semibold))
+                        .font(.system(size: HUDFont.caption, weight: .semibold))
                         .lineLimit(1)
                 }
             }

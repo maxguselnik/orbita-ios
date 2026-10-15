@@ -99,7 +99,7 @@ struct MapSASRow: View {
                 VStack(spacing: 1) {
                     SASIcon(mode: .maneuver)
                         .frame(width: 18, height: 18)
-                    Text("УЗЕЛ").font(.system(size: 8, weight: .bold))
+                    Text("УЗЕЛ").font(.system(size: HUDFont.caption, weight: .bold))
                 }
                 .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch)
             }
@@ -150,12 +150,13 @@ struct MapGoalsColumn: View {
         let goals = model.availableGoals
         if !goals.isEmpty {
             let active = model.maneuverGoal
+            let planets = goals.filter { $0.planet != nil }
             VStack(alignment: .leading, spacing: 4) {
                 Text("КУДА ЛЕТИМ?")
-                    .font(.system(size: 10, weight: .heavy))
+                    .font(.system(size: HUDFont.caption, weight: .heavy))
                     .foregroundStyle(HUDStyle.secondaryText)
                     .padding(.leading, 2)
-                ForEach(goals, id: \.self) { goal in
+                ForEach(goals.filter { $0.planet == nil }, id: \.self) { goal in
                     Button {
                         model.planManeuver(goal)
                     } label: {
@@ -180,6 +181,9 @@ struct MapGoalsColumn: View {
                     .longPressHint(Self.hint(goal))
                     .accessibilityAddTraits(goal == active ? .isSelected : [])
                 }
+                if !planets.isEmpty {
+                    PlanetGoalsMenu(model: model, goals: planets, active: active)
+                }
             }
             .tutorialAnchor(.mapGoals)
         }
@@ -201,6 +205,8 @@ struct MapGoalsColumn: View {
         case .circularize: "Скруглить орбиту — узел, после которого орбита станет круговой"
         case .changeOrbit: "Выше / ниже — узел для небольшого изменения орбиты"
         case .returnHome: "Домой на Терру — узел возврата с орбиты Луны"
+        case .toVella, .toArda, .toTaros:
+            "К планете — игра выберет окно, поставит узел отлёта и сама поправит курс в пути"
         }
     }
 
@@ -210,6 +216,9 @@ struct MapGoalsColumn: View {
         case .circularize: "Скруглить орбиту"
         case .changeOrbit: "Выше / ниже"
         case .returnHome: "Домой на Терру"
+        case .toVella: "К Велле"
+        case .toArda: "К Арде"
+        case .toTaros: "К Таросу"
         }
     }
 
@@ -219,7 +228,53 @@ struct MapGoalsColumn: View {
         case .circularize: "circle.dashed"
         case .changeOrbit: "arrow.up.and.down"
         case .returnHome: "house.fill"
+        case .toVella, .toArda, .toTaros: "globe"
         }
+    }
+}
+
+/// Кнопка «К планете»: меню планет с временем до окна отлёта (с орбиты Терры) — два нажатия до узла.
+struct PlanetGoalsMenu: View {
+    let model: FlightHUDModel
+    let goals: [ManeuverGoal]
+    let active: ManeuverGoal?
+
+    var body: some View {
+        let current = goals.first { $0 == active }
+        Menu {
+            ForEach(goals, id: \.self) { goal in
+                Button {
+                    model.planManeuver(goal)
+                } label: {
+                    if let window = model.planetWindowText(goal) {
+                        Text(MapGoalsColumn.title(goal) + " · " + window)
+                    } else {
+                        Text(MapGoalsColumn.title(goal))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "globe")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 18)
+                Text(current.map(MapGoalsColumn.title) ?? "К планете")
+                    .font(.system(size: 13, weight: .bold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .menuStyle(.button)
+        .buttonStyle(HUDButtonStyle(isActive: current != nil))
+        .accessibilityLabel("К планете")
+        .accessibilityHint(MapGoalsColumn.hint(.toArda))
+        .accessibilityAddTraits(current != nil ? .isSelected : [])
     }
 }
 
@@ -247,7 +302,7 @@ struct MapInfoPanel: View {
                 }
                 if snapshot.maneuver != nil, !path.isEmpty {
                     Text("ПОСЛЕ УЗЛА")
-                        .font(.system(size: 9, weight: .heavy))
+                        .font(.system(size: HUDFont.caption, weight: .heavy))
                         .foregroundStyle(MapPalette.afterManeuver)
                 }
                 ForEach(path) { item in
@@ -339,7 +394,7 @@ struct MapFocusPicker: View {
             let body = Bodies.body(bodyID)
             Text(body.name + String(format: " · g %.2f м/с² · средняя %.0f °C", body.surfaceGravity, body.surfaceTemperature - 273.15)
                  + (body.hasSolidSurface ? "" : " · нет грунта"))
-                .font(.system(size: 10, weight: .medium).monospacedDigit())
+                .font(.system(size: HUDFont.caption, weight: .medium).monospacedDigit())
                 .foregroundStyle(HUDPalette.muted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -400,9 +455,14 @@ struct MapSideColumn: View {
     let model: FlightHUDModel
 
     static let width: CGFloat = 196
+    /// Зазор между «Выполнить» и «Ступень», pt.
+    static let stageGap: CGFloat = 16
 
     var body: some View {
         VStack(spacing: 6) {
+            if model.deletedNode != nil, !model.hasManeuver {
+                DeletedNodeBar(model: model)
+            }
             if model.mapExpert {
                 expert
             } else {
@@ -428,9 +488,9 @@ struct MapSideColumn: View {
         }
         Spacer(minLength: 0)
         ManeuverExecuteButton(model: model)
-        HStack(spacing: 6) {
-            StageButton(model: model, compact: true)
-        }
+        // «Ступень» не рядом с «Выполнить»: промах по соседней кнопке дорого стоит.
+        StageButton(model: model, compact: true)
+            .padding(.top, MapSideColumn.stageGap - 6)
     }
 
     @ViewBuilder
@@ -446,6 +506,36 @@ struct MapSideColumn: View {
         }
         Spacer(minLength: 0)
         StageButton(model: model, compact: true)
+    }
+}
+
+/// Полоса «Узел удалён · Вернуть узел» на 4 с после удаления узла.
+struct DeletedNodeBar: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Узел удалён")
+                .font(.system(size: HUDFont.caption, weight: .semibold))
+                .foregroundStyle(HUDStyle.secondaryText)
+                .lineLimit(1)
+            Spacer(minLength: 0)
+            Button {
+                model.restoreDeletedNode()
+            } label: {
+                Text("Вернуть узел")
+                    .font(.system(size: HUDFont.body, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .padding(.horizontal, 6)
+            }
+            .buttonStyle(HUDButtonStyle())
+            .accessibilityLabel("Вернуть узел")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .hudBackground(corner: 10)
     }
 }
 
@@ -493,8 +583,20 @@ enum ManeuverResultText {
         case .orbit(_, let apoapsis, let periapsis):
             if apoapsis.isInfinite { return "Пролёт · Пе " + HUDFormat.distance(periapsis) + mark }
             return "Орбита " + kilometers(apoapsis) + " × " + kilometers(periapsis) + " км" + mark
+        case .planetPeriapsis(let body, let altitude):
+            return "Пе у " + MapText.genitive(body) + " " + HUDFormat.distance(altitude) + mark
+        case .planetApproach(let body, let distance, let correction):
+            return "Сближение с " + MapText.instrumental(body) + " " + HUDFormat.distance(distance)
+                + " · коррекция ~" + HUDFormat.speed(correction) + mark
         case .noEncounter(let body):
-            return body == .luna ? "Встречи с Луной нет" : "Возврата к Терре нет"
+            switch body {
+            case .luna: return "Встречи с Луной нет"
+            case .terra: return "Возврата к Терре нет"
+            case .vella: return "Встречи с Веллой нет"
+            case .arda: return "Встречи с Ардой нет"
+            case .taros: return "Встречи с Таросом нет"
+            case .sol: return "Встречи с Солом нет"
+            }
         case .impact(let body):
             return "Падение на " + MapText.accusative(body)
         }
@@ -533,7 +635,7 @@ struct ManeuverResultCard: View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
                 Text("РЕЗУЛЬТАТ")
-                    .font(.system(size: 9, weight: .heavy))
+                    .font(.system(size: HUDFont.caption, weight: .heavy))
                     .foregroundStyle(HUDStyle.secondaryText)
                 Spacer(minLength: 0)
                 Button {
@@ -548,6 +650,8 @@ struct ManeuverResultCard: View {
                 }
                 .buttonStyle(HUDPressStyle())
                 .padding(.vertical, -14)
+                // Зазор до «Эксперт» ≥ 16 pt (4 между кнопками + 12 здесь).
+                .padding(.trailing, 12)
                 .accessibilityLabel("Удалить узел")
                 .longPressHint("Удалить узел манёвра")
                 Button {
@@ -580,8 +684,15 @@ struct ManeuverResultCard: View {
                     .foregroundStyle(HUDStyle.secondaryText)
             }
             ManeuverResultDetail(model: model)
+            if busy {
+                Text("Идёт прожиг — сначала Стоп")
+                    .font(.system(size: HUDFont.caption, weight: .semibold))
+                    .foregroundStyle(HUDStyle.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
             Text("ПОДПРАВИТЬ")
-                .font(.system(size: 9, weight: .heavy))
+                .font(.system(size: HUDFont.caption, weight: .heavy))
                 .foregroundStyle(HUDStyle.secondaryText)
                 .padding(.top, 2)
             HStack(spacing: 4) {
@@ -690,9 +801,9 @@ struct ManeuverJog: View {
                 .frame(height: 30)
                 .overlay(Capsule().strokeBorder(HUDStyle.stroke, lineWidth: 1))
             HStack {
-                Image(systemName: "chevron.left").font(.system(size: 10, weight: .bold))
+                Image(systemName: "chevron.left").font(.system(size: HUDFont.caption, weight: .bold))
                 Spacer(minLength: 0)
-                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold))
+                Image(systemName: "chevron.right").font(.system(size: HUDFont.caption, weight: .bold))
             }
             .foregroundStyle(HUDStyle.secondaryText)
             .padding(.horizontal, 8)
@@ -818,13 +929,16 @@ struct ManeuverPanel: View {
     let model: FlightHUDModel
 
     @State private var axis: ManeuverAxis = .prograde
+    /// Выбранный шаг подстройки, м/с.
+    @State private var step: Double = 1
 
-    /// Шаги подстройки, м/с: грубо ±10, ±1 и тонко ±0.1.
-    private static let steps: [Double] = [-10, -1, -0.1, 0.1, 1, 10]
+    /// Шаги подстройки, м/с: тонко 0.1, 1 и грубо 10 (кнопки «−» и «+» берут выбранный).
+    private static let stepChoices: [Double] = [0.1, 1, 10]
 
     var body: some View {
         let node = model.maneuverNode
         let period = Self.period(model.map.snapshot)
+        let busy = model.isAutoBurning
         VStack(spacing: 4) {
             HStack(spacing: 4) {
                 Button {
@@ -858,10 +972,21 @@ struct ManeuverPanel: View {
                         .font(.system(size: 15, weight: .semibold))
                 }
                 .buttonStyle(HUDButtonStyle())
+                // Зазор до «К узлу» ≥ 16 pt (4 между кнопками + 12 здесь).
+                .padding(.leading, 12)
                 .accessibilityLabel("Удалить узел")
             }
 
             ManeuverReadout(model: model)
+
+            if busy {
+                Text("Идёт прожиг — сначала Стоп")
+                    .font(.system(size: HUDFont.caption, weight: .semibold))
+                    .foregroundStyle(HUDStyle.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             HStack(spacing: 4) {
                 ForEach(ManeuverAxis.allCases, id: \.self) { item in
@@ -870,7 +995,7 @@ struct ManeuverPanel: View {
                     } label: {
                         VStack(spacing: 0) {
                             Text(item.shortName)
-                                .font(.system(size: 9, weight: .heavy))
+                                .font(.system(size: HUDFont.caption, weight: .heavy))
                             Text(HUDFormat.fixed(node.map { item.value($0) } ?? 0, digits: 1))
                                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
                                 .lineLimit(1)
@@ -882,22 +1007,38 @@ struct ManeuverPanel: View {
                     .accessibilityLabel("Компонента \(item.fullName)")
                 }
             }
+            .disabled(busy)
+            .opacity(busy ? 0.4 : 1)
 
-            HStack(spacing: 4) {
-                ForEach(Self.steps, id: \.self) { step in
-                    Button {
-                        model.adjustManeuver(axis, by: step)
-                    } label: {
-                        Text(Self.signedStep(step))
-                            .font(.system(size: 13, weight: .bold).monospacedDigit())
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .frame(maxWidth: .infinity)
+            VStack(spacing: 8) {
+                HStack(spacing: 4) {
+                    ForEach(Self.stepChoices, id: \.self) { choice in
+                        Button {
+                            step = choice
+                        } label: {
+                            Text(HUDFormat.fixed(choice, digits: choice < 1 ? 1 : 0))
+                                .font(.system(size: HUDFont.body, weight: .bold).monospacedDigit())
+                                .foregroundStyle(step == choice ? Color.black : Color.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 28)
+                                .background(step == choice ? MapPalette.ready : HUDStyle.control, in: Capsule())
+                                .frame(height: HUDStyle.minTouch)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(HUDPressStyle())
+                        // Видимая капсула 28 pt, касание — полные 44.
+                        .padding(.vertical, -8)
+                        .accessibilityLabel("Шаг \(HUDFormat.fixed(choice, digits: choice < 1 ? 1 : 0)) м/с")
+                        .accessibilityAddTraits(step == choice ? .isSelected : [])
                     }
-                    .buttonStyle(HUDButtonStyle())
-                    .accessibilityLabel("\(Self.signedStep(step)) м/с \(axis.fullName)")
+                }
+                HStack(spacing: 8) {
+                    ExpertStepButton(model: model, axis: axis, step: step, direction: -1)
+                    ExpertStepButton(model: model, axis: axis, step: step, direction: 1)
                 }
             }
+            .disabled(busy)
+            .opacity(busy ? 0.4 : 1)
 
             HStack(spacing: 4) {
                 timeButton(period.map { -$0 }, text: HUDFormat.minus + "об", label: "На оборот раньше")
@@ -905,6 +1046,8 @@ struct ManeuverPanel: View {
                 timeButton(60, text: "+1м", label: "На минуту позже")
                 timeButton(period, text: "+об", label: "На оборот позже")
             }
+            .disabled(busy)
+            .opacity(busy ? 0.4 : 1)
         }
         .padding(5)
         .hudBackground()
@@ -935,11 +1078,63 @@ struct ManeuverPanel: View {
     static func signed(_ value: Double) -> String {
         (value < 0 ? HUDFormat.minus : "+") + HUDFormat.grouped(abs(value))
     }
+}
 
-    /// Подпись кнопки шага: целые без дроби («+1», «−10»), дробные с одним знаком («+0.1»).
-    static func signedStep(_ value: Double) -> String {
-        guard value != value.rounded() else { return signed(value) }
-        return (value < 0 ? HUDFormat.minus : "+") + HUDFormat.fixed(abs(value), digits: 1)
+/// «−» и «+» панели «Эксперт» (≈ 88 × 48): тап — компонента ± выбранный шаг, удержание — повтор.
+struct ExpertStepButton: View {
+    let model: FlightHUDModel
+    let axis: ManeuverAxis
+    /// Шаг, м/с (больше нуля).
+    let step: Double
+    /// −1 или +1.
+    let direction: Double
+
+    @State private var repeatTask: Task<Void, Never>?
+    @State private var pressed = false
+    /// Палец на кнопке; сбрасывается и при отмене касания системой (там `onEnded` не приходит).
+    @GestureState private var touching = false
+
+    var body: some View {
+        Text(direction < 0 ? HUDFormat.minus : "+")
+            .font(.system(size: 22, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, minHeight: 48, maxHeight: 48)
+            .hudBackground(HUDStyle.control, corner: 10)
+            .opacity(pressed ? 0.7 : 1)
+            .scaleEffect(pressed ? 0.96 : 1)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($touching) { _, state, _ in state = true }
+                    .onChanged { _ in begin() }
+                    .onEnded { _ in end() }
+            )
+            .onChange(of: touching) { _, value in if !value { end() } }
+            .onDisappear { end() }
+            .accessibilityElement()
+            .accessibilityLabel((direction < 0 ? "Минус " : "Плюс ") + HUDFormat.fixed(step, digits: step < 1 ? 1 : 0) + " м/с " + axis.fullName)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { model.adjustManeuver(axis, by: direction * step) }
+    }
+
+    private func begin() {
+        guard repeatTask == nil else { return }
+        pressed = true
+        let model = model, axis = axis, delta = direction * step
+        model.adjustManeuver(axis, by: delta)
+        repeatTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(450))
+            while !Task.isCancelled {
+                model.adjustManeuver(axis, by: delta)
+                try? await Task.sleep(for: .milliseconds(110))
+            }
+        }
+    }
+
+    private func end() {
+        repeatTask?.cancel()
+        repeatTask = nil
+        pressed = false
     }
 }
 
@@ -980,7 +1175,7 @@ struct ManeuverReadout: View {
     private static func row(_ label1: String, _ value1: String, _ label2: String?, _ value2: String?) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
             Text(label1)
-                .font(.system(size: 10, weight: .bold))
+                .font(.system(size: HUDFont.caption, weight: .bold))
                 .foregroundStyle(HUDStyle.secondaryText)
             Text(value1)
                 .font(.system(size: 12, weight: .semibold).monospacedDigit())
@@ -988,7 +1183,7 @@ struct ManeuverReadout: View {
             if let label2, let value2 {
                 Spacer(minLength: 2)
                 Text(label2)
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: HUDFont.caption, weight: .bold))
                     .foregroundStyle(HUDStyle.secondaryText)
                 Text(value2)
                     .font(.system(size: 12, weight: .semibold).monospacedDigit())

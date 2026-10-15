@@ -12,6 +12,22 @@ enum HUDStyle {
     static let secondaryText = Color.white.opacity(0.65)
 }
 
+/// Шкала шрифтов интерфейса (макет docs/mockups/ui-polish.html): мельче 11 pt текста нет.
+enum HUDFont {
+    /// Подписи, единицы, счётчики.
+    static let caption: CGFloat = 11
+    /// Значения в узких местах: SAS, MAX/0, табло скорости, «ТЯГА».
+    static let small: CGFloat = 12
+    /// Основной текст, кнопки, тосты.
+    static let body: CGFloat = 13
+    /// Цифры приборов (высотомер, Δv).
+    static let value: CGFloat = 15
+    /// Заголовки панелей и диалогов.
+    static let title: CGFloat = 17
+    /// Крупные кнопки действия (ПУСК, Выполнить).
+    static let big: CGFloat = 20
+}
+
 /// Палитра «классической» раскладки: тёмные панели, зелёный — активное, оранжевый — главное действие.
 enum HUDPalette {
     static let panel = Color(red: 12 / 255, green: 16 / 255, blue: 24 / 255).opacity(0.85)
@@ -100,7 +116,7 @@ extension View {
     }
 }
 
-/// Малая кнопка (MAX, 0): рисуется 36 × 24 pt, зона касания 40 × 28.
+/// Малая кнопка (MAX, 0): рисуется и нажимается как 44 × 44 pt.
 struct HUDMiniButton: View {
     let title: String
     let label: String
@@ -110,12 +126,11 @@ struct HUDMiniButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 10, weight: .heavy))
+                .font(.system(size: HUDFont.small, weight: .heavy))
                 .foregroundStyle(HUDPalette.text)
-                .frame(width: 36, height: 24)
-                .background(HUDPalette.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .hudPulse(pulse, corner: 5)
-                .frame(width: 40, height: 28)
+                .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                .background(HUDPalette.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .hudPulse(pulse, corner: 8)
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())

@@ -52,6 +52,10 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     /// Включить/выключить РСУ. Включённое РСУ даёт поступательную тягу по `ControlInput.translation`
     /// и добавляет момент к повороту (ручному и SAS), расходуя монотопливо.
     case setRCS(Bool)
+    /// Провести эксперимент здесь и сохранить результат в кабине с экипажем (нет экипажа/места — без изменений).
+    case collectScience(ExperimentID)
+    /// Удалить результат с борта активного корабля.
+    case discardScience(id: String)
 }
 
 // MARK: - Состояние
@@ -240,10 +244,15 @@ public struct MissionRecord: Sendable, Hashable {
     public var landedLuna: Bool
     /// Посадка или приводнение на Терре после выхода в космос.
     public var returnedFromSpace: Bool
+    /// Планеты (Велла, Арда, Тарос), в SOI которых побывал корабль.
+    public var visitedPlanets: Set<BodyID>
+    /// Планеты, вокруг которых была замкнутая орбита выше атмосферы.
+    public var orbitedPlanets: Set<BodyID>
 
     public init(launched: Bool = false, maxAltitude: Double = 0, maxSpeed: Double = 0, maxGForce: Double = 0,
                 reachedSpace: Bool = false, reachedOrbit: Bool = false, enteredLunaSOI: Bool = false,
-                lunaOrbit: Bool = false, landedLuna: Bool = false, returnedFromSpace: Bool = false) {
+                lunaOrbit: Bool = false, landedLuna: Bool = false, returnedFromSpace: Bool = false,
+                visitedPlanets: Set<BodyID> = [], orbitedPlanets: Set<BodyID> = []) {
         self.launched = launched
         self.maxAltitude = maxAltitude
         self.maxSpeed = maxSpeed
@@ -254,6 +263,8 @@ public struct MissionRecord: Sendable, Hashable {
         self.lunaOrbit = lunaOrbit
         self.landedLuna = landedLuna
         self.returnedFromSpace = returnedFromSpace
+        self.visitedPlanets = visitedPlanets
+        self.orbitedPlanets = orbitedPlanets
     }
 }
 
@@ -400,6 +411,8 @@ public struct FlightTelemetry: Sendable, Hashable {
     public var heating: Double
     /// Тепловое состояние деталей при входе в атмосферу (5.2).
     public var thermal = ThermalStatus()
+    /// Наука: место, экипаж и данные на борту активного корабля.
+    public var science = ScienceStatus()
     /// Перегрузка, g.
     public var gForce: Double
     /// Тело текущей SOI.

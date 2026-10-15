@@ -257,9 +257,11 @@ final class MapVisual {
     private func defaultDistance(focus f: D3, body: BodyID) -> Double {
         if focus == .sol { return Bodies.taros.orbitRadius / MapScale.metersPerUnit / MapScale.tanHalfFov * 1.15 }
         var extent = MapScale.radius(body) * 1.6
-        if focus != .vessel { return extent / MapScale.tanHalfFov * 1.2 }
+        // Новые тела — просто диск; Терра и Луна — как раньше, по траектории.
+        if focus != .vessel && focus != .terra && focus != .luna { return extent / MapScale.tanHalfFov * 1.2 }
         let b = Bodies.body(body)
-        let cap = b.soiRadius.isFinite ? b.soiRadius / MapScale.metersPerUnit : MapScale.maxDistance
+        var cap = b.soiRadius.isFinite ? b.soiRadius / MapScale.metersPerUnit : MapScale.maxDistance
+        if focus == .luna { cap = MapScale.lunaSOI } else if focus == .terra { cap = MapScale.lunaOrbit + MapScale.lunaSOI }
         for line in polylines where !line.style.isPlan {
             for i in stride(from: 0, to: line.points.count, by: 4) {
                 extent = max(extent, min(cap, simd_length(line.points[i] - f)))
@@ -363,7 +365,8 @@ final class MapVisual {
         let step = Int((log2(max(upp, 1e-9)) * 3).rounded())
         let rescale = step != builtScaleStep
         let currentFocus = view?.focus ?? .zero
-        let moved = simd_length(currentFocus - lineOrigin) > max(1, upp * 32)
+        // Во время плавного переноса фокуса сетки не пересобираем: один раз по окончании.
+        let moved = focusFrom == nil && simd_length(currentFocus - lineOrigin) > max(1, upp * 32)
         guard rescale || linesDirty || moved else { return }
         lineOrigin = currentFocus
         let width = pow(2, Double(step) / 3)

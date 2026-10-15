@@ -42,13 +42,13 @@ struct ManeuverPlannerTests {
     // MARK: Доступные цели
 
     @Test func goalsOnTerraOrbit() {
-        #expect(ManeuverPlanner.availableGoals(body: .terra, state: Self.terraOrbit, time: 0) == [.toLuna, .changeOrbit])
+        #expect(ManeuverPlanner.availableGoals(body: .terra, state: Self.terraOrbit, time: 0) == [.toLuna, .changeOrbit] + ManeuverGoal.planetGoals)
         // Эллипс: появляется «круговая».
         let ell = conicState(body: Self.terra, periapsisRadius: Self.terra.radius + 80_000, apoapsisRadius: Self.terra.radius + 400_000)
-        #expect(ManeuverPlanner.availableGoals(body: .terra, state: ell, time: 0) == [.toLuna, .circularize, .changeOrbit])
+        #expect(ManeuverPlanner.availableGoals(body: .terra, state: ell, time: 0) == [.toLuna, .circularize, .changeOrbit] + ManeuverGoal.planetGoals)
         // Ап дальше половины пути до Луны — без «К Луне».
         let high = conicState(body: Self.terra, periapsisRadius: Self.terra.radius + 80_000, apoapsisRadius: 7_000_000)
-        #expect(ManeuverPlanner.availableGoals(body: .terra, state: high, time: 0) == [.circularize, .changeOrbit])
+        #expect(ManeuverPlanner.availableGoals(body: .terra, state: high, time: 0) == [.circularize, .changeOrbit] + ManeuverGoal.planetGoals)
     }
 
     @Test func goalsOnSuborbitAndGround() {

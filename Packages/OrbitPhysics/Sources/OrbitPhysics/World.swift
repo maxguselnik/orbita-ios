@@ -106,8 +106,10 @@ public enum World {
         // Средняя поглощённая звёздная энергия ∝ 1/d²; тень от текущего тела.
         let distance = max(Bodies.sol.radius, sun.length)
         let inShadow = id != .sol && r.dot(sun.normalized) < 0 && r.cross(sun.normalized).length < b.radius
-        let stellar = inShadow ? 3 : 278 * (Bodies.terra.orbitRadius / distance).squareRoot()
-        let view = min(0.5, 0.5 * pow(b.radius / max(b.radius, r.length), 2))
+        let stellar = inShadow ? 3 : min(Bodies.sol.surfaceTemperature,
+                                         278 * (Bodies.terra.orbitRadius / distance).squareRoot())
+        // Излучение самой звезды уже в `stellar`: у Сол «грунт» второй раз не учитываем.
+        let view = id == .sol ? 0 : min(0.5, 0.5 * pow(b.radius / max(b.radius, r.length), 2))
         let radiation = pow(pow(stellar, 4) + view * pow(ground, 4), 0.25)
         return ThermalEnvironment(airTemperature: air, radiationTemperature: radiation, density: density)
     }
