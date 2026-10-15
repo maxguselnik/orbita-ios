@@ -1069,6 +1069,8 @@ public final class FlightSim: FlightSimulation {
     private func coolOnRails(_ k: Int, dt: Double, at t: Double) {
         let environment = World.thermalEnvironment(body: vessels[k].body, position: vessels[k].r, time: t)
         vessels[k].ship.cool(dt: dt, environment: environment)
+        // Разбитый корабль уже не взрывается повторно и не сбрасывает ускорение.
+        guard vessels[k].situation != .crashed else { return }
         let ship = vessels[k].ship
         let destroyed = ship.parts.indices.filter { ship.parts[$0].temperature > ship.temperatureLimit($0) }
             .map { ship.parts[$0].uid }
