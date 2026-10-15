@@ -117,6 +117,8 @@ final class MockFlight: FlightSimulation {
         case .setRCS(let enabled):
             rcsEnabled = enabled
             if !enabled { rcsFiring = false }
+        case .collectScience, .discardScience:
+            break
         case .setManeuver(let node):
             maneuverNode = node
             if node == nil { warpingToManeuver = false }

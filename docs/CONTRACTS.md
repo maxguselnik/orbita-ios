@@ -185,3 +185,13 @@ UI (C) ── CameraInput ──┘
 - `custom.value`: x — радиус тела в метрах, y — 1 для Луны / 0 для Терры, z — размер грани, w — поле атласа. Фактура не зависит от локального центра патча, вращения тела, масштаба карты или floating origin.
 - Диапазоны 256/32/4/0.8 м изменяют только цвет, шероховатость и нормаль. Экранные производные гасят неразличимые частоты; физический рельеф, береговая линия и меши не меняются. При недоступности Metal остаётся исходный PBR.
 - `-planet-preview -flight-render -surface-closeup` снимает поверхность с высоты 160 м через полётный SceneRenderer. Маркер готовности требует активный CustomMaterial и видимый LOD 10; CI сохраняет кадр рядом с картой и общим планом.
+
+## Научные данные, первая поставка (2026-10-15)
+
+План — [SCIENCE_TASKS.md](SCIENCE_TASKS.md) (SCI-01/02/03/04 частично/05/07, минимальный SCI-08). Макет панели — артефакт «Орбита: панель науки».
+
+- Физика, `Science.swift`: `ExperimentID` (`crewReport`, `temperature`, `pressure`, `gravity`; `instrument`, `works(_:body:)`, `baseValue` 8/8/12/20), `ScienceSituation` (площадка, поверхность, океан, нижняя/верхняя атмосфера, ближний/дальний космос; границы — `ScienceBalance.zone`), `ScienceSubjectID` (эксперимент + тело + ситуация; биомы — позже), `cap` = база × `ScienceBalance.multiplier`. `ScienceData` с устойчивым `id`. `ScienceArchive` в `GameProgress.archive` (необязательное поле JSON): начислено по предмету, id доставленных; повтор предмета после предела и повторная доставка — 0.
+- Приборы — детали `.instrument` (`thermometer`, `barometer`, `gravimeter`), крепятся только сбоку, детей не принимают, вне колонн. Технологии `instruments` (10, термометр и барометр) и `gravimetry` (20).
+- `FlightCommand.collectScience(ExperimentID)` / `.discardScience(id:)`. Результат хранится в `PartInstance.science`: в первой кабине с экипажем, без экипажа — в свободном приборе (один результат). При разделении остаётся с деталью, при разрушении детали теряется. `FlightTelemetry.science: ScienceStatus` — место, экипаж, приборы, данные на борту, `recoverable` (активный корабль на поверхности Терры), `blocker(e)`.
+- Начисление: `FlightAward.credit(mission, recovered:)` из `GameFlow.finishFlight(FlightTelemetry)` — данные доставляются, только если `recoverable`; итог полёта = вехи + данные (`dataScience`). Баланс растёт на целую часть общего начисленного за данные (дроби копятся в архиве). Повтор уже полученной вехи науки больше не даёт.
+- UI (после PR дизайна): вкладка «Наука» в `StagePanel` → `App/UI/HUD/SciencePanel.swift`; строка «Данные / Вехи» в итогах; вкладка каталога «Наука».

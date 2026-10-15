@@ -117,19 +117,26 @@ final class GameFlow {
     /// Деталь доступна в каталоге (песочница, открытая технология, сценарии CI).
     func isUnlocked(_ part: PartID) -> Bool { progress?.isUnlocked(part) ?? true }
 
-    /// Наука за вехи текущего полёта: начисляет ещё не учтённые, возвращает итог полёта
-    /// (итоги, «Продолжить», выход в ангар, перезапуск). Уроки и сценарии CI — без науки.
+    /// Наука за вехи текущего полёта и за данные капсулы, стоящей на Терре: начисляет ещё не учтённое,
+    /// возвращает итог полёта (итоги, «Продолжить», выход в ангар, перезапуск). Уроки и сценарии CI — без науки.
     @discardableResult
-    func finishFlight(_ mission: MissionRecord) -> (fresh: [Milestone], science: Int) {
+    func finishFlight(_ t: FlightTelemetry) -> (fresh: [Milestone], science: Int) {
         guard scenario == nil, tutorial == nil || tutorialLeft, var p = progress else { return ([], 0) }
-        let result = flightAward.credit(mission, to: &p)
+        let recovered = t.science.recoverable ? t.science.data : []
+        let result = flightAward.credit(t.mission, recovered: recovered, to: &p)
         progress = p
         return result
     }
 
+    /// Из итога полёта — наука за доставленные данные.
+    var flightDataScience: Int { flightAward.dataScience }
+
+    /// Архив начислений за данные (ценность новых результатов в панели «Наука»).
+    var scienceArchive: ScienceArchive { progress?.archive ?? ScienceArchive() }
+
     /// «Повтор» / «Перезапуск»: начислить достигнутое, следующая попытка — новый счёт.
-    func restartFlight(_ mission: MissionRecord) {
-        finishFlight(mission)
+    func restartFlight(_ t: FlightTelemetry) {
+        finishFlight(t)
         flightAward.reset()
     }
 

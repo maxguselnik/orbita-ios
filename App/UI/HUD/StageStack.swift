@@ -20,7 +20,7 @@ enum PartGlyph {
         case .rcs: return .rcs
         case .monoTank: return .mono
         case .fairing: return .fairing
-        case .fin: return .fin
+        case .fin, .instrument: return .fin
         case .heatShield: return .shield
         }
     }
