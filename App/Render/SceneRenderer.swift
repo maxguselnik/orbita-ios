@@ -181,6 +181,7 @@ final class SceneRenderer: FlightRenderer {
         rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1
         pad.root.isEnabled = false
         atmosphere.reset()
+        for visual in otherAtmospheres.values { visual.reset() }
         clouds.reset()
         backdrop.reset()
         cloudShell.reset()
@@ -366,7 +367,7 @@ final class SceneRenderer: FlightRenderer {
                 brightness = atm * day
             }
         }
-        sky.update(up: localUp, brightness: brightness)
+        sky.update(up: localUp, brightness: brightness, body: frame)
         sky.setFill(luna: body.atmosphereHeight == 0)
 
         // Атмосфера Терры: дымка, ореол, облака.

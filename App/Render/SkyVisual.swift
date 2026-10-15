@@ -21,6 +21,8 @@ final class SkyVisual {
     let fillLight = DirectionalLight()
 
     private var skyTexture: TextureResource?
+    private var atmosphereTextures: [BodyID: TextureResource] = [:]
+    private var skyBody: BodyID = .terra
     private var starTexture: TextureResource?
     private var lastBrightness: Double = -1
     private var lastStarOpacity: Double = -1
@@ -129,6 +131,13 @@ final class SkyVisual {
             self?.starTexture = star
             self?.lastBrightness = -1
             self?.lastStarOpacity = -1
+            for (body, tint) in [(BodyID.vella, D3(0.95, 0.66, 0.30)),
+                                 (.arda, D3(0.84, 0.49, 0.33)), (.taros, D3(0.60, 0.72, 0.80))] {
+                let row = Palette.skyRow.map { tint * max($0.x, $0.y, $0.z) }
+                let texture = await Palette.texture([row])
+                self?.atmosphereTextures[body] = texture
+                self?.lastBrightness = -1
+            }
         }
     }
 
@@ -145,13 +154,14 @@ final class SkyVisual {
     }
 
     /// `up` — местная вертикаль у камеры, `brightness` 0…1 — яркость дневного неба.
-    func update(up: D3, brightness: Double) {
+    func update(up: D3, brightness: Double, body: BodyID = .terra) {
         dome.orientation = simd_quatf(from: F3(0, 1, 0), to: f3(up))
-        if abs(brightness - lastBrightness) > 0.004 {
+        if abs(brightness - lastBrightness) > 0.004 || body != skyBody {
+            skyBody = body
             lastBrightness = brightness
             let b = CGFloat(brightness)
             var m = UnlitMaterial(color: .black)
-            if let tex = skyTexture {
+            if let tex = atmosphereTextures[body] ?? skyTexture {
                 m.color = .init(tint: UIColor(red: b, green: b, blue: b, alpha: 1), texture: .init(tex))
             } else {
                 m.color = .init(tint: UIColor(red: 0.3 * b, green: 0.5 * b, blue: 0.85 * b, alpha: 1))

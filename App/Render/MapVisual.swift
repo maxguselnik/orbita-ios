@@ -178,6 +178,36 @@ final class MapVisual {
         }
     }
 
+    private func buildStars() {
+        var seed: UInt64 = 0x9E37_79B9_7F4A_7C15
+        func rnd() -> Float {
+            seed = seed &* 6_364_136_223_846_793_005 &+ 1_442_695_040_888_963_407
+            return Float(seed >> 40) / Float(1 << 24)
+        }
+        let levels: [CGFloat] = [0.35, 0.6, 0.95]
+        var builders = [MeshBuilder](repeating: MeshBuilder(), count: levels.count)
+        for _ in 0..<1_400 {
+            let z = 2 * rnd() - 1
+            let lon = 2 * Float.pi * rnd()
+            let rxy = (1 - z * z).squareRoot()
+            let dir = F3(rxy * cos(lon), rxy * sin(lon), z)
+            let mag = rnd()
+            let level = min(levels.count - 1, Int(mag * mag * Float(levels.count)))
+            let size: Float = 0.0012 + 0.0018 * mag
+            let t1 = simd_normalize(simd_cross(dir, abs(dir.z) < 0.9 ? F3(0, 0, 1) : F3(1, 0, 0)))
+            let t2 = simd_cross(dir, t1)
+            let i0 = builders[level].vertex(dir - t1 * size - t2 * size, -dir)
+            let i1 = builders[level].vertex(dir + t1 * size - t2 * size, -dir)
+            let i2 = builders[level].vertex(dir + t1 * size + t2 * size, -dir)
+            let i3 = builders[level].vertex(dir - t1 * size + t2 * size, -dir)
+            builders[level].quad(i0, i1, i2, i3, facing: -dir)
+        }
+        for (k, b) in builders.enumerated() {
+            guard let mesh = b.makeMesh(name: "mapStars") else { continue }
+            stars.addChild(ModelEntity(mesh: mesh, materials: [UnlitMaterial(color: UIColor(white: levels[k], alpha: 1))]))
+        }
+    }
+
     // MARK: - Данные
 
     func updateMap(_ snapshot: MapSnapshot) {
