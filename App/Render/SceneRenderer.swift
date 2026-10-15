@@ -48,13 +48,20 @@ final class SceneRenderer: FlightRenderer {
     /// Только диагностический кадр -planet-preview: общий план тела в настоящей полётной сцене.
     /// В обычной игре nil: камера и все эффекты работают как прежде.
     var inspectionBody: BodyID?
+    /// Только для нативного диагностического кадра поверхности с малой высоты.
+    var inspectionCloseup = false
     private(set) var hasSurfaceTextures = false
     private var hasCloudTexture = false
+    private var hasSurfaceDetail = false
 
     /// Готовность именно отрисованного тела для диагностического кадра.
     var isInspectionReady: Bool {
         guard hasSurfaceTextures, hasCloudTexture || !CloudShell.enabled || !SoftTextures.enabled else { return false }
         if isMapMode { return map.areBodiesReady }
+        if inspectionCloseup {
+            let lod = inspectionBody == .luna ? luna : terra
+            return hasSurfaceDetail && lod.finestVisibleLevel == 10
+        }
         return inspectionBody == .luna ? luna.visibleCount > 0 : terra.visibleCount > 0
     }
 
@@ -81,12 +88,12 @@ final class SceneRenderer: FlightRenderer {
             let terraTex = await PlanetTextures.load(.terra)
             let lunaTex = await PlanetTextures.load(.luna)
             guard let self else { return }
-            let terraMat = Self.terrainMaterial(terraTex, fallback: UIColor(red: 0.25, green: 0.42, blue: 0.22, alpha: 1),
-                                                roughness: 0.93)
-            let lunaMat = Self.terrainMaterial(lunaTex, fallback: UIColor(white: 0.5, alpha: 1), roughness: 1)
+            let terraMat = TerrainMaterial.make(terraTex, body: .terra)
+            let lunaMat = TerrainMaterial.make(lunaTex, body: .luna)
             self.terra.material = terraMat
             self.luna.material = lunaMat
             self.map.setMaterials(terra: terraMat, luna: lunaMat)
+            self.hasSurfaceDetail = terraMat is CustomMaterial && lunaMat is CustomMaterial
             self.hasSurfaceTextures = terraTex != nil && lunaTex != nil
             // Облачный слой готовится после загрузки атласов: рельеф уже виден.
             let cloudTex = await CloudShell.makeTexture()
@@ -94,17 +101,6 @@ final class SceneRenderer: FlightRenderer {
             self.map.setCloudTexture(cloudTex)
             self.hasCloudTexture = cloudTex != nil
         }
-    }
-
-    private static func terrainMaterial(_ tex: TextureResource?, fallback: UIColor, roughness: Float) -> any Material {
-        guard let tex else { return SimpleMaterial(color: fallback, roughness: 0.95, isMetallic: false) }
-        var m = PhysicallyBasedMaterial()
-        m.baseColor = .init(tint: .white, texture: .init(tex))
-        m.roughness = .init(floatLiteral: roughness)
-        m.metallic = .init(floatLiteral: 0)
-        // Без бликов: иначе по краю диска с орбиты Френель отражает студийное окружение (бежевая «дымка»).
-        m.specular = .init(floatLiteral: 0)
-        return m
     }
 
     func apply(_ input: CameraInput) {
@@ -237,7 +233,14 @@ final class SceneRenderer: FlightRenderer {
         if let inspectionBody {
             let center = RenderFrame.bodyCenter(inspectionBody, in: frame, luna: luna)
             let direction = inspectionBody == .terra ? D3(1, 0.55, 0.3) : D3(-0.6, 1, 0.25)
-            eye = center + simd_normalize(direction) * Bodies.body(inspectionBody).radius * 2.88
+            if inspectionCloseup {
+                let radial = simd_normalize(direction)
+                let h = Terrain.surfaceHeight(body: inspectionBody, direction: vec3(radial))
+                eye = center + RenderFrame.bodyRotation(inspectionBody, terraRotation: snapshot.terraRotation)
+                    .act(radial * (Bodies.body(inspectionBody).radius + h + 160))
+            } else {
+                eye = center + simd_normalize(direction) * Bodies.body(inspectionBody).radius * 2.88
+            }
         }
 
         // Камера не уходит под грунт.
@@ -387,7 +390,14 @@ final class SceneRenderer: FlightRenderer {
         camera.camera.fieldOfViewInDegrees = Float(60 + 5 * shake.speedFeel)
         if let inspectionBody {
             let center = RenderFrame.bodyCenter(inspectionBody, in: frame, luna: luna)
-            camera.look(at: f3(center - eye), from: .zero, upVector: F3(0, 0, 1), relativeTo: nil)
+            var look = center - eye
+            if inspectionCloseup {
+                let radial = simd_normalize(eye - center)
+                let along = simd_normalize(simd_cross(D3(0, 0, 1), radial))
+                // Косой взгляд: видны и фактура рядом с камерой, и уходящие вдаль склоны.
+                look = along * 180 - radial * 160
+            }
+            camera.look(at: f3(look), from: .zero, upVector: F3(0, 0, 1), relativeTo: nil)
             camera.camera.fieldOfViewInDegrees = Float(MapScale.fovDegrees)
         }
         let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)

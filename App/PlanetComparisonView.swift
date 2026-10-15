@@ -7,10 +7,11 @@ import SwiftUI
 @MainActor
 struct PlanetComparisonView: View {
     var flightMode = false
+    var closeup = false
     var body: some View {
         HStack(spacing: 0) {
-            PlanetComparisonViewport(body: .terra, title: "ТЕРРА", flightMode: flightMode)
-            PlanetComparisonViewport(body: .luna, title: "ЛУНА", flightMode: flightMode)
+            PlanetComparisonViewport(body: .terra, title: "ТЕРРА", flightMode: flightMode, closeup: closeup)
+            PlanetComparisonViewport(body: .luna, title: "ЛУНА", flightMode: flightMode, closeup: closeup)
         }
         .background(.black)
         .ignoresSafeArea()
@@ -24,20 +25,22 @@ private struct PlanetComparisonViewport: View {
     let bodyID: BodyID
     let title: String
     let flightMode: Bool
+    let closeup: Bool
     @State private var renderer = SceneRenderer()
     @State private var driver = FrameDriver()
 
-    init(body: BodyID, title: String, flightMode: Bool) {
+    init(body: BodyID, title: String, flightMode: Bool, closeup: Bool) {
         bodyID = body
         self.title = title
         self.flightMode = flightMode
+        self.closeup = closeup
     }
 
     var body: some View {
         GeometryReader { geo in
             FlightSceneView(renderer: renderer)
                 .overlay(alignment: .bottom) {
-                    Text(title + (flightMode ? " · полёт" : " · карта"))
+                    Text(title + (closeup ? " · поверхность, 160 м" : flightMode ? " · полёт" : " · карта"))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.white)
                         .padding(.bottom, 14)
@@ -52,7 +55,7 @@ private struct PlanetComparisonViewport: View {
         // Стабильный снимок без корабля и без шестиминутного автополёта к Луне.
         var snapshot = FlightSim(design: .orbit).snapshot
         renderer.targetFrameRate = 60
-        let mode = flightMode ? "flight" : "map"
+        let mode = closeup ? "surface" : flightMode ? "flight" : "map"
         let name = bodyID == .terra ? "terra" : "luna"
         let readyFile = URL.documentsDirectory.appendingPathComponent("planet-\(mode)-\(name).ready")
         var written = false
@@ -61,6 +64,7 @@ private struct PlanetComparisonViewport: View {
             snapshot.vessels[0].body = bodyID
             snapshot.vessels[0].position = direction.normalized * (Bodies.body(bodyID).radius + 80_000)
             renderer.inspectionBody = bodyID
+            renderer.inspectionCloseup = closeup
             driver.frameRate = .hz60
             driver.start { [renderer, snapshot] _ in
                 renderer.update(snapshot: snapshot, events: [], frameDelta: 1.0 / 60)

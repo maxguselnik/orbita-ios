@@ -73,10 +73,11 @@ jobs:
             xcrun simctl bootstatus "$SCREENS_UDID" -b
             xcrun simctl install "$SCREENS_UDID" build/Build/Products/Debug-iphonesimulator/Orbita.app
             PLANET_DATA=$(xcrun simctl get_app_container "$SCREENS_UDID" com.maxguselnik.orbita data)
-            for MODE in map flight; do
+            for MODE in map flight surface; do
               rm -f "$PLANET_DATA/Documents/planet-$MODE-terra.ready" "$PLANET_DATA/Documents/planet-$MODE-luna.ready"
               PLANET_ARGS=(-planet-preview)
               if [ "$MODE" = "flight" ]; then PLANET_ARGS+=(-flight-render); fi
+              if [ "$MODE" = "surface" ]; then PLANET_ARGS+=(-flight-render -surface-closeup); fi
               xcrun simctl launch --console "$SCREENS_UDID" com.maxguselnik.orbita "${PLANET_ARGS[@]}" > "screens/planets-$MODE.log" 2>&1 &
               PLANET_LAUNCH_PID=$!
               for SECOND in $(seq 1 120); do
