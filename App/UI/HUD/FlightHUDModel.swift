@@ -662,7 +662,11 @@ final class FlightHUDModel {
     func planetWindowText(_ goal: ManeuverGoal) -> String? {
         guard let id = goal.planet, let vessel = activeVesselState else { return nil }
         guard vessel.body == .terra else { return vessel.body == .sol ? "поправить курс" : nil }
-        let days = Int((PlanetTransfer.timeToWindow(id, time: snapshot.time) / 86_400).rounded(.down))
+        let el = OrbitElements(position: vessel.position, velocity: vessel.velocity, mu: Bodies.terra.mu)
+        guard el.isClosed, el.period.isFinite else { return nil }
+        let lead = PlanetTransfer.timeToDeparture(id, radius: vessel.position.length, period: el.period,
+                                                  time: snapshot.time)
+        let days = Int((lead / 86_400).rounded(.down))
         return days < 1 ? "окно сейчас" : "окно через \(days) дн"
     }
 
@@ -749,7 +753,7 @@ final class FlightHUDModel {
             if out.phase == .done {
                 // Прожиг на конечной тяге неточен, а Пе у Луны/Терры чувствителен: доводим маленьким узлом.
                 if let goal, startCorrection(goal) {
-                    notify("Коррекция курса")
+                    if executor != nil { notify("Коррекция курса") }
                     return
                 }
                 maneuverGoal = nil
@@ -764,7 +768,8 @@ final class FlightHUDModel {
         if let toast = out.toast { notify(toast) }
     }
 
-    /// Узел коррекции для цели `maneuverGoal` после прожига; true — поставлен и автопрожиг продолжается.
+    /// Узел коррекции для цели `maneuverGoal` после прожига; true — поставлен (автопрожиг продолжается,
+    /// а для коррекции больше `PlanetTransfer.goodCorrection` ждёт «Выполнить» игрока).
     private func startCorrection(_ goal: ManeuverGoal) -> Bool {
         guard corrections < ManeuverPlanner.maxCorrections(goal), let vessel = activeVesselState,
               let node = ManeuverPlanner.correction(goal, body: vessel.body,
@@ -774,6 +779,11 @@ final class FlightHUDModel {
         corrections += 1
         send(.setManeuver(node))
         maneuverGoal = goal
+        // Большая коррекция (неточный отлёт) — не жжём молча: узел стоит, игрок решает.
+        if node.deltaV > PlanetTransfer.goodCorrection {
+            notify("Коррекция \(HUDFormat.speed(node.deltaV)) — проверьте и нажмите «Выполнить»")
+            return true
+        }
         executor = ManeuverExecutor()
         autoBurnText = "Коррекция курса"
         return true

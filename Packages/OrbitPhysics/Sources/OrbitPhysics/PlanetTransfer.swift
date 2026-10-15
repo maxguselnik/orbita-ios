@@ -52,6 +52,15 @@ public enum PlanetTransfer {
         2 * Double.pi / abs(World.orbitalRate(id) - World.orbitalRate(.terra))
     }
 
+    /// Секунд от `time` до прожига отлёта с орбиты радиуса `radius` и периода `period` (как в `departure`): окно
+    /// минус время ухода из SOI, окно прошло ≤ 2 оборотов назад — ещё годно. Для подписи меню.
+    public static func timeToDeparture(_ id: BodyID, radius: Double, period: Double, time: Double) -> Double {
+        let escape = escapeTime(radius: radius, excess: abs(departureExcess(id)))
+        let earliest = time + ManeuverPlanner.minimumLead
+        let window = earliest + escape + timeToWindow(id, time: earliest + escape, grace: 2 * period)
+        return max(earliest, window - escape) - time
+    }
+
     /// Секунд от `time` до ближайшего окна (момента выхода из SOI Терры), 0…синодический период.
     /// Окно прошло не больше `grace` секунд назад — отрицательное значение (ещё можно успеть).
     public static func timeToWindow(_ id: BodyID, time: Double, grace: Double = 0) -> Double {
@@ -92,7 +101,10 @@ public enum PlanetTransfer {
         // Точка прожига: перицентр гиперболы, повёрнутый от нужной асимптоты назад на её истинную аномалию.
         let n = state.position.cross(state.velocity).normalized
         let vt = World.velocity(of: .terra, relativeTo: .sol, at: center + escape).normalized * (excess >= 0 ? 1 : -1)
-        let asymptote = (vt - n * vt.dot(n)).normalized
+        var asymptote = vt - n * vt.dot(n)
+        // Движение Терры почти по нормали орбиты корабля (полярная орбита): берём направление вдоль орбиты.
+        if asymptote.lengthSquared < 0.01 { asymptote = state.velocity }
+        asymptote = asymptote.normalized
         let e = 1 + r * vinf * vinf / terra.mu
         let burnDirection = rotate(asymptote, about: n, by: -acos(-1 / e))
         func orbit(at t: Double) -> StateVector {
@@ -184,6 +196,8 @@ public enum PlanetTransfer {
         let earliest = max(time + ManeuverPlanner.minimumLead, a.patch.startTime + 60)
         guard a.time > earliest + 3_600 else { return nil }
         let tc = max(earliest, 0.5 * (earliest + a.time))
+        // Узел должен лежать на этом участке: иначе Δv посчитают от другого состояния.
+        guard tc < a.patch.endTime else { return nil }
         let mu = Bodies.sol.mu
         let sc = a.patch.state(at: tc)
         let planet = Bodies.body(id)
@@ -211,7 +225,9 @@ public enum PlanetTransfer {
             dv += step
             guard dv.length.isFinite, dv.length < 2 * correctionLimit else { return nil }
         }
-        guard dv.length <= correctionLimit, miss(dv).length < 0.05 * planet.soiRadius else { return nil }
+        // Пустая коррекция (< 0.5 м/с) автопрожиг закроет сразу — не ставим.
+        guard dv.length >= 0.5, dv.length <= correctionLimit,
+              miss(dv).length < 0.05 * planet.soiRadius else { return nil }
         let basis = TrajectoryPredictor.maneuverBasis(position: sc.position, velocity: sc.velocity)
         return ManeuverNode(time: tc, prograde: dv.dot(basis.prograde), normal: dv.dot(basis.normal),
                             radial: dv.dot(basis.radial))

@@ -103,15 +103,14 @@ public enum ManeuverPlanner {
             if el.eccentricity > 0.01 { goals.append(.circularize) }
             goals.append(.changeOrbit)
             return goals
-        case .sol:
-            // Гелиоцентрическая дуга: коррекция курса к планете.
-            return ManeuverGoal.planetGoals
         default:
+            // Гелиоцентрическая дуга: сначала коррекция курса к планете.
+            let planets = body == .sol ? ManeuverGoal.planetGoals : []
             if !el.isClosed || el.apoapsisRadius > b.soiRadius {
-                return peAlt > rails && !outbound ? [.circularize] : []
+                return planets + (peAlt > rails && !outbound ? [.circularize] : [])
             }
-            guard peAlt > rails else { return [] }
-            return el.eccentricity > 0.01 ? [.circularize, .changeOrbit] : [.changeOrbit]
+            guard peAlt > rails else { return planets }
+            return planets + (el.eccentricity > 0.01 ? [.circularize, .changeOrbit] : [.changeOrbit])
         }
     }
 
@@ -218,9 +217,13 @@ public enum ManeuverPlanner {
         }
         // До планеты ещё гелиоцентрическая дуга: промах (и неточный Пе) снимет коррекция в пути.
         if let a = PlanetTransfer.helioApproach(to: id, trajectory: trajectory) {
-            let dv = PlanetTransfer.correctionEstimate(distance: a.distance, from: a.patch.startTime, to: a.time)
-            return ManeuverOutcome(kind: .planetApproach(id, distance: a.distance, correction: dv),
-                                   isGood: dv <= PlanetTransfer.goodCorrection)
+            // Встреча есть, но Пе не тот: промах — расстояние до нужного Пе; поправить можно, пока до SOI далеко.
+            let distance = enc.map { abs($0.periapsisAltitude - PlanetTransfer.targetPeriapsis(id)) } ?? a.distance
+            let arrival = enc?.time ?? a.time
+            let dv = PlanetTransfer.correctionEstimate(distance: distance, from: a.patch.startTime, to: arrival)
+            let early = arrival - a.patch.startTime > 86_400
+            return ManeuverOutcome(kind: .planetApproach(id, distance: distance, correction: dv),
+                                   isGood: early && dv <= PlanetTransfer.goodCorrection)
         }
         if hitsPlanet { return ManeuverOutcome(kind: .impact(id), isGood: false) }
         if let enc { return ManeuverOutcome(kind: .planetPeriapsis(id, enc.periapsisAltitude), isGood: false) }

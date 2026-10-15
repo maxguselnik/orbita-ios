@@ -68,13 +68,13 @@ struct PlanetTransferTests {
         let firstOutcome = ManeuverPlanner.outcome(goal, trajectory: pre)
         if noise == 0 { #expect(firstOutcome.isGood, "после отлёта: \(firstOutcome.kind)") }
         var corrections = 0
-        while let c = ManeuverPlanner.correction(goal, body: cur.body, state: cur.state, time: cur.time + 1) {
+        while let c = ManeuverPlanner.correction(goal, body: cur.body, state: cur.state, time: cur.time) {
             corrections += 1
             total += c.deltaV
             var c2 = c
             c2.prograde += 0.1 * noise
             c2.radial += 0.1 * noise
-            cur = try Self.apply(c2, body: cur.body, state: cur.state, time: cur.time + 1)
+            cur = try Self.apply(c2, body: cur.body, state: cur.state, time: cur.time)
             if corrections >= ManeuverPlanner.maxCorrections(goal) { break }
         }
         let final = TrajectoryPredictor.predict(body: cur.body, state: cur.state, time: cur.time,

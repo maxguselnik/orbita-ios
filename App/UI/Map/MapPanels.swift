@@ -36,7 +36,6 @@ enum MapText {
         }
     }
 
-    /// «Луну», «Терру».
     /// Родительный падеж: «у Арды».
     static func genitive(_ body: BodyID) -> String {
         switch body {
@@ -61,6 +60,7 @@ enum MapText {
         }
     }
 
+    /// «Луну», «Терру».
     static func accusative(_ body: BodyID) -> String {
         switch body {
         case .terra: "Терру"
@@ -297,8 +297,7 @@ struct PlanetGoalsMenu: View {
         .menuStyle(.button)
         .buttonStyle(HUDButtonStyle(isActive: current != nil))
         .accessibilityLabel("К планете")
-        .accessibilityHint("Выбрать планету: игра сама поставит узел перелёта")
-        .longPressHint(MapGoalsColumn.hint(.toArda))
+        .accessibilityHint(MapGoalsColumn.hint(.toArda))
         .accessibilityAddTraits(current != nil ? .isSelected : [])
     }
 }
