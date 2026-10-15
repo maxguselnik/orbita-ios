@@ -66,7 +66,7 @@ struct FlightHUDView: View {
             VStack(spacing: 6) {
                 if let toast = model.toast {
                     Text(toast.text)
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: HUDFont.body, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
@@ -83,21 +83,21 @@ struct FlightHUDView: View {
                         .transition(.opacity)
                 }
             }
-            .padding(.top, mapOpen ? (inLesson ? 100 : 54) : (inLesson ? 176 : 60))
+            .padding(.top, mapOpen ? (inLesson ? 100 : 54) : Self.messageTop + (inLesson ? Self.lessonCardExtra : 0))
         }
         .overlay(alignment: .top) {
             // Подсказка по долгому нажатию: в уроке — над плашкой шага (поверх высотомера), иначе под высотомером.
             if let line = model.controlHint {
                 ControlHintBanner(text: line.text)
                     .id(line.id)
-                    .padding(.top, mapOpen ? 54 : (inLesson ? 6 : 100))
+                    .padding(.top, mapOpen ? 54 : (inLesson ? 6 : Self.messageTop + Self.hintOffset))
                     .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.2), value: model.controlHint)
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .animation(.easeOut(duration: 0.2), value: model.hint)
-        .overlay(alignment: .topTrailing) { stagePanel }
+        .overlay(alignment: .topLeading) { stagePanel }
         .overlay {
             if mapOpen, showLegend, !model.isPaused {
                 MapLegendView(onClose: { showLegend = false })
@@ -147,14 +147,22 @@ struct FlightHUDView: View {
     /// Фокус карты расположен над навболом; его нижняя часть уходит за физический край экрана.
     private static let mapFocusBottom = NavballCluster.height + NavballCluster.lift + 8
 
-    /// Панель ступеней выезжает слева от правых иконок; джойстик и MAX остаются доступными.
+    /// Полоса тостов и подсказок начинается сразу под высотомером (его высота — `AltimeterPanel.panelHeight`).
+    private static let messageTop = AltimeterPanel.bottom + 4
+    /// Подсказка по долгому нажатию идёт ниже тоста.
+    private static let hintOffset: CGFloat = 40
+    /// В уроке сверху стоит плашка шага: полоса сообщений уходит ниже неё.
+    private static let lessonCardExtra: CGFloat = 116
+
+    /// Панель ступеней выезжает слева поверх стопки ступеней: правая колонка (крен, РСУ, узел манёвра на карте)
+    /// остаётся доступной. Сверху — под строкой времени и паузы, снизу — над кнопкой «Пуск».
     @ViewBuilder private var stagePanel: some View {
         if model.isPanelOpen {
             StagePanel(model: model)
-                .padding(.top, 6)
-                .padding(.trailing, model.map.isOpen ? HUDStyle.minTouch + 8 : 42)
-                .padding(.bottom, model.map.isOpen ? 60 : 100)
-                .transition(.move(edge: .trailing).combined(with: .opacity))
+                .padding(.top, MissionTimeBar.height + 12)
+                .padding(.leading, 6)
+                .padding(.bottom, model.map.isOpen ? 60 : FlightLayer.controlCenterFromBottom + StageButton.height / 2 + 6)
+                .transition(.move(edge: .leading).combined(with: .opacity))
         }
     }
 }
@@ -196,7 +204,7 @@ struct FlightLayer: View {
             FlightStatusView(model: model, ascentEnabled: hintsEnabled && !inLesson)
             ThermalGauge(model: model)
         }
-        .padding(.top, 4)
+        .padding(.top, AltimeterPanel.topInset)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
@@ -220,6 +228,8 @@ struct FlightLayer: View {
     /// левый край капсулы и внешний край круга — по 66 pt.
     static let controlCenterFromBottom: CGFloat = 120
     static let stageLeading: CGFloat = 66
+    /// Стопка ступеней — под строкой времени и паузы (44 pt) с зазором 6 pt.
+    static let stackTop: CGFloat = 6 + MissionTimeBar.height + 6
 
     /// Стопка ступеней под строкой времени и карточка миссии под ней. Карточка выше остальных слоёв: развёрнутая (по тапу)
     /// перекрывает их и перехватывает касания. По умолчанию развёрнута, только если помещается над капсулой «Пуск».
@@ -228,14 +238,14 @@ struct FlightLayer: View {
             let capsuleTop = geo.size.height - Self.controlCenterFromBottom - StageButton.height / 2
             let rows = CGFloat(StageStackView.rowCount(model: model))
             let stackHeight = rows > 0 ? rows * StageGroupRow.height + (rows - 1) * 3 : 0
-            let fits = MissionCard.fitsExpanded(stackHeight: stackHeight, blockTop: capsuleTop)
+            let fits = MissionCard.fitsExpanded(stackHeight: stackHeight + Self.stackTop - 36, blockTop: capsuleTop)
             VStack(alignment: .leading, spacing: MissionCard.gap) {
                 StageStackView(model: model)
                     .tutorialAnchor(.stageStack)
                 MissionCard(model: model, enabled: hintsEnabled || inLesson, autoExpand: fits)
                     .tutorialAnchor(.mission)
             }
-            .padding(.top, 36)
+            .padding(.top, Self.stackTop)
             .padding(.leading, 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }

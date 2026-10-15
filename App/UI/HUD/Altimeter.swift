@@ -20,12 +20,19 @@ struct AltimeterReading: Equatable {
 struct AltimeterPanel: View {
     let model: FlightHUDModel
 
+    /// Фиксированная высота панели (с запасом на строку «Ап»): от неё считается полоса тостов и подсказок.
+    static let panelHeight: CGFloat = 92
+    /// Отступ панели от верха экрана.
+    static let topInset: CGFloat = 4
+    /// Нижний край панели от верха экрана.
+    static var bottom: CGFloat { topInset + panelHeight }
+
     var body: some View {
         let t = model.telemetry
-        VStack(spacing: 4) {
+        VStack(spacing: 3) {
             OdometerRow(reading: AltimeterReading(altitude: shownAltitude(t)))
             Text(AltimeterMode.label(overTerrain: model.altimeterOverTerrain))
-                .font(.system(size: 8, weight: .semibold))
+                .font(.system(size: HUDFont.caption, weight: .semibold))
                 .foregroundStyle(HUDPalette.muted)
             let body = Bodies.body(t.body)
             if body.atmosphereHeight > 0 {
@@ -39,7 +46,7 @@ struct AltimeterPanel: View {
                     Text("ВАКУУМ")
                 }
             }
-            .font(.system(size: 8, weight: .medium).monospacedDigit())
+            .font(.system(size: HUDFont.caption, weight: .medium).monospacedDigit())
             .foregroundStyle(HUDPalette.muted)
             if let apoapsis = Self.apoapsisToShow(t) {
                 ApoapsisRow(altitude: apoapsis)
@@ -49,6 +56,7 @@ struct AltimeterPanel: View {
         .padding(.top, 4)
         .padding(.bottom, 5)
         .padding(.horizontal, 8)
+        .frame(height: Self.panelHeight, alignment: .top)
         .background(shape.fill(LinearGradient(colors: [Color(red: 0.208, green: 0.243, blue: 0.322),
                                                        Color(red: 0.09, green: 0.11, blue: 0.153)],
                                               startPoint: .top, endPoint: .bottom)))
@@ -82,10 +90,10 @@ struct ApoapsisRow: View {
     var body: some View {
         HStack(spacing: 4) {
             Text("Ап")
-                .font(.system(size: 9, weight: .semibold))
+                .font(.system(size: HUDFont.small, weight: .semibold))
                 .foregroundStyle(HUDPalette.muted)
             Text(HUDFormat.distance(altitude))
-                .font(.system(size: 11, weight: .heavy).monospacedDigit())
+                .font(.system(size: HUDFont.small, weight: .heavy).monospacedDigit())
                 .foregroundStyle(HUDPalette.text)
         }
         .lineLimit(1)
@@ -102,16 +110,16 @@ struct OdometerRow: View {
         HStack(spacing: 2) {
             ForEach(Array(reading.digits.enumerated()), id: \.offset) { _, digit in
                 Text(digit)
-                    .font(.system(size: 12, weight: .heavy).monospacedDigit())
+                    .font(.system(size: HUDFont.value, weight: .heavy).monospacedDigit())
                     .foregroundStyle(Color(red: 0.07, green: 0.07, blue: 0.07))
-                    .frame(width: 11, height: 16)
+                    .frame(width: 14, height: 22)
                     .background(Color(red: 0.95, green: 0.95, blue: 0.925),
                                 in: RoundedRectangle(cornerRadius: 2, style: .continuous))
             }
             Text(reading.unit)
-                .font(.system(size: 10, weight: .heavy))
+                .font(.system(size: HUDFont.caption, weight: .heavy))
                 .foregroundStyle(.white)
-                .frame(width: 14, height: 16)
+                .frame(width: 20, height: 22)
                 .background(Color(red: 0.85, green: 0.28, blue: 0.23),
                             in: RoundedRectangle(cornerRadius: 2, style: .continuous))
         }

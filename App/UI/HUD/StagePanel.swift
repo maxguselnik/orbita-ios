@@ -17,7 +17,8 @@ struct StagePanel: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 4) {
-                ForEach(Tab.allCases) { item in
+                // «Контракты» скрыты, пока не готовы.
+                ForEach(Tab.allCases.filter { $0 != .contracts }) { item in
                     Button {
                         tab = item
                     } label: {
@@ -98,7 +99,7 @@ struct StageRow: View {
                 Text(isCurrent ? "Текущая ступень" : "Далее · \(number - 1)").font(.system(size: 12, weight: .heavy))
                 if stage.hasSolid {
                     Text("РДТТ")
-                        .font(.system(size: 9, weight: .heavy))
+                        .font(.system(size: HUDFont.caption, weight: .heavy))
                         .padding(.horizontal, 4)
                         .padding(.vertical, 1)
                         .background(HUDStyle.accent.opacity(0.8), in: Capsule())
@@ -130,7 +131,7 @@ struct StageRow: View {
 
     private func labeled(_ label: String, _ value: String) -> some View {
         HStack(spacing: 3) {
-            Text(label).font(.system(size: 10, weight: .bold)).foregroundStyle(HUDStyle.secondaryText)
+            Text(label).font(.system(size: HUDFont.caption, weight: .bold)).foregroundStyle(HUDStyle.secondaryText)
             Text(value).font(.system(size: 11, weight: .semibold).monospacedDigit()).lineLimit(1)
         }
     }

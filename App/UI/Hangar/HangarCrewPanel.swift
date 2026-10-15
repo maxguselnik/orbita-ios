@@ -103,7 +103,7 @@ struct HangarCrewPanel: View {
                 .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(HUDPalette.stroke, lineWidth: 1))
                 Text(seated?.name ?? "Пусто")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: HUDFont.caption, weight: .bold))
                     .foregroundStyle(seated == nil ? HUDStyle.secondaryText : .white)
                     .lineLimit(1)
             }

@@ -100,6 +100,10 @@ final class FlightHUDModel {
     private(set) var mapExpert = false
     /// Цель, по которой поставлен узел (простая карта); сбрасывается удалением узла и правкой в «Эксперт».
     private(set) var maneuverGoal: ManeuverGoal?
+    /// Только что удалённый узел: на карте 4 с горит «Вернуть узел».
+    private(set) var deletedNode: ManeuverNode?
+    @ObservationIgnored private var deletedNodeGoal: ManeuverGoal?
+    @ObservationIgnored private var deletedNodeExpiry: TimeInterval = 0
     /// Цели, доступные сейчас (обновляются не чаще 4 Гц, пока открыта карта).
     private(set) var availableGoals: [ManeuverGoal] = []
     /// Строка фазы автопрожига («Летим к узлу 31:41»); nil — автопрожиг не идёт. Меняется раз в секунду.
@@ -241,6 +245,9 @@ final class FlightHUDModel {
         lastFrameTime = now
         if toast != nil, now >= toastExpiry {
             self.toast = nil
+        }
+        if deletedNode != nil, now >= deletedNodeExpiry {
+            deletedNode = nil
         }
         if controlHint != nil, now >= controlHintExpiry {
             controlHint = nil
@@ -455,6 +462,7 @@ final class FlightHUDModel {
         executor = nil
         autoBurnText = nil
         maneuverGoal = nil
+        deletedNode = nil
         dragDraft = nil
         dragDirty = false
         sim = makeSimulation()
@@ -614,12 +622,25 @@ final class FlightHUDModel {
     }
 
     func deleteManeuver() {
+        if let node = maneuverNode {
+            deletedNode = node
+            deletedNodeGoal = maneuverGoal
+            deletedNodeExpiry = CACurrentMediaTime() + 4
+        }
         dragDraft = nil
         dragDirty = false
         maneuverDrag = nil
         cancelExecutor(zeroThrottle: true)
         maneuverGoal = nil
         send(.setManeuver(nil))
+    }
+
+    /// «Вернуть узел»: ставит удалённый узел обратно (в течение 4 с после удаления).
+    func restoreDeletedNode() {
+        guard let node = deletedNode, maneuverNode == nil else { return }
+        deletedNode = nil
+        maneuverGoal = deletedNodeGoal
+        send(.setManeuver(node))
     }
 
     /// Ускорение «на рельсах» до начала прожига.

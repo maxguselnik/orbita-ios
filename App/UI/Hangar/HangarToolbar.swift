@@ -1,7 +1,7 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Нижняя полоса цеха: инструменты, симметрия, шаг, маркеры, «⋯».
+/// Нижняя полоса цеха: инструменты, симметрия и шаг (одно меню), маркеры, экипаж, «⋯».
 struct HangarToolbar: View {
     let model: HangarModel
     let crewOpen: Bool
@@ -13,17 +13,14 @@ struct HangarToolbar: View {
         HStack(spacing: 5) {
             tools
             divider
-            symmetry
-            divider
-            stepButton
-            divider
-            markers
+            symmetryMenu
+            markersMenu
             Spacer(minLength: 0)
             crewButton
             more
         }
         .padding(.horizontal, 6)
-        .frame(height: 46)
+        .frame(height: 50)
         .hudBackground()
     }
 
@@ -36,10 +33,10 @@ struct HangarToolbar: View {
             ForEach(HangarModel.Tool.allCases) { tool in
                 Button { model.setTool(tool) } label: {
                     VStack(spacing: 1) {
-                        Image(systemName: tool.icon).font(.system(size: 15, weight: .semibold))
-                        Text(tool.title).font(.system(size: 9, weight: .bold)).lineLimit(1)
+                        Image(systemName: tool.icon).font(.system(size: 16, weight: .semibold))
+                        Text(tool.title).font(.system(size: HUDFont.caption, weight: .bold)).lineLimit(1)
                     }
-                    .frame(width: 54, height: 40)
+                    .frame(width: 58, height: HUDStyle.minTouch)
                 }
                 .buttonStyle(HangarChipStyle(isActive: model.tool == tool))
                 .accessibilityLabel(tool.title)
@@ -47,72 +44,66 @@ struct HangarToolbar: View {
         }
     }
 
-    private var symmetry: some View {
-        HStack(spacing: 3) {
-            Menu {
-                ForEach(HangarModel.SymmetryKind.allCases, id: \.self) { kind in
-                    Button(kind.title) { model.setSymmetry(kind: kind) }
-                }
-            } label: {
-                VStack(spacing: 1) {
-                    Text("Симметрия").font(.system(size: 8, weight: .bold)).foregroundStyle(HUDStyle.secondaryText)
-                    Text(model.symmetryKind.title).font(.system(size: 10.5, weight: .bold)).lineLimit(1)
-                }
-                .foregroundStyle(.white)
-                .frame(width: 74, height: 40)
-                .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    /// Одна кнопка: вид симметрии, число копий и шаг. Подпись вида «×2 · 15°».
+    private var symmetryMenu: some View {
+        let kind = Binding(get: { model.symmetryKind }, set: { model.setSymmetry(kind: $0) })
+        let count = Binding(get: { shownCount }, set: { model.setSymmetry(count: $0) })
+        let fine = Binding(get: { model.fineStep }, set: { if $0 != model.fineStep { model.toggleStep() } })
+        return Menu {
+            Picker("Симметрия", selection: kind) {
+                ForEach(HangarModel.SymmetryKind.allCases, id: \.self) { Text($0.title).tag($0) }
             }
-            .accessibilityLabel("Вид симметрии")
-            ForEach(1...4, id: \.self) { n in
-                Button { model.setSymmetry(count: n) } label: {
-                    Text("×\(n)").font(.system(size: 12, weight: .heavy)).frame(width: 30, height: 40)
-                }
-                .buttonStyle(HangarChipStyle(isActive: shownCount == n))
-                .disabled(model.symmetryKind == .mirror)
-                .opacity(model.symmetryKind == .mirror ? 0.4 : 1)
-                .accessibilityLabel("Копий: \(n)")
+            Picker("Копий", selection: count) {
+                ForEach(1...4, id: \.self) { Text("×\($0)").tag($0) }
             }
+            .disabled(model.symmetryKind == .mirror)
+            Picker("Шаг", selection: fine) {
+                Text(model.tool == .offset ? "0.1 м" : "15°").tag(true)
+                Text("Плавно").tag(false)
+            }
+        } label: {
+            VStack(spacing: 1) {
+                Text("Симметрия").font(.system(size: HUDFont.caption, weight: .bold)).foregroundStyle(HUDStyle.secondaryText)
+                Text("×\(shownCount) · \(stepTitle)").font(.system(size: HUDFont.caption, weight: .bold)).lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .frame(width: 96, height: HUDStyle.minTouch)
+            .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
+        .accessibilityLabel("Симметрия и шаг")
+        .accessibilityValue("Копий \(shownCount), шаг \(stepTitle)")
     }
 
     private var shownCount: Int { model.symmetryKind == .mirror ? 2 : model.symmetryCount }
 
-    private var stepButton: some View {
-        Button { model.toggleStep() } label: {
+    private var stepTitle: String {
+        model.fineStep ? (model.tool == .offset ? "0.1 м" : "15°") : "плавно"
+    }
+
+    private var markersMenu: some View {
+        Menu {
+            Toggle("ЦМ · центр масс", isOn: Bindable(model).showCOM)
+            Toggle("ЦТ · центр тяги", isOn: Bindable(model).showCOT)
+            Toggle("ЦД · центр давления", isOn: Bindable(model).showCOP)
+        } label: {
             VStack(spacing: 1) {
-                Text("Шаг").font(.system(size: 8, weight: .bold))
-                Text(model.fineStep ? (model.tool == .offset ? "0.1 м" : "15°") : "плавно")
-                    .font(.system(size: 10.5, weight: .bold)).lineLimit(1)
+                Image(systemName: "scope").font(.system(size: 16, weight: .semibold))
+                Text("Маркеры").font(.system(size: HUDFont.caption, weight: .bold)).lineLimit(1)
             }
-            .frame(width: 52, height: 40)
+            .foregroundStyle(.white)
+            .frame(width: 64, height: HUDStyle.minTouch)
+            .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
-        .buttonStyle(HangarChipStyle(isActive: model.fineStep))
-        .accessibilityLabel("Шаг поворота и сдвига")
-    }
-
-    private var markers: some View {
-        HStack(spacing: 3) {
-            markerButton("ЦМ", isOn: Bindable(model).showCOM)
-            markerButton("ЦТ", isOn: Bindable(model).showCOT)
-            markerButton("ЦД", isOn: Bindable(model).showCOP)
-        }
-    }
-
-    private func markerButton(_ title: String, isOn: Binding<Bool>) -> some View {
-        Button { isOn.wrappedValue.toggle() } label: {
-            Text(title).font(.system(size: 11, weight: .heavy)).frame(width: 32, height: 40)
-        }
-        .buttonStyle(HangarChipStyle(isActive: isOn.wrappedValue))
-        .accessibilityLabel("Маркер \(title)")
+        .accessibilityLabel("Маркеры")
     }
 
     private var crewButton: some View {
         Button(action: onCrew) {
             VStack(spacing: 1) {
-                Image(systemName: "person.2.fill").font(.system(size: 14, weight: .semibold))
-                Text("Экипаж").font(.system(size: 9, weight: .bold)).lineLimit(1)
+                Image(systemName: "person.2.fill").font(.system(size: 16, weight: .semibold))
+                Text("Экипаж").font(.system(size: HUDFont.caption, weight: .bold)).lineLimit(1)
             }
-            .frame(width: 60, height: 40)
+            .frame(width: 62, height: HUDStyle.minTouch)
         }
         .buttonStyle(HangarChipStyle(isActive: crewOpen))
         .accessibilityLabel("Экипаж")
@@ -126,9 +117,9 @@ struct HangarToolbar: View {
             }
             Button("Очистить проект", systemImage: "trash", role: .destructive, action: onClear)
         } label: {
-            Image(systemName: "ellipsis").font(.system(size: 16, weight: .bold))
+            Image(systemName: "ellipsis").font(.system(size: 17, weight: .bold))
                 .foregroundStyle(.white)
-                .frame(width: 40, height: 40)
+                .frame(width: 48, height: HUDStyle.minTouch)
                 .background(Color.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .accessibilityLabel("Ещё")

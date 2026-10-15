@@ -6,6 +6,9 @@ import SwiftUI
 struct MissionTimeBar: View {
     let model: FlightHUDModel
 
+    /// Высота строки: все кнопки в ней — зона касания 44 pt.
+    static let height: CGFloat = HUDStyle.minTouch
+
     var body: some View {
         HStack(spacing: 0) {
             MissionClock(model: model)
@@ -15,11 +18,11 @@ struct MissionTimeBar: View {
                 model.pause()
             } label: {
                 Image(systemName: "pause.fill")
-                    .font(.system(size: 9, weight: .heavy))
+                    .font(.system(size: 12, weight: .heavy))
                     .foregroundStyle(HUDPalette.text)
-                    .frame(width: 24, height: 20)
-                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-                    .frame(width: 30, height: 34)
+                    .frame(width: 38, height: 32)
+                    .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
                     .contentShape(Rectangle())
             }
             .buttonStyle(HUDPressStyle())
@@ -27,8 +30,8 @@ struct MissionTimeBar: View {
             .longPressHint("Пауза: меню, ангар, обучение")
         }
         .padding(.horizontal, 3)
-        .frame(height: 24)
-        .classicPanel(corner: 6)
+        .frame(height: MissionTimeBar.height)
+        .classicPanel(corner: 8)
     }
 }
 
@@ -38,7 +41,7 @@ struct MissionClock: View {
 
     var body: some View {
         Text(Self.text(model.telemetry))
-            .font(.system(size: 10, weight: .bold).monospacedDigit())
+            .font(.system(size: HUDFont.body, weight: .bold).monospacedDigit())
             .foregroundStyle(HUDPalette.green)
             .lineLimit(1)
             .padding(.horizontal, 5)
@@ -77,14 +80,14 @@ struct WarpButtons: View {
     private func glyph(position: Int, active: Bool) -> some View {
         HStack(spacing: 0) {
             ForEach(0...position, id: \.self) { _ in
-                Image(systemName: "play.fill").font(.system(size: 6, weight: .bold))
+                Image(systemName: "play.fill").font(.system(size: 10, weight: .bold))
             }
         }
         .foregroundStyle(active ? Color(red: 0.73, green: 0.96, blue: 0.76) : HUDPalette.muted)
-        .frame(width: 24, height: 20)
+        .frame(width: 38, height: 32)
         .background(active ? HUDPalette.greenDark : Color.white.opacity(0.08),
-                    in: RoundedRectangle(cornerRadius: 4, style: .continuous))
-        .frame(width: 30, height: 34)
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
         .contentShape(Rectangle())
     }
 
@@ -92,12 +95,16 @@ struct WarpButtons: View {
         let factor = TimeWarp.levels[index]
         let locked = status.blocked != nil && index >= TimeWarp.physicalCount
         return Button {
-            model.send(.setWarp(index: index))
+            if locked, let reason = status.blocked {
+                // Недоступный уровень не молчит: тост с причиной (как в меню текущего уровня).
+                model.notify("Выше \(HUDFormat.warp(TimeWarp.levels[TimeWarp.physicalCount - 1])) нельзя: \(FlightHUDModel.warpReasonText(reason))")
+            } else {
+                model.send(.setWarp(index: index))
+            }
         } label: {
             glyph(position: position, active: false)
         }
         .buttonStyle(HUDPressStyle())
-        .disabled(locked)
         .opacity(locked ? 0.4 : 1)
         .accessibilityLabel("Ускорение \(HUDFormat.warp(factor))")
         .longPressHint("Ускорить время до \(HUDFormat.warp(factor)): долгие перелёты проходят быстрее")
@@ -167,17 +174,17 @@ struct HUDIconButton: View {
     }
 }
 
-/// Карта и камера справа сверху в полёте: две кнопки 30 × 30.
+/// Карта и камера справа сверху в полёте: две кнопки 44 × 44 в ряд.
 struct FlightCornerButtons: View {
     let model: FlightHUDModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            HUDIconButton(systemImage: "map", label: "Открыть карту", compact: true,
+        HStack(spacing: 0) {
+            HUDIconButton(systemImage: "map", label: "Открыть карту",
                           hint: "Карта: орбиты, Луна и манёвры") { model.toggleMap() }
                 .tutorialAnchor(.mapButton)
             HUDIconButton(systemImage: CameraModeInfo.symbol(model.cameraMode),
-                          label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))", compact: true,
+                          label: "Камера: \(CameraModeInfo.fullName(model.cameraMode))",
                           hint: "Камера: свободная, следом за кораблём, по курсу — тап меняет") {
                 model.cycleCameraMode()
             }

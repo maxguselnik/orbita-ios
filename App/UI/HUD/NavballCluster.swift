@@ -89,9 +89,9 @@ struct NavballCluster: View {
 
     /// Диаметр кольца (−15 % от прежних 184 pt: шар, дуги и кольцо уменьшены пропорционально).
     static let size: CGFloat = 156
-    /// Строка «RCS · скорость · SAS» над кольцом (зоны касания 36 pt) и полная ширина кластера.
-    static let rowHeight: CGFloat = 36
-    static let width: CGFloat = 276
+    /// Строка «RCS · скорость · SAS» над кольцом (зоны касания 44 pt) и полная ширина кластера.
+    static let rowHeight: CGFloat = 44
+    static let width: CGFloat = 320
     static let height: CGFloat = rowHeight + size
     /// Подъём кластера над нижним краем; отрицательный — низ кольца уходит за край (шар виден целиком).
     /// Дуга остаётся над зоной системного жеста; кнопки тяги вынесены влево от неё.
@@ -118,13 +118,13 @@ struct NavballCluster: View {
                 .position(Self.center)
             ClusterRCSButton(model: model)
                 .tutorialAnchor(.rcs)
-                .position(x: Self.center.x - 74, y: Self.rowHeight / 2)
+                .position(x: Self.center.x - 100, y: Self.rowHeight / 2)
             SpeedLCD(telemetry: t, frame: frame) { model.toggleSpeedFrame() }
                 .tutorialAnchor(.speed)
                 .position(x: Self.width / 2, y: Self.rowHeight / 2)
             ClusterSASButton(model: model)
                 .tutorialAnchor(.sas)
-                .position(x: Self.center.x + 67, y: Self.rowHeight / 2)
+                .position(x: Self.center.x + ClusterSASButton.centerOffset, y: Self.rowHeight / 2)
         }
         .frame(width: Self.width, height: Self.height)
     }
@@ -153,15 +153,15 @@ struct SpeedLCD: View {
         let name = frame == .orbit ? "орб" : "пов"
         Button(action: onTap) {
             Text(name + " " + HUDFormat.speed(speed))
-                .font(.system(size: 10, weight: .bold).monospacedDigit())
+                .font(.system(size: HUDFont.small, weight: .bold).monospacedDigit())
                 .foregroundStyle(HUDPalette.lcd)
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .padding(.horizontal, 5)
-                .frame(width: 70, height: 18)
+                .frame(width: 84, height: 24)
                 .background(Color(red: 0.04, green: 0.1, blue: 0.063), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 4, style: .continuous).strokeBorder(HUDPalette.strokeBright, lineWidth: 1))
-                .padding(.vertical, 9)
+                .padding(.vertical, 10)
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
@@ -177,6 +177,8 @@ struct SpeedLCD: View {
 struct ClusterRCSButton: View {
     let model: FlightHUDModel
 
+    static let touchHeight: CGFloat = HUDStyle.minTouch
+
     var body: some View {
         let rcs = model.rcs
         let on = rcs.enabled
@@ -184,13 +186,13 @@ struct ClusterRCSButton: View {
             model.toggleRCS()
         } label: {
             Text("RCS")
-                .font(.system(size: 9, weight: .heavy))
+                .font(.system(size: HUDFont.caption, weight: .heavy))
                 .foregroundStyle(on ? Color.white : HUDPalette.muted)
                 .offset(y: rcs.available ? -2 : 0)
-                .frame(width: 44, height: 22)
+                .frame(width: 48, height: 34)
                 .background(on ? HUDPalette.greenDark : HUDPalette.stroke,
-                            in: RoundedRectangle(cornerRadius: 5, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 5, style: .continuous)
+                            in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
                     .strokeBorder(rcs.firing ? HUDPalette.lcd : Color.clear, lineWidth: 1))
                 .overlay(alignment: .bottom) {
                     if rcs.available {
@@ -199,7 +201,7 @@ struct ClusterRCSButton: View {
                     }
                 }
                 .opacity(rcs.available || on ? 1 : 0.55)
-                .frame(width: 48, height: 36)
+                .frame(width: 48, height: Self.touchHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
@@ -232,6 +234,14 @@ struct ClusterSASButton: View {
 
     @State private var picking = false
 
+    /// Кнопка 48 pt и зона стрелки 44 pt (рисуется стрелка 28 pt, остальное — зона касания справа).
+    static let mainWidth: CGFloat = 48
+    static let arrowTouchWidth: CGFloat = HUDStyle.minTouch
+    static let arrowWidth: CGFloat = 28
+    static let height: CGFloat = 34
+    /// Смещение центра группы от центра кольца; левый край группы не заходит на табло скорости.
+    static let centerOffset: CGFloat = 100
+
     var body: some View {
         let current = model.sas
         let on = current != .off
@@ -241,11 +251,11 @@ struct ClusterSASButton: View {
                 model.toggleSAS()
             } label: {
                 Text(title)
-                    .font(.system(size: 9, weight: .heavy))
+                    .font(.system(size: HUDFont.caption, weight: .heavy))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .foregroundStyle(on ? Color.white : HUDPalette.muted)
-                    .frame(width: 38, height: 36)
+                    .frame(width: Self.mainWidth, height: HUDStyle.minTouch)
                     .contentShape(Rectangle())
             }
             .buttonStyle(HUDPressStyle())
@@ -256,9 +266,10 @@ struct ClusterSASButton: View {
                 picking = true
             } label: {
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 8, weight: .heavy))
+                    .font(.system(size: HUDFont.caption, weight: .heavy))
                     .foregroundStyle(on ? Color.white : HUDPalette.muted)
-                    .frame(width: 24, height: 36)
+                    .frame(width: Self.arrowWidth, height: HUDStyle.minTouch)
+                    .padding(.trailing, Self.arrowTouchWidth - Self.arrowWidth)
                     .contentShape(Rectangle())
             }
             .buttonStyle(HUDPressStyle())
@@ -268,7 +279,7 @@ struct ClusterSASButton: View {
             .popover(isPresented: $picking, attachmentAnchor: .rect(.bounds), arrowEdge: .bottom) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("РЕЖИМ SAS")
-                        .font(.system(size: 8, weight: .regular))
+                        .font(.system(size: HUDFont.caption, weight: .regular))
                         .tracking(1)
                         .foregroundStyle(HUDPalette.muted)
                     SASGrid(model: model) { picking = false }
@@ -277,16 +288,16 @@ struct ClusterSASButton: View {
                 .presentationCompactAdaptation(.popover)
             }
         }
-        .background {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
+        .background(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(on ? HUDPalette.greenDark : HUDPalette.stroke)
-                .frame(height: 22)
+                .frame(width: Self.mainWidth + Self.arrowWidth, height: Self.height)
         }
-        .overlay {
+        .overlay(alignment: .leading) {
             Rectangle()
                 .fill(Color.black.opacity(0.35))
-                .frame(width: 1, height: 22)
-                .offset(x: 7)
+                .frame(width: 1, height: Self.height)
+                .offset(x: Self.mainWidth)
                 .allowsHitTesting(false)
         }
     }
@@ -303,9 +314,13 @@ struct ThrottleGauge: View {
     static var zeroLabelCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 78) }
     static let labelTouch = CGSize(width: 44, height: 44)
     /// Подпись опущена на 20 % относительно прежнего отступа 45 pt.
-    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 54) }
+    static var captionCenter: CGPoint { CGPoint(x: NavballCluster.ringOrigin.x - 32, y: NavballCluster.ringOrigin.y + 51) }
     /// Радиус ручки.
     static let knobRadius: CGFloat = 7
+
+    /// Жест дуги относительный: точка начала касания и тяга в этот момент (nil — жеста нет).
+    @State private var dragOrigin: CGPoint?
+    @State private var dragBase = 0.0
 
     /// Рамка обучения охватывает и дугу, и вынесенные влево кнопки.
     static var lessonRect: CGRect {
@@ -356,7 +371,7 @@ struct ThrottleGauge: View {
                 Text(HUDFormat.percent(value))
                     .foregroundStyle(HUDPalette.accent)
             }
-            .font(.system(size: 9, weight: .heavy).monospacedDigit())
+            .font(.system(size: HUDFont.small, weight: .heavy).monospacedDigit())
             .lineLimit(1)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
@@ -371,8 +386,16 @@ struct ThrottleGauge: View {
                     DragGesture(minimumDistance: 0)
                         .onChanged { drag in
                             guard !locked else { return }
-                            model.throttle = GaugeMath.fraction(forTouch: drag.location, center: touchCenter)
+                            // Тап без перетаскивания тягу не меняет; дальше — смещение пальца от точки касания.
+                            if dragOrigin != drag.startLocation {
+                                dragOrigin = drag.startLocation
+                                dragBase = min(max(model.throttle, 0), 1)
+                            }
+                            let moved = GaugeMath.fraction(forTouch: drag.location, center: touchCenter)
+                                - GaugeMath.fraction(forTouch: drag.startLocation, center: touchCenter)
+                            model.throttle = min(max(dragBase + moved, 0), 1)
                         }
+                        .onEnded { _ in dragOrigin = nil }
                 )
                 .position(x: touch.midX, y: touch.midY)
                 .accessibilityElement()
@@ -414,12 +437,12 @@ struct ThrottleEndLabel: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 9, weight: .heavy))
+                .font(.system(size: HUDFont.caption, weight: .heavy))
                 .foregroundStyle(HUDPalette.accent)
-                .frame(width: 30, height: 16)
+                .frame(width: 36, height: 22)
                 .background(Color.black.opacity(0.55), in: Capsule())
                 .overlay(Capsule().strokeBorder(HUDPalette.accent.opacity(0.7), lineWidth: 1))
-                .hudPulse(pulse, corner: 8)
+                .hudPulse(pulse, corner: 11)
                 .frame(width: ThrottleGauge.labelTouch.width, height: ThrottleGauge.labelTouch.height)
                 .contentShape(Rectangle())
         }
@@ -460,10 +483,10 @@ struct GForceGauge: View {
                 .frame(width: size, height: size)
                 .position(center)
             Text("G " + HUDFormat.fixed(gForce.isFinite ? gForce : 0, digits: 1))
-                .font(.system(size: 8, weight: .semibold).monospacedDigit())
+                .font(.system(size: HUDFont.caption, weight: .semibold).monospacedDigit())
                 .foregroundStyle(color)
                 .lineLimit(1)
-                .position(x: NavballCluster.ringOrigin.x + size + 12, y: NavballCluster.ringOrigin.y + 68)
+                .position(x: NavballCluster.ringOrigin.x + size + 20, y: NavballCluster.ringOrigin.y + 68)
         }
         .allowsHitTesting(false)
         .accessibilityElement()
