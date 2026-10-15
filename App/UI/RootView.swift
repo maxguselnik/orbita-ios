@@ -62,6 +62,7 @@ struct RootView: View {
         model.feedback = feedback
         model.onRestart = { [flow, weak model] _ in if let model { flow.restartFlight(model.telemetry) } }
         model.onTutorialExit = { [flow] in flow.leaveTutorial($0) }
+        model.scienceArchive = flow.scienceArchive
         feedback.recalibrate()
         feedback.setPaused(false)
         flight = model

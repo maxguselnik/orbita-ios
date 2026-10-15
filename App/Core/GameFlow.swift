@@ -120,16 +120,13 @@ final class GameFlow {
     /// Наука за вехи текущего полёта и за данные капсулы, стоящей на Терре: начисляет ещё не учтённое,
     /// возвращает итог полёта (итоги, «Продолжить», выход в ангар, перезапуск). Уроки и сценарии CI — без науки.
     @discardableResult
-    func finishFlight(_ t: FlightTelemetry) -> (fresh: [Milestone], science: Int) {
-        guard scenario == nil, tutorial == nil || tutorialLeft, var p = progress else { return ([], 0) }
+    func finishFlight(_ t: FlightTelemetry) -> FlightAwardSummary {
+        guard scenario == nil, tutorial == nil || tutorialLeft, var p = progress else { return FlightAwardSummary() }
         let recovered = t.science.recoverable ? t.science.data : []
         let result = flightAward.credit(t.mission, recovered: recovered, to: &p)
         progress = p
-        return result
+        return FlightAwardSummary(fresh: result.fresh, science: result.science, data: flightAward.dataScience)
     }
-
-    /// Из итога полёта — наука за доставленные данные.
-    var flightDataScience: Int { flightAward.dataScience }
 
     /// Архив начислений за данные (ценность новых результатов в панели «Наука»).
     var scienceArchive: ScienceArchive { progress?.archive ?? ScienceArchive() }
@@ -200,6 +197,13 @@ final class GameFlow {
         if let tutorial { return tutorial.makeSimulation() }
         return FlightSim(design: design)
     }
+}
+
+/// Итог начисления за полёт для панели итогов: новые вехи, вся наука и из неё — за данные.
+struct FlightAwardSummary: Equatable {
+    var fresh: [Milestone] = []
+    var science = 0
+    var data = 0
 }
 
 /// Прогресс игры — Documents/progress.json.

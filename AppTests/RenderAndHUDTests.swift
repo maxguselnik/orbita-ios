@@ -274,6 +274,8 @@ struct RenderAndHUDTests {
     @Test func rcsPartsAppearInHangarCatalog() {
         #expect(CatalogTab.rcs.parts.map(\.id).contains(.rcsBlock))
         #expect(CatalogTab.tanks.parts.map(\.id).contains(.m100))
+        #expect(CatalogTab.science.parts.map(\.id) == [.thermometer, .barometer, .gravimeter])
+        #expect(SciencePanel.format(2.4) == "2.4" && SciencePanel.format(8) == "8" && SciencePanel.format(10.84) == "10.8")
         #expect(HangarFormat.details(PartCatalog.spec(.rcsBlock)) == ["Монотопливо 60 кг · сопла 2 кН", "140 кг"])
         #expect(HangarFormat.details(PartCatalog.spec(.m100)).first == "Монотопливо 160 кг")
     }
