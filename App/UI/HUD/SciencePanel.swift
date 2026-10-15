@@ -18,7 +18,7 @@ struct SciencePanel: View {
             let experiments = st.experiments
             if experiments.isEmpty {
                 Text("На корабле нет экипажа и приборов. Приборы — во вкладке «Наука» каталога ангара.")
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: HUDFont.small, weight: .medium))
                     .foregroundStyle(HUDStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
@@ -31,7 +31,7 @@ struct SciencePanel: View {
 
             if !st.stored.isEmpty {
                 Text(storedTitle(st).uppercased())
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: HUDFont.caption, weight: .bold))
                     .tracking(0.6)
                     .foregroundStyle(HUDStyle.secondaryText)
                 ScrollView {
@@ -48,13 +48,13 @@ struct SciencePanel: View {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(st.recoverable ? "Капсула на Терре: наука начислится по итогам полёта."
                                     : "Наука начисляется, когда капсула вернётся на Терру.")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: HUDFont.caption, weight: .medium))
                     .foregroundStyle(HUDStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
                 Spacer(minLength: 0)
                 if !stored.isEmpty {
                     Text("\(Self.format(values.reduce(0, +))) ⚛")
-                        .font(.system(size: 12, weight: .bold).monospacedDigit())
+                        .font(.system(size: HUDFont.small, weight: .bold).monospacedDigit())
                         .foregroundStyle(.white)
                 }
             }
@@ -70,15 +70,15 @@ struct SciencePanel: View {
             st.subject(e).map { archive.valueOfNew($0, stored: st.data) > 0 } ?? false
         }
         return HStack(spacing: 6) {
-            Image(systemName: "atom").font(.system(size: 13, weight: .semibold))
+            Image(systemName: "atom").font(.system(size: HUDFont.body, weight: .semibold))
             Text(title)
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: HUDFont.body, weight: .bold))
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Spacer(minLength: 4)
             if st.situation != nil, !st.experiments.isEmpty {
                 Text(fresh ? "новое" : "собрано")
-                    .font(.system(size: 10, weight: .heavy))
+                    .font(.system(size: HUDFont.caption, weight: .heavy))
                     .padding(.horizontal, 6)
                     .padding(.vertical, 2)
                     .foregroundStyle(fresh ? Color(red: 0.05, green: 0.16, blue: 0.07) : HUDStyle.secondaryText)
@@ -103,12 +103,12 @@ struct SciencePanel: View {
         } label: {
             HStack(spacing: 4) {
                 Text(e.title)
-                    .font(.system(size: 13, weight: .heavy))
+                    .font(.system(size: HUDFont.body, weight: .heavy))
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
                 Spacer(minLength: 2)
                 Text(reason ?? "+\(Self.format(value)) ⚛")
-                    .font(.system(size: reason == nil ? 13 : 10, weight: .bold).monospacedDigit())
+                    .font(.system(size: reason == nil ? HUDFont.body : HUDFont.caption, weight: .bold).monospacedDigit())
                     .lineLimit(1)
                     .minimumScaleFactor(0.7)
             }
@@ -128,22 +128,22 @@ struct SciencePanel: View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(item.data.subject.experiment.title)
-                    .font(.system(size: 12, weight: .bold))
+                    .font(.system(size: HUDFont.small, weight: .bold))
                     .lineLimit(1)
                 Text(item.data.subject.placeTitle)
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: HUDFont.caption, weight: .medium))
                     .foregroundStyle(HUDStyle.secondaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
             Spacer(minLength: 4)
             Text(Self.format(value))
-                .font(.system(size: 12, weight: .heavy).monospacedDigit())
+                .font(.system(size: HUDFont.small, weight: .heavy).monospacedDigit())
                 .foregroundStyle(value > 0 ? HUDPalette.accent : HUDStyle.secondaryText)
             Button {
                 model.send(.discardScience(id: item.data.id))
             } label: {
-                Image(systemName: "trash").font(.system(size: 13, weight: .semibold))
+                Image(systemName: "trash").font(.system(size: HUDFont.body, weight: .semibold))
             }
             .buttonStyle(HUDButtonStyle())
             .accessibilityLabel("Удалить: \(item.data.subject.experiment.title), \(item.data.subject.placeTitle)")
