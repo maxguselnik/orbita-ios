@@ -19,7 +19,7 @@
 
 ## Как работать (кратко)
 - Физика на Linux: Swift 6.0.3 в `/opt/swift` (download.swift.org, ubuntu24.04), `swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors` (~168 тестов, ~80 с).
-- iOS — CI или Mac пользователя (Xcode, симулятор iPhone 17 Pro, Remote Control). CI (`.github/workflows/ci.yml`, macOS, Xcode 16.4, warnings-as-errors) на push в `claude/**`, `stage*/**` и PR. Снимки — только по метке в сообщении коммита `[screens: сцена …]`; сцена падает, если приложение умерло за 6 с. Не пушить во время прогона (concurrency отменит).
+- iOS — CI или Mac пользователя (Xcode, симулятор iPhone 17 Pro, Remote Control). CI (`.github/workflows/ci.yml`, macOS, Xcode 16.4, warnings-as-errors) на push в `claude/**`, `stage*/**` и PR (PR из этих веток не гоняется повторно: его проверяет push; `[build-only]` для них — в сообщении коммита). Снимки — только по метке в сообщении коммита `[screens: сцена …]`; сцена падает, если приложение умерло за 6 с. Не пушить во время прогона (concurrency отменит).
 - Сцены `-screen`: см. `App/Core/DemoScenario.swift`, списки `screens.txt`, `screens-all.txt`.
 - Уроки: движок `App/UI/Tutorial/LessonEngine.swift`, уроки `FirstFlightLesson`, `LunaLesson` (тур «Все кнопки» заменён долгим нажатием, `App/UI/HUD/LongPressHint.swift`); контракт — `docs/CONTRACTS.md` «Обучение».
 

@@ -12,6 +12,8 @@ concurrency:
 jobs:
   physics-linux:
     name: OrbitPhysics (Linux)
+    # PR из веток claude/** и stage*/** уже проверяет прогон на push того же коммита — второй не нужен.
+    if: github.event_name != 'pull_request' || !(startsWith(github.head_ref, 'claude/') || startsWith(github.head_ref, 'stage'))
     # Идёт всегда, в том числе с [build-only]: быстрый и бесплатный; [build-only] пропускает только тесты приложения.
     runs-on: ubuntu-latest
     container: swift:6.0-noble
@@ -24,6 +26,8 @@ jobs:
   # Тесты OrbitPhysics здесь не гоняются — их покрывает physics-linux.
   ios:
     name: iOS (macOS)
+    # PR из веток claude/** и stage*/** уже проверяет прогон на push того же коммита — второй не нужен.
+    if: github.event_name != 'pull_request' || !(startsWith(github.head_ref, 'claude/') || startsWith(github.head_ref, 'stage'))
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
