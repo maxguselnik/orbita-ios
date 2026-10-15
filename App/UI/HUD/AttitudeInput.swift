@@ -257,7 +257,7 @@ struct FineControlToggle: View {
             model.fineControl.toggle()
         } label: {
             Text("ТОЧНО")
-                .font(.system(size: 10, weight: .heavy))
+                .font(.system(size: HUDFont.caption, weight: .heavy))
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
                 .foregroundStyle(on ? Color.black : Color.white)

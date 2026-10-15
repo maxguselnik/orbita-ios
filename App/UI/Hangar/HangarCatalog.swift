@@ -59,7 +59,7 @@ struct HangarCatalog: View {
                         VStack(spacing: 1) {
                             Image(systemName: item.systemImage).font(.system(size: 13, weight: .semibold))
                             Text(item.title)
-                                .font(.system(size: 8.5, weight: .bold))
+                                .font(.system(size: HUDFont.caption, weight: .bold))
                                 .lineLimit(1)
                         }
                         .frame(width: 58, height: 36)
@@ -134,7 +134,7 @@ struct PartTile: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                     Text(isLocked ? "закрыто" : HangarFormat.mass(spec.wetMass))
-                        .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+                        .font(.system(size: HUDFont.caption, weight: .medium).monospacedDigit())
                         .foregroundStyle(HUDStyle.secondaryText)
                 }
                 Spacer(minLength: 0)
@@ -198,18 +198,18 @@ struct PartCardView: View {
                     .foregroundStyle(HUDStyle.secondaryText)
             }
             Text("Температура: " + HangarFormat.limit(spec))
-                .font(.system(size: 10.5, weight: .medium).monospacedDigit())
+                .font(.system(size: HUDFont.caption, weight: .medium).monospacedDigit())
                 .foregroundStyle(HUDStyle.secondaryText)
             Text(HangarFormat.size(spec) + " · " + HangarFormat.mountText(spec))
-                .font(.system(size: 10.5, weight: .medium))
+                .font(.system(size: HUDFont.caption, weight: .medium))
                 .foregroundStyle(HUDStyle.secondaryText)
             if let lockedText {
                 Label(lockedText, systemImage: "lock.fill")
-                    .font(.system(size: 10.5, weight: .bold))
+                    .font(.system(size: HUDFont.caption, weight: .bold))
                     .foregroundStyle(HUDStyle.accent)
             } else {
                 Text("Перетащите на корабль или нажмите точку крепления")
-                    .font(.system(size: 10, weight: .medium))
+                    .font(.system(size: HUDFont.caption, weight: .medium))
                     .foregroundStyle(HUDStyle.active)
             }
         }

@@ -1,13 +1,14 @@
 import SwiftUI
 
-/// Меню паузы. «Сохранить» и «Загрузить» — заглушки до этапа 10.
+/// Меню паузы. Сохранение и загрузка скрыты, пока не готовы (этап 10).
 struct PauseMenu: View {
     let model: FlightHUDModel
     let onHangar: () -> Void
     /// Урок — новый полёт («Первый полёт», «К Луне»).
     var onTutorial: (TutorialID) -> Void = { _ in }
 
-    @State private var note: String?
+    @State private var confirmRestart = false
+    @State private var confirmHangar = false
     @State private var showLessons = false
 
     var body: some View {
@@ -33,23 +34,26 @@ struct PauseMenu: View {
 
             item("Продолжить", systemImage: "play.fill", primary: true) { model.resume() }
             HStack(spacing: 8) {
-                item("Сохранить", systemImage: "square.and.arrow.down") { note = "Сохранения — на этапе 10" }
-                item("Загрузить", systemImage: "folder") { note = "Загрузка — на этапе 10" }
-            }
-            HStack(spacing: 8) {
-                item("Перезапуск", systemImage: "arrow.counterclockwise") { model.restart() }
-                item("Ангар", systemImage: "wrench.and.screwdriver") { onHangar() }
+                item("Начать заново", systemImage: "arrow.counterclockwise") { confirmRestart = true }
+                item("Ангар", systemImage: "wrench.and.screwdriver") { confirmHangar = true }
             }
             item("Обучение", systemImage: "graduationcap") { showLessons = true }
-
-            Text(note ?? " ")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(HUDStyle.secondaryText)
-                .frame(height: 16)
         }
         .padding(16)
         .frame(width: 340)
         .hudBackground(Color.black.opacity(0.85), corner: 18)
+        .alert("Начать полёт заново?", isPresented: $confirmRestart) {
+            Button("Начать заново", role: .destructive) { model.restart() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Текущий полёт не сохранится.")
+        }
+        .alert("Выйти в ангар?", isPresented: $confirmHangar) {
+            Button("Выйти", role: .destructive) { onHangar() }
+            Button("Отмена", role: .cancel) {}
+        } message: {
+            Text("Текущий полёт не сохранится.")
+        }
     }
 
     private func item(_ title: String, systemImage: String, primary: Bool = false,

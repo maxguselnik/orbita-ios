@@ -1,0 +1,325 @@
+<title>Орбита — чистовой интерфейс</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Тёмный пульт игры, как crew-portraits.html. Экраны — SVG в точках iPhone 15 Pro (852 × 393, landscape),
+   поэтому размеры шрифтов и кнопок на рисунке пропорциональны настоящим. Одна тема — как в самой игре. */
+:root {
+  --bg: #0a0e16; --panel: #121825; --hud: rgba(12,16,24,.85); --stroke: #2a3446; --stroke-hi: #4a5670;
+  --text: #e8eef5; --muted: #8c98aa; --green: #7ce38b; --accent: #f2a03d; --sas: #3ec6f0; --red: #ff6b5b; --warn: #ffd54a;
+  --f-display: "Rubik", system-ui, sans-serif; --f-mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--text); }
+body { font-family: var(--f-display); font-size: 15px; line-height: 1.5;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 24px 64px; }
+.wrap { max-width: 1080px; margin: 0 auto; display: flex; flex-direction: column; gap: 44px; }
+h1 { font-size: 30px; font-weight: 700; margin: 0; text-wrap: balance; }
+h2 { font-size: 21px; font-weight: 500; margin: 0; text-wrap: balance; }
+h3 { font-size: 15px; font-weight: 500; margin: 0; color: var(--muted); }
+p { margin: 0; max-width: 70ch; color: var(--muted); }
+.lead { color: var(--text); }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+section { display: flex; flex-direction: column; gap: 14px; }
+ul { margin: 0; padding-left: 18px; color: var(--muted); max-width: 70ch; display: flex; flex-direction: column; gap: 4px; }
+ul b, p b { color: var(--text); font-weight: 500; }
+.pair { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.shot { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.tag { font-family: var(--f-mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+.tag.before { color: var(--red); } .tag.after { color: var(--green); }
+svg.screen { display: block; width: 100%; max-width: 100%; height: auto; border-radius: 16px; border: 1px solid var(--stroke); background: #0b1426; }
+svg text { font-family: -apple-system, "SF Pro Text", system-ui, sans-serif; }
+.tbl { overflow-x: auto; }
+table { border-collapse: collapse; font-size: 14px; min-width: 560px; }
+th, td { text-align: left; padding: 7px 12px 7px 0; border-bottom: 1px solid var(--stroke); vertical-align: top; }
+th { font-weight: 500; color: var(--muted); font-size: 13px; }
+td.num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+td .old { color: var(--red); } td .new { color: var(--green); }
+.cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 24px; }
+.cols > div { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.note { border-left: 2px solid var(--accent); padding-left: 12px; }
+</style>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:10px">
+  <div class="eyebrow">Макет на согласование · 15.10.2026</div>
+  <h1>Орбита: чистовой интерфейс</h1>
+  <p class="lead">Цель: всё читается с вытянутой руки и нажимается с первого раза. Стиль остаётся прежним (тёмные панели, зелёное — включено, оранжевое — главное действие), меняются размеры, раскладка и защита от случайных нажатий.</p>
+  <ul>
+    <li><b>Кнопки:</b> зона касания у любой кнопки не меньше 44 pt. Где места мало, растёт только зона касания, рисунок прежний.</li>
+    <li><b>Шрифты:</b> не меньше 11 pt. Пять размеров вместо двадцати: 11 подпись, 13 текст, 15 значение, 17 заголовок, 20 крупная кнопка.</li>
+    <li><b>Ничего не перекрывается:</b> у каждого элемента своя зона, сообщения идут одной полосой под высотомером.</li>
+    <li><b>Опасное — с подтверждением или отменой:</b> стирание прогресса, перезапуск, удаление.</li>
+    <li><b>Одни слова для одних действий:</b> «ПУСК» везде, «Начать заново» вместо «Перезапуск» и «Повтор».</li>
+  </ul>
+  <p>Рисунки ниже — в точках экрана iPhone 15 Pro (852 × 393), пунктир — вырез и закругления, куда кнопки ставить нельзя. Это схема раскладки, не финальная отрисовка.</p>
+</header>
+
+<section>
+  <div class="eyebrow">1 · Полёт</div>
+  <h2>Полётный экран</h2>
+  <div class="pair">
+    <div class="shot"><span class="tag before">Сейчас</span><svg class="screen" id="hud-before" viewBox="0 0 852 393" role="img" aria-label="Полётный экран сейчас"></svg></div>
+    <div class="shot"><span class="tag after">Предлагаю</span><svg class="screen" id="hud-after" viewBox="0 0 852 393" role="img" aria-label="Полётный экран после"></svg></div>
+  </div>
+  <ul>
+    <li><b>Верхняя строка:</b> пауза и ускорение 44 × 44 вместо 30 × 34, время 13 pt вместо 10. Недоступное ускорение по тапу объясняет причину («В атмосфере — не больше ×4»).</li>
+    <li><b>Высотомер:</b> цифры 15 pt, подписи «ВЫСОТА», «Ап» 11–12 pt вместо 8–9.</li>
+    <li><b>Сообщения:</b> тосты и подсказки — в одной полосе сразу под высотомером, по одному за раз, высота считается от высотомера, а не жёсткими отступами 60/100.</li>
+    <li><b>Ступени:</b> строки 28 pt вместо 22, текст 11 pt. Панель ступеней выезжает слева поверх стопки, а не справа, и больше не закрывает крен и РСУ.</li>
+    <li><b>Кольцо навбола:</b> RCS и SAS 48 × 44, подписи 11 pt; табло скорости 12 pt. Дуга тяги меняется только перетаскиванием от текущего значения: случайный тап больше не ставит 0 % или 100 %.</li>
+    <li><b>Справа сверху:</b> «Карта» и «Камера» 44 × 44.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">2 · Карта</div>
+  <h2>Панель узла в «Эксперте»</h2>
+  <div class="pair">
+    <div class="shot"><span class="tag before">Сейчас</span><svg class="screen" id="map-before" viewBox="0 0 852 393" role="img" aria-label="Карта сейчас"></svg></div>
+    <div class="shot"><span class="tag after">Предлагаю</span><svg class="screen" id="map-after" viewBox="0 0 852 393" role="img" aria-label="Карта после"></svg></div>
+  </div>
+  <ul>
+    <li><b>Шаг подстройки:</b> вместо ряда из шести кнопок (≈ 284 pt в колонке 196) — переключатель шага «0.1 · 1 · 10» и две большие кнопки «−» и «+». Помещается, и каждая кнопка 44 pt.</li>
+    <li><b>«Ступень» на карте</b> уходит из-под «Выполнить» в отдельный угол слева снизу, 44 pt, текст 13 pt вместо 6.</li>
+    <li><b>«Удалить узел»</b> отодвинута от «Эксперт», после удаления — тост «Узел удалён · Вернуть» на 4 с.</li>
+    <li><b>Ручки Δv</b> не заходят под боковые колонки: у края колонки ручка прижимается внутрь.</li>
+    <li><b>Во время автопрожига</b> ручки и шаги серые, на панели строка «Идёт прожиг — сначала Стоп».</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">3 · Ангар</div>
+  <h2>Нижняя панель сборки</h2>
+  <div class="pair">
+    <div class="shot"><span class="tag before">Сейчас</span><svg class="screen" id="hangar-before" viewBox="0 0 852 393" role="img" aria-label="Ангар сейчас"></svg></div>
+    <div class="shot"><span class="tag after">Предлагаю</span><svg class="screen" id="hangar-after" viewBox="0 0 852 393" role="img" aria-label="Ангар после"></svg></div>
+  </div>
+  <ul>
+    <li><b>Ширина:</b> панель ≈ 745 pt не влезала в 734 pt между вырезами. Теперь ≈ 690: «Симметрия» и «Шаг» — одна кнопка с выбором, маркеры уходят в «⋯». «Экипаж» и «⋯» всегда видны.</li>
+    <li><b>Кнопки</b> 48 × 44 вместо 30–40, подписи 11 pt вместо 8–9.</li>
+    <li><b>Панель гизмо</b> встаёт над нижней панелью слева и больше не налезает на сводку Δv/TWR справа.</li>
+    <li><b>Экипаж</b> закрывается, когда открываются уроки.</li>
+  </ul>
+</section>
+
+<section>
+  <div class="eyebrow">4 · Защита и слова</div>
+  <h2>Подтверждения и единые названия</h2>
+  <div class="cols">
+    <div>
+      <h3>Подтверждение (лист снизу, две кнопки 44 pt)</h3>
+      <svg class="screen" id="confirm" viewBox="0 0 426 230" role="img" aria-label="Пример подтверждения"></svg>
+      <ul>
+        <li>«Новая игра» → «Стереть прогресс?»</li>
+        <li>Пауза → «Начать заново» и «В ангар» → «Полёт не сохранится»</li>
+        <li>Ангар → «Проекты → Удалить» → «Удалить проект „Луна-2“?»</li>
+        <li>Удаление узла — без вопроса, но с «Вернуть» в тосте</li>
+      </ul>
+    </div>
+    <div>
+      <h3>Слова и заглушки</h3>
+      <div class="tbl"><table style="min-width:0;width:100%">
+        <tr><th>Сейчас</th><th>Будет</th></tr>
+        <tr><td>«СТАРТ» (ангар), «ПУСК» (полёт)</td><td>«ПУСК» в обоих местах</td></tr>
+        <tr><td>«Перезапуск» (пауза), «Повтор» (итоги)</td><td>«Начать заново»</td></tr>
+        <tr><td>«Сохранить / Загрузить — на этапе 10»</td><td>Скрыты, пока не готовы</td></tr>
+        <tr><td>Вкладки «Наука», «Контракты» с текстом «появятся на этапе 7/8»</td><td>Скрыты, пока не готовы</td></tr>
+      </table></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="eyebrow">5 · Размеры</div>
+  <h2>Что увеличивается</h2>
+  <div class="tbl"><table>
+    <tr><th>Элемент</th><th>Кнопка, pt</th><th>Шрифт, pt</th></tr>
+    <tr><td>Пауза, ускорение времени</td><td class="num"><span class="old">30×34</span> → <span class="new">44×44</span></td><td class="num"><span class="old">6–10</span> → <span class="new">11–13</span></td></tr>
+    <tr><td>Карта, Камера</td><td class="num"><span class="old">34×34</span> → <span class="new">44×44</span></td><td class="num">—</td></tr>
+    <tr><td>SAS / RCS на кольце</td><td class="num"><span class="old">38×36 / 48×36</span> → <span class="new">48×44</span></td><td class="num"><span class="old">8–9</span> → <span class="new">11</span></td></tr>
+    <tr><td>Режимы SAS в сетке</td><td class="num">44</td><td class="num"><span class="old">8</span> → <span class="new">11</span></td></tr>
+    <tr><td>Высотомер: подписи / цифры</td><td class="num">—</td><td class="num"><span class="old">8 / 12</span> → <span class="new">11 / 15</span></td></tr>
+    <tr><td>Стопка ступеней: строка / текст / счётчик</td><td class="num"><span class="old">22</span> → <span class="new">28</span></td><td class="num"><span class="old">9–10 / 6</span> → <span class="new">11 / 10</span></td></tr>
+    <tr><td>«ТЯГА N %», табло скорости</td><td class="num">—</td><td class="num"><span class="old">9–10</span> → <span class="new">12</span></td></tr>
+    <tr><td>MAX, 0</td><td class="num"><span class="old">40×28</span> → <span class="new">44×44</span></td><td class="num"><span class="old">10</span> → <span class="new">12</span></td></tr>
+    <tr><td>Ангар: инструменты</td><td class="num"><span class="old">30–54×40</span> → <span class="new">48×44</span></td><td class="num"><span class="old">8–10.5</span> → <span class="new">11</span></td></tr>
+    <tr><td>Карта: «Ступень»</td><td class="num">→ <span class="new">44</span></td><td class="num"><span class="old">6</span> → <span class="new">13</span></td></tr>
+  </table></div>
+</section>
+
+<section class="note">
+  <div class="eyebrow">Как делаю</div>
+  <h2>Порядок работ после «да»</h2>
+  <ul>
+    <li><b>PR 1.</b> Общие размеры шрифтов и кнопок в <code>HUDStyle.swift</code>, полётный экран, ангар, подтверждения и слова.</li>
+    <li><b>PR 2.</b> Карта (панель узла, «Ступень», ручки Δv). Начну после слияния PR #22: он правит те же файлы карты.</li>
+    <li>Физику и логику полёта не трогаю. Тесты — только на изменённое; где их нет, сборка в CI. Скриншоты не присылаю, проверка — на iPhone по списку в PROGRESS.md.</li>
+  </ul>
+</section>
+
+</div>
+
+<script>
+// Рисует схемы экранов. Единицы — точки iPhone 15 Pro: safe area слева/справа 59, снизу 21.
+const C = { panel: "rgba(12,16,24,.88)", stroke: "#2a3446", hi: "#4a5670", text: "#e8eef5", muted: "#8c98aa",
+  green: "#7ce38b", accent: "#f2a03d", accentText: "#1a1206", sas: "#3ec6f0", red: "#ff6b5b", warn: "#ffd54a", lcd: "#d5f05a" };
+const esc = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+const rect = (x, y, w, h, o = {}) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${o.r ?? 8}" fill="${o.fill ?? C.panel}" stroke="${o.stroke ?? C.stroke}" stroke-width="${o.sw ?? 1}"${o.dash ? ` stroke-dasharray="${o.dash}"` : ""}/>`;
+const text = (x, y, s, size, o = {}) => `<text x="${x}" y="${y}" font-size="${size}" font-weight="${o.w ?? 700}" fill="${o.fill ?? C.text}" text-anchor="${o.a ?? "middle"}"${o.mono ? ' font-family="ui-monospace, SF Mono, monospace"' : ""}>${esc(s)}</text>`;
+const touch = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="none" stroke="${C.green}" stroke-opacity=".55" stroke-dasharray="3 3"/>`;
+const bad = (x, y, w, h) => `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="6" fill="none" stroke="${C.red}" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+const callout = (x, y, s, color = C.red) => `<g>${text(x, y, s, 11, { fill: color, w: 600, a: "start" })}</g>`;
+
+function frame(sky = true) {
+  const bg = sky ? `<defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#050812"/><stop offset=".6" stop-color="#0c1830"/><stop offset="1" stop-color="#2a4a78"/></linearGradient></defs><rect width="852" height="393" fill="url(#sky)"/>`
+    : `<rect width="852" height="393" fill="#060a14"/>`;
+  // вырез и закругления: зона, где кнопки не ставим
+  return bg + `<rect x="0" y="0" width="59" height="393" fill="#000" opacity=".28"/><rect x="793" y="0" width="59" height="393" fill="#000" opacity=".28"/>
+  <rect x="8" y="140" width="30" height="113" rx="15" fill="#000" stroke="#333" stroke-dasharray="3 3"/>
+  <line x1="59" y1="0" x2="59" y2="393" stroke="#fff" stroke-opacity=".12" stroke-dasharray="4 4"/><line x1="793" y1="0" x2="793" y2="393" stroke="#fff" stroke-opacity=".12" stroke-dasharray="4 4"/>`;
+}
+
+function navball(cx, big) {
+  const r = 78, cy = 393 + 26 - r - 21 + 20;
+  let s = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#1a2232" stroke="${C.hi}"/>
+    <clipPath id="nb${big ? 1 : 0}"><circle cx="${cx}" cy="${cy}" r="${r - 14}"/></clipPath>
+    <g clip-path="url(#nb${big ? 1 : 0})"><rect x="${cx - r}" y="${cy - r}" width="${2 * r}" height="${r}" fill="#3a7bd5"/><rect x="${cx - r}" y="${cy}" width="${2 * r}" height="${r}" fill="#a8743e"/></g>
+    <path d="M ${cx - r + 4} ${cy} A ${r - 4} ${r - 4} 0 0 1 ${cx - 26} ${cy - r + 9}" fill="none" stroke="${C.green}" stroke-width="5" stroke-linecap="round"/>`;
+  if (big) {
+    s += rect(cx - 36, cy - r - 30, 72, 22, { fill: "#202a10", stroke: "#4b5a1a", r: 5 }) + text(cx, cy - r - 14, "орб 7 543", 12, { fill: C.lcd, mono: true });
+    s += rect(cx - r - 50, cy - r - 8, 48, 44, { r: 8 }) + text(cx - r - 26, cy - r + 19, "RCS", 11) + touch(cx - r - 50, cy - r - 8, 48, 44);
+    s += rect(cx + r + 2, cy - r - 8, 48, 44, { r: 8, stroke: C.green }) + text(cx + r + 26, cy - r + 12, "SAS", 12, { fill: C.green }) + text(cx + r + 26, cy - r + 27, "ДЕРЖАТЬ", 9.5, { fill: C.green, w: 600 }) + touch(cx + r + 2, cy - r - 8, 48, 44);
+    s += text(cx - r - 18, cy + 4, "ТЯГА 72 %", 12, { a: "end", fill: C.green });
+  } else {
+    s += rect(cx - 35, cy - r - 24, 70, 18, { fill: "#202a10", stroke: "#4b5a1a", r: 4 }) + text(cx, cy - r - 11, "орб 7 543 м/с", 10, { fill: C.lcd, mono: true });
+    s += rect(cx - r - 40, cy - r - 2, 48, 36, { r: 6 }) + text(cx - r - 16, cy - r + 19, "RCS", 9) + bad(cx - r - 40, cy - r - 2, 48, 36);
+    s += rect(cx + r - 6, cy - r - 2, 38, 36, { r: 6, stroke: C.green }) + text(cx + r + 13, cy - r + 15, "SAS", 9, { fill: C.green }) + text(cx + r + 13, cy - r + 26, "ДЕРЖ.", 8, { fill: C.green }) + bad(cx + r - 6, cy - r - 2, 38, 36);
+    s += text(cx - r - 10, cy + 2, "ТЯГА 72%", 9, { a: "end", fill: C.green });
+  }
+  return s;
+}
+
+function hud(after) {
+  let s = frame();
+  const L = 59 + 8, R = 793 - 8;
+  if (!after) {
+    // верх слева: время, ускорение, пауза — 30×34
+    s += rect(L, 8, 168, 34, { r: 8 }) + text(L + 40, 30, "Т+ 00:12:41", 10, { mono: true });
+    [0, 1, 2].forEach(i => { s += rect(L + 82 + i * 28, 13, 24, 20, { r: 4, fill: i === 0 ? "#1f3b25" : "#151b27" }) + text(L + 94 + i * 28, 27, "▶".repeat(i + 1), 6, { fill: i === 0 ? C.green : C.text }); });
+    s += bad(L + 80, 8, 86, 34) + callout(L, 58, "30×34, шрифт 6–10");
+    // высотомер
+    s += rect(346, 6, 160, 44, { r: 8 }) + text(426, 18, "ВЫСОТА", 8, { fill: C.muted }) + text(426, 36, "0 4 1 2 8 7 м", 12, { mono: true }) + text(426, 47, "Ап 80 км", 9, { fill: C.muted });
+    // тост на жёстком отступе — перекрывает
+    s += rect(316, 40, 220, 30, { r: 10, stroke: C.red }) + text(426, 60, "Ступень 2 отделена", 14) + callout(540, 60, "тост на отступе 60 — лезет на высотомер");
+    // право сверху: Карта, Камера 30
+    s += rect(R - 70, 10, 30, 30, { r: 6 }) + rect(R - 34, 10, 30, 30, { r: 6 }) + text(R - 55, 30, "◎", 13) + text(R - 19, 30, "⌖", 13) + bad(R - 72, 8, 70, 34);
+    // панель ступеней справа — закрывает крен/РСУ
+    s += rect(R - 290, 52, 290, 210, { fill: "rgba(12,16,24,.95)", stroke: C.red, sw: 1.5 }) + text(R - 145, 76, "Ступени · Наука · Контракты", 12) + text(R - 145, 150, "Текущая ступень   Δv 2 140   TWR 1.4", 11, { fill: C.muted, w: 500 }) + callout(R - 290, 278, "панель ступеней закрывает крен и РСУ");
+    // стопка ступеней 22 pt
+    for (let i = 0; i < 3; i++) s += rect(L, 200 + i * 24, 112, 22, { r: 5, stroke: i === 2 ? C.green : C.stroke }) + text(L + 8, 215 + i * 24, `${3 - i}`, 10, { a: "start" }) + text(L + 104, 215 + i * 24, ["парашют", "100 %", "64 %"][i], 9, { a: "end", fill: C.muted, w: 500 });
+    s += rect(L, 280, 140, 44, { r: 22, fill: C.accent, stroke: C.accent }) + text(L + 70, 307, "ОТДЕЛИТЬ ②", 13, { fill: C.accentText, w: 900 });
+    s += callout(L, 192, "строки 22, текст 9");
+    s += navball(426, false);
+    // справа снизу: MAX/0 40×28
+    s += rect(R - 132, 300, 36, 24, { r: 5 }) + text(R - 114, 316, "MAX", 10) + rect(R - 132, 330, 36, 24, { r: 5 }) + text(R - 114, 346, "0", 10) + bad(R - 134, 298, 40, 58);
+    s += `<circle cx="${R - 46}" cy="330" r="40" fill="${C.panel}" stroke="${C.stroke}"/><circle cx="${R - 46}" cy="330" r="16" fill="#2a3446"/>`;
+  } else {
+    // верх слева: пауза + время + ускорение, всё 44
+    s += rect(L, 6, 44, 44, { r: 10 }) + text(L + 22, 34, "❚❚", 14);
+    s += rect(L + 52, 6, 104, 44, { r: 10 }) + text(L + 104, 33, "Т+ 00:12:41", 13, { mono: true });
+    [0, 1, 2].forEach(i => { s += rect(L + 164 + i * 46, 6, 44, 44, { r: 10, fill: i === 0 ? "#1f3b25" : C.panel, stroke: i === 0 ? C.green : C.stroke }) + text(L + 186 + i * 46, 33, "▶".repeat(i + 1), 11, { fill: i === 0 ? C.green : C.text }); });
+    // высотомер
+    s += rect(326, 6, 200, 58, { r: 10 }) + text(426, 21, "ВЫСОТА", 11, { fill: C.muted, w: 600 }) + text(426, 42, "0 4 1 2 8 7 м", 15, { mono: true }) + text(426, 58, "Ап 80 км", 12, { fill: C.muted, w: 600 });
+    // полоса сообщений под высотомером
+    s += rect(326, 70, 200, 32, { r: 10 }) + text(426, 91, "Ступень 2 отделена", 13);
+    s += `<rect x="320" y="66" width="212" height="40" rx="12" fill="none" stroke="${C.green}" stroke-opacity=".5" stroke-dasharray="2 4"/>` + callout(540, 91, "полоса сообщений: от высотомера, одно за раз", C.green);
+    // право сверху: Карта, Камера 44
+    s += rect(R - 96, 6, 44, 44, { r: 10 }) + rect(R - 44, 6, 44, 44, { r: 10 }) + text(R - 74, 34, "◎", 17) + text(R - 22, 34, "⌖", 17);
+    // стопка ступеней 28 pt + панель слева (свёрнута)
+    for (let i = 0; i < 3; i++) s += rect(L, 178 + i * 31, 136, 28, { r: 6, stroke: i === 2 ? C.green : C.stroke }) + text(L + 10, 197 + i * 31, `${3 - i}`, 12, { a: "start" }) + text(L + 126, 197 + i * 31, ["парашют", "100 %", "64 %"][i], 11, { a: "end", fill: C.muted, w: 600 });
+    s += callout(L, 170, "тап → панель ступеней выезжает здесь, слева", C.green);
+    s += rect(L, 278, 150, 54, { r: 27, fill: C.accent, stroke: C.accent }) + text(L + 75, 311, "ОТДЕЛИТЬ ②", 16, { fill: C.accentText, w: 900 });
+    s += navball(426, true);
+    // справа снизу: MAX/0 44
+    s += rect(R - 150, 270, 44, 44, { r: 10 }) + text(R - 128, 297, "MAX", 12) + rect(R - 150, 320, 44, 44, { r: 10 }) + text(R - 128, 347, "0", 12);
+    s += `<circle cx="${R - 46}" cy="318" r="42" fill="${C.panel}" stroke="${C.stroke}"/><circle cx="${R - 46}" cy="318" r="17" fill="#2a3446"/>`;
+  }
+  return s;
+}
+
+function mapScreen(after) {
+  let s = frame(false);
+  s += `<circle cx="426" cy="200" r="70" fill="#1f4d8a"/><ellipse cx="426" cy="200" rx="150" ry="96" fill="none" stroke="${C.sas}" stroke-width="2"/><ellipse cx="470" cy="190" rx="220" ry="130" fill="none" stroke="${C.accent}" stroke-width="1.5" stroke-dasharray="6 4"/><circle cx="560" cy="134" r="7" fill="${C.accent}"/>`;
+  const X = 793 - 8 - 196, W = 196;
+  s += rect(X, 8, W, 300, { r: 12 }) + text(X + W / 2, 30, "Узел через 12:04", 13);
+  if (!after) {
+    s += text(X + W / 2, 52, "Прогрейд 128.4 м/с", 11, { fill: C.muted, w: 500 });
+    const labels = ["−10", "−1", "−0.1", "+0.1", "+1", "+10"];
+    labels.forEach((l, i) => { s += rect(X + 6 + i * 47, 64, 44, 32, { r: 6 }) + text(X + 28 + i * 47, 85, l, 11); });
+    s += bad(X + 196, 60, 90, 40) + callout(X - 40, 116, "ряд ≈ 284 pt в колонке 196: уезжает за край");
+    s += rect(X + 8, 200, 86, 40, { r: 8 }) + text(X + 51, 225, "Эксперт", 12) + rect(X + 98, 200, 90, 40, { r: 8, stroke: C.red }) + text(X + 143, 225, "Удалить узел", 12, { fill: C.red });
+    s += callout(X + 8, 256, "«Удалить» вплотную к «Эксперт»");
+    s += rect(X + 8, 264, 180, 36, { r: 18, fill: C.accent, stroke: C.accent }) + text(X + 98, 287, "Выполнить манёвр", 13, { fill: C.accentText, w: 800 });
+    s += rect(X + 150, 300, 40, 12, { r: 3, stroke: C.red }) + text(X + 170, 309, "Ступень", 6) + callout(X - 10, 330, "«Ступень» 6 pt под «Выполнить»");
+    s += `<circle cx="${X + 6}" cy="170" r="11" fill="${C.green}" stroke="#fff"/>` + callout(X - 110, 175, "ручка Δv ушла под колонку");
+  } else {
+    s += text(X + W / 2, 52, "Прогрейд 128.4 м/с", 13, { fill: C.text, w: 600 });
+    s += text(X + 12, 76, "Шаг", 11, { fill: C.muted, a: "start", w: 600 });
+    ["0.1", "1", "10"].forEach((l, i) => { s += rect(X + 42 + i * 50, 60, 46, 28, { r: 14, fill: i === 1 ? "#1f3b25" : C.panel, stroke: i === 1 ? C.green : C.stroke }) + text(X + 65 + i * 50, 79, l, 12, { fill: i === 1 ? C.green : C.text }); });
+    s += rect(X + 8, 96, 88, 48, { r: 10 }) + text(X + 52, 128, "−", 24) + rect(X + 100, 96, 88, 48, { r: 10 }) + text(X + 144, 128, "+", 24);
+    s += text(X + W / 2, 166, "Удержание — повтор", 11, { fill: C.muted, w: 500 });
+    s += rect(X + 8, 180, 86, 44, { r: 10 }) + text(X + 51, 207, "Эксперт", 13) + rect(X + 108, 180, 80, 44, { r: 10 }) + text(X + 148, 207, "Удалить", 13, { fill: C.red });
+    s += rect(X + 8, 244, 180, 54, { r: 27, fill: C.accent, stroke: C.accent }) + text(X + 98, 276, "Выполнить", 17, { fill: C.accentText, w: 800 });
+    s += rect(59 + 8, 393 - 21 - 52, 120, 44, { r: 22, fill: C.accent, stroke: C.accent }) + text(59 + 68, 393 - 21 - 24, "Ступень ②", 13, { fill: C.accentText, w: 800 });
+    s += callout(59 + 8, 393 - 21 - 60, "отдельно, слева снизу", C.green);
+    s += `<circle cx="${X - 14}" cy="170" r="11" fill="${C.green}" stroke="#fff"/>` + callout(X - 190, 196, "ручка у края прижимается внутрь", C.green);
+    s += rect(240, 340, 220, 32, { r: 10 }) + text(350, 361, "Узел удалён · Вернуть", 13);
+  }
+  return s;
+}
+
+function hangarScreen(after) {
+  let s = frame(false);
+  s += `<rect x="380" y="60" width="60" height="200" rx="6" fill="#3a4458"/><polygon points="380,60 410,20 440,60" fill="#59647a"/>`;
+  const sx = after ? 560 : 640;
+  s += rect(sx, 12, 145, 70, { r: 10 }) + text(sx + 72, 36, "Δv 3 420 м/с", 13) + text(sx + 72, 56, "TWR 1.52", 12, { fill: C.muted, w: 600 });
+  const Y = 393 - 21 - 50;
+  if (!after) {
+    const items = [["Ставить", 54], ["Двигать", 54], ["Вращать", 54], ["Удалить", 54], ["|", 1], ["Симметрия", 74], ["×2", 30], ["×3", 30], ["×4", 30], ["|", 1], ["Шаг 15°", 52], ["|", 1], ["ЦМ", 32], ["ЦТ", 32], ["ЦД", 32], ["Экипаж", 60], ["⋯", 40]];
+    let x = 59 + 2;
+    s += rect(x - 6, Y, 745, 46, { r: 12 });
+    items.forEach(([l, w]) => { if (l !== "|") { s += rect(x, Y + 3, w, 40, { r: 7, fill: "#151b27" }) + text(x + w / 2, Y + 27, l, l.length > 3 ? 9 : 11); } x += w + 5; });
+    s += bad(793, Y - 2, 61, 50) + callout(560, Y - 10, "≈ 745 pt: «Экипаж» и «⋯» под вырезом");
+    s += rect(560, 90, 230, 90, { r: 10, stroke: C.red }) + text(675, 140, "Гизмо: X Y Z · Сброс", 12) + callout(560, 196, "панель гизмо налезает на Δv/TWR");
+  } else {
+    const items = [["Ставить", 64], ["Двигать", 64], ["Вращать", 64], ["Удалить", 64], ["|", 1], ["Симм. ×2 · 15°", 120], ["Маркеры", 72]];
+    let x = 59 + 8;
+    s += rect(x - 6, Y - 2, 690, 50, { r: 12 });
+    items.forEach(([l, w]) => { if (l === "|") { x += w + 6; return; } s += rect(x, Y + 1, w, 44, { r: 9, fill: "#151b27" }) + text(x + w / 2, Y + 28, l, 11); x += w + 6; });
+    s += rect(617, Y + 1, 64, 44, { r: 9, fill: "#151b27" }) + text(649, Y + 28, "Экипаж", 11);
+    s += rect(687, Y + 1, 56, 44, { r: 9, fill: "#151b27" }) + text(715, Y + 28, "⋯", 16);
+    s += callout(59 + 8, Y - 70, "≈ 690 pt, всё между вырезами; кнопки 44, подписи 11", C.green);
+    s += rect(59 + 8, Y - 58, 230, 48, { r: 10 }) + text(59 + 123, Y - 28, "Гизмо: X Y Z · Сброс", 13);
+    s += rect(793 - 8 - 76, 12, 76, 54, { r: 27, fill: C.accent, stroke: C.accent }) + text(793 - 46, 46, "ПУСК", 20, { fill: C.accentText, w: 900 });
+  }
+  return s;
+}
+
+function confirmSheet() {
+  let s = `<rect width="426" height="230" fill="#05080f"/><rect width="426" height="230" fill="#000" opacity=".4"/>`;
+  s += rect(53, 30, 320, 180, { r: 16, fill: "#121825", stroke: C.hi });
+  s += text(213, 64, "Стереть прогресс?", 17) + text(213, 90, "Наука, вехи и проекты ракет", 13, { fill: C.muted, w: 500 }) + text(213, 108, "будут удалены. Отменить нельзя.", 13, { fill: C.muted, w: 500 });
+  s += rect(69, 140, 136, 48, { r: 12, fill: "#1b2333" }) + text(137, 170, "Отмена", 15);
+  s += rect(221, 140, 136, 48, { r: 12, fill: "#3a1512", stroke: C.red }) + text(289, 170, "Стереть", 15, { fill: C.red });
+  return s;
+}
+
+const put = (id, svg) => { document.getElementById(id).innerHTML = svg; };
+put("hud-before", hud(false)); put("hud-after", hud(true));
+put("map-before", mapScreen(false)); put("map-after", mapScreen(true));
+put("hangar-before", hangarScreen(false)); put("hangar-after", hangarScreen(true));
+put("confirm", confirmSheet());
+</script>
