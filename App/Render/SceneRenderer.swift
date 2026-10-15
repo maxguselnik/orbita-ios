@@ -48,6 +48,15 @@ final class SceneRenderer: FlightRenderer {
     /// Только диагностический кадр -planet-preview: общий план тела в настоящей полётной сцене.
     /// В обычной игре nil: камера и все эффекты работают как прежде.
     var inspectionBody: BodyID?
+    private(set) var hasSurfaceTextures = false
+    private var hasCloudTexture = false
+
+    /// Готовность именно отрисованного тела для диагностического кадра.
+    var isInspectionReady: Bool {
+        guard hasSurfaceTextures, hasCloudTexture || !CloudShell.enabled || !SoftTextures.enabled else { return false }
+        if isMapMode { return map.areBodiesReady }
+        return inspectionBody == .luna ? luna.visibleCount > 0 : terra.visibleCount > 0
+    }
 
     init() {
         camera.camera.fieldOfViewInDegrees = 60
@@ -78,10 +87,12 @@ final class SceneRenderer: FlightRenderer {
             self.terra.material = terraMat
             self.luna.material = lunaMat
             self.map.setMaterials(terra: terraMat, luna: lunaMat)
+            self.hasSurfaceTextures = terraTex != nil && lunaTex != nil
             // Облачный слой готовится после загрузки атласов: рельеф уже виден.
             let cloudTex = await CloudShell.makeTexture()
             self.cloudShell.setTexture(cloudTex)
             self.map.setCloudTexture(cloudTex)
+            self.hasCloudTexture = cloudTex != nil
         }
     }
 

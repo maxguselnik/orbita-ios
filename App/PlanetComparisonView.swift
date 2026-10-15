@@ -1,3 +1,4 @@
+import Foundation
 import OrbitPhysics
 import SwiftUI
 
@@ -51,6 +52,10 @@ private struct PlanetComparisonViewport: View {
         // Стабильный снимок без корабля и без шестиминутного автополёта к Луне.
         var snapshot = FlightSim(design: .orbit).snapshot
         renderer.targetFrameRate = 60
+        let mode = flightMode ? "flight" : "map"
+        let name = bodyID == .terra ? "terra" : "luna"
+        let readyFile = URL.documentsDirectory.appendingPathComponent("planet-\(mode)-\(name).ready")
+        var written = false
         if flightMode {
             let direction = bodyID == .terra ? Vec3(1, 0.55, 0.3) : Vec3(-0.6, 1, 0.25)
             snapshot.vessels[0].body = bodyID
@@ -59,6 +64,9 @@ private struct PlanetComparisonViewport: View {
             driver.frameRate = .hz60
             driver.start { [renderer, snapshot] _ in
                 renderer.update(snapshot: snapshot, events: [], frameDelta: 1.0 / 60)
+                if !written, renderer.isInspectionReady {
+                    written = (try? Data("ready".utf8).write(to: readyFile, options: .atomic)) != nil
+                }
             }
             return
         }
@@ -74,9 +82,13 @@ private struct PlanetComparisonViewport: View {
         renderer.apply(CameraInput(orbitDelta: SIMD2(Float(azimuth - MapCamera.defaultAzimuth),
                                                      Float(elevation - MapCamera.defaultElevation)),
                                    zoomFactor: 0.7))
+        renderer.update(snapshot: snapshot, events: [], frameDelta: 1)
         driver.frameRate = .hz60
         driver.start { [renderer, snapshot] _ in
             renderer.update(snapshot: snapshot, events: [], frameDelta: 1.0 / 60)
+            if !written, renderer.isInspectionReady {
+                written = (try? Data("ready".utf8).write(to: readyFile, options: .atomic)) != nil
+            }
         }
     }
 }
