@@ -187,6 +187,8 @@ public struct CrewReactor: Sendable {
     private var maxPressure = 0.0
     private var wasSpace = false
     private var wasOrbiting = false
+    /// Первый кадр: полёт может начаться уже на орбите или в космосе — это не повод для восторга и «ура».
+    private var started = false
     private var crashed = false
     private var destroyedTimer = 0.0
     private var maxQTimer = 0.0
@@ -214,6 +216,11 @@ public struct CrewReactor: Sendable {
         }
         if t.situation == .crashed { crashed = true }
         let grounded = t.situation == .prelaunch || t.situation == .landed || t.situation == .splashed
+        if !started {
+            started = true
+            wasOrbiting = t.situation == .orbiting
+            wasSpace = t.atmosphereDensity == 0 && !grounded
+        }
         if t.situation == .orbiting, !wasOrbiting {
             wasOrbiting = true
             if !crashed { joyTimer = max(joyTimer, 4) }

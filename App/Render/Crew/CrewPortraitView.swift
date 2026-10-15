@@ -42,7 +42,7 @@ struct CrewPortraitView: View {
 @Observable
 final class CrewStage {
     /// Строка состояния поверх портретов (только сцена CI `-screen crewGallery`).
-    static let showsDiagnostics = DemoScenario.fromArguments == .crewGallery
+    static let showsDiagnostics = false
     /// Диагностика: места, загруженные текстуры, кадры цикла.
     private(set) var info = "—"
     let root = Entity()
@@ -99,8 +99,12 @@ final class CrewStage {
         // Сразу — без текстур (материалы терпят их отсутствие), после загрузки — пересборка с текстурами.
         sync()
         Task { [weak self] in
-            for m in members { await CrewAssets.shared.prepare(id: m.id, name: m.name) }
-            guard let self, self.generation == gen else { return }
+            var added = false
+            for m in members {
+                if await CrewAssets.shared.prepare(id: m.id, name: m.name) { added = true }
+            }
+            // Пересборка — только если пришли новые текстуры; иначе смена настроения идёт плавно, без пересоздания.
+            guard added, let self, self.generation == gen else { return }
             self.rebuild()
         }
     }
@@ -133,8 +137,14 @@ final class CrewStage {
             if i < slots.count { slots[i] = c } else { slots.append(c) }
             if fresh { c.update(time: t) }
         }
-        info = "места \(slots.count) · текстуры \(CrewAssets.shared.textureCount) · сущности \(root.children.count)"
+        refreshInfo()
 
+    }
+
+    private func refreshInfo() {
+        let a = CrewAssets.shared
+        let next = "места \(slots.count) · текстуры \(a.textureCount)/\(a.started) · сейчас \(a.current) · ошибки \(a.failures) \(a.lastError.prefix(50))"
+        if next != info { info = next }
     }
 
     func start() {
@@ -146,6 +156,7 @@ final class CrewStage {
                 guard let self else { return }
                 let t = self.time
                 for case let c? in self.slots { c.update(time: t) }
+                if Self.showsDiagnostics { self.refreshInfo() }
             }
         }
     }

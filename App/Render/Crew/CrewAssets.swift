@@ -33,18 +33,34 @@ final class CrewAssets {
 
     func texture(_ key: String) -> TextureResource? { textures[key] }
     var textureCount: Int { textures.count }
+    /// Диагностика загрузки текстур (галерея CI).
+    private(set) var failures = 0
+    private(set) var lastError = ""
+    /// Сколько текстур начато и какая создаётся сейчас (поиск зависания).
+    private(set) var started = 0
+    /// Не созданные за таймаут — больше не пробуем.
+    private var failed: Set<String> = []
+    private(set) var current = ""
 
     /// Общие текстуры + текстуры персонажа (радужка, нашивка, бирка, голова).
-    func prepare(id: String, name: String) async {
+    /// Возвращает true, если добавились новые текстуры (места стоит пересобрать).
+    @discardableResult
+    func prepare(id: String, name: String) async -> Bool {
+        let before = textures.count
+        // Сначала то, что видно на лице (кожа, радужка), потом скафандр и кабина.
+        let look = CrewLook.of(id)
+        await ensure(Self.headKey(look.kind)) { Self.headImage(look.shape) }
+        await ensure(Self.irisKey(look.iris)) { Self.irisImage(look.iris) }
+        await ensure("fresnel") { Self.fresnelImage() }
+        await ensure("hairTube") { Self.hairTubeImage() }
+        await ensure("hairCap") { Self.hairCapImage() }
+        await ensure(Self.patchKey(look.suit)) { Self.patchImage(look.suit) }
+        await ensure(Self.tagKey(name)) { Self.labelImage(Self.tagText(name), fg: 0x20242e, bg: 0xe7ebf2) }
         if common == nil {
             common = Task { await self.loadCommon() }
         }
         await common?.value
-        let look = CrewLook.of(id)
-        await ensure(Self.irisKey(look.iris)) { Self.irisImage(look.iris) }
-        await ensure(Self.patchKey(look.suit)) { Self.patchImage(look.suit) }
-        await ensure(Self.tagKey(name)) { Self.labelImage(Self.tagText(name), fg: 0x20242e, bg: 0xe7ebf2) }
-        await ensure(Self.headKey(look.kind)) { Self.headImage(look.shape) }
+        return textures.count != before
     }
 
     private func loadCommon() async {
@@ -60,17 +76,56 @@ final class CrewAssets {
     }
 
     private func ensure(_ key: String, _ draw: () -> CGImage?) async {
-        guard textures[key] == nil, let cg = draw() else { return }
+        guard textures[key] == nil, !failed.contains(key) else { return }
+        guard let cg = draw() else {
+            failures += 1
+            lastError = "\(key): нет картинки"
+            return
+        }
+        // Без мипмапов, как у облаков: текстуры маленькие, а генерация мипмапов на симуляторе может не завершаться.
         var options = TextureResource.CreateOptions(semantic: .color)
-        options.mipmapsMode = .allocateAndGenerateAll
-        if let t = try? await TextureResource(image: cg, options: options) {
+        options.mipmapsMode = .none
+        started += 1
+        current = key
+        if let t = await Self.makeTexture(cg, options: options, timeout: .seconds(2)) {
             textures[key] = t
+        } else {
+            failures += 1
+            failed.insert(key)
+            lastError = "\(key): не создалась за 2 с"
+        }
+        current = ""
+    }
+
+    /// Флаг «ответ уже отдан» для гонки создания текстуры с таймаутом.
+    @MainActor private final class Once {
+        var done = false
+    }
+
+    /// Создание текстуры с таймаутом: на симуляторе CI отдельные `TextureResource(image:)` не завершаются —
+    /// такая текстура пропускается, остальные идут дальше (материал без неё — запасной цвет).
+    private static func makeTexture(_ cg: CGImage, options: TextureResource.CreateOptions,
+                                    timeout: Duration) async -> TextureResource? {
+        await withCheckedContinuation { (cont: CheckedContinuation<TextureResource?, Never>) in
+            let once = Once()
+            Task { @MainActor in
+                let t = try? await TextureResource(image: cg, options: options)
+                guard !once.done else { return }
+                once.done = true
+                cont.resume(returning: t)
+            }
+            Task { @MainActor in
+                try? await Task.sleep(for: timeout)
+                guard !once.done else { return }
+                once.done = true
+                cont.resume(returning: nil)
+            }
         }
     }
 
     // MARK: - Ключи
 
-    static let panelLabels = ["ПИТ", "СВЯЗЬ", "O₂", "СТУП", "РСУ", "SAS"]
+    static let panelLabels = ["ПИТ", "СВЯЗЬ", "O2", "СТУП", "РСУ", "SAS"]
     static func irisKey(_ c: CrewColor) -> String { "iris\(c.hex)" }
     static func patchKey(_ c: CrewColor) -> String { "patch\(c.hex)" }
     static func tagKey(_ name: String) -> String { "tag:" + name }
@@ -88,6 +143,9 @@ final class CrewAssets {
             if let tex { u.color = .init(tint: CrewColor(s.color).ui, texture: .init(tex)) }
             if s.alphaTex, let tex {
                 u.blending = .transparent(opacity: .init(scale: s.opacity, texture: .init(tex)))
+            } else if s.alphaTex {
+                // Текстура ещё не загружена — не показывать (иначе глухой диск вместо стекла).
+                u.blending = .transparent(opacity: .init(floatLiteral: 0))
             } else if s.opacity < 1 {
                 u.blending = .transparent(opacity: .init(floatLiteral: s.opacity))
             }
@@ -108,19 +166,26 @@ final class CrewAssets {
             if s.opacity < 1 { p.blending = .transparent(opacity: .init(floatLiteral: s.opacity)) }
             m = p
         }
-        materials[s] = m
+        // Материал без нужной текстуры не кэшируется: после загрузки текстур места пересобираются.
+        if s.tex == nil || tex != nil { materials[s] = m }
         return m
     }
 
     // MARK: - Рисование
 
+    /// Явный RGBA8 sRGB с премультиплицированной альфой (как у текстур облаков): формат UIGraphicsImageRenderer
+    /// `TextureResource` не принимал. Начало координат — сверху слева, как в UIKit; текст рисуется через UIKit.
     private static func draw(_ w: Int, _ h: Int, _ body: (CGContext) -> Void) -> CGImage? {
-        let f = UIGraphicsImageRendererFormat()
-        f.scale = 1
-        f.opaque = false
-        f.preferredRange = .standard
-        let img = UIGraphicsImageRenderer(size: CGSize(width: w, height: h), format: f).image { body($0.cgContext) }
-        return img.cgImage
+        guard let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let g = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: space,
+                                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        g.translateBy(x: 0, y: CGFloat(h))
+        g.scaleBy(x: 1, y: -1)
+        UIGraphicsPushContext(g)
+        body(g)
+        UIGraphicsPopContext()
+        return g.makeImage()
     }
 
     private static func rgba(_ hex: UInt32, _ a: CGFloat = 1) -> CGColor { CrewColor.ui(CrewColor(hex).srgb, alpha: a).cgColor }

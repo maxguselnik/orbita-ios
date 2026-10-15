@@ -59,7 +59,8 @@ for scene in "${SCENES[@]}"; do
   xcrun simctl terminate "$UDID" com.maxguselnik.orbita 2>/dev/null || true
   t "$scene: launch"
   xcrun simctl launch "$UDID" com.maxguselnik.orbita -screen "$scene"
-  sleep 6
+  # Портреты экипажа догружают текстуры асинхронно — им нужно больше времени.
+  case "$scene" in crew*) sleep 20 ;; *) sleep 6 ;; esac
   t "$scene: screenshot"
   xcrun simctl io "$UDID" screenshot "$OUT/$scene.png"
   t "$scene: проверка падения"

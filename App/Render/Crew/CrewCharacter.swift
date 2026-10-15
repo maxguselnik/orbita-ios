@@ -622,7 +622,7 @@ final class CrewCharacter {
         for (k, lift) in [(0, Float(3.0)), (1, Float(3.2))] {
             let r: Float = k == 0 ? 2.0 : 2.005
             guard let mesh = CrewMeshCache.mesh("glass\(k)", { Self.glassMesh(offset: lift / r) }) else { continue }
-            let m = k == 0 ? CrewMat(color: 0xeaf4ff, rough: 0, coat: 1, coatRough: 0, opacity: 0.1)
+            let m = k == 0 ? CrewMat(color: 0xeaf4ff, opacity: 0.03, unlit: true)
                 : CrewMat(color: 0xd8ecff, tex: "fresnel", unlit: true, alphaTex: true)
             let g = ModelEntity(mesh: mesh, materials: [a.material(m)])
             g.position = F3(0, 0.2, lift)
