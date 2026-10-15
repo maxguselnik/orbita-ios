@@ -15,13 +15,18 @@ xcrun simctl ui "$UDID" appearance dark
 xcrun simctl install "$UDID" "$APP"
 
 SCENES=(newGame spaceCenter research hangarEmpty hangar hangarBoosters flight tutorial tutorialLuna orbit map mapManeuver mapLuna systemMap vellaSurface ardaSurface tarosOrbit crewGallery reentry landed crash lunaSurface)
+if [ "$#" -gt 0 ]; then SCENES=("$@"); fi
 FAILED=0
 
 capture() {
   local scene="$1" delay="$2" started="$3" alive=1
   local file="$OUT/audit-$scene-${delay}s.png"
+  local captureStarted=$(date +%s)
   xcrun simctl io "$UDID" screenshot "$file"
-  if ! xcrun simctl spawn "$UDID" launchctl list | awk '$3 ~ /com\.maxguselnik\.orbita/ && $1 != "-" { found = 1 } END { exit !found }'; then
+  local captured=$(date +%s)
+  # Simulator запускает iOS-процесс на хосте. Не создаём дополнительный процесс
+  # внутри перегруженного симулятора только ради проверки PID.
+  if ! pgrep -x Orbita >/dev/null; then
     alive=0
     FAILED=1
     echo "::error::Audit $scene at ${delay}s: application is not running"
@@ -35,12 +40,13 @@ w, h = struct.unpack('>II', header[16:24])
 sys.exit(0 if w < h else 1)
 PY
   then sips -r 270 "$file" >/dev/null; fi
-  python3 - "$OUT/audit-captures.jsonl" "$scene" "$delay" "$started" "$alive" "$file" <<'PY'
+  python3 - "$OUT/audit-captures.jsonl" "$scene" "$delay" "$started" "$alive" "$file" "$captureStarted" "$captured" <<'PY'
 import json, os, struct, sys, time
-path, scene, delay, started, alive, image = sys.argv[1:]
+path, scene, delay, started, alive, image, capture_start, captured = sys.argv[1:]
 with open(image, 'rb') as f:
     w, h = struct.unpack('>II', f.read(24)[16:24])
 row = dict(scene=scene, nominal_delay_seconds=int(delay), elapsed_seconds=round(time.time()-float(started),2),
+           screenshot_command_start_seconds=int(capture_start)-int(started), screenshot_command_end_seconds=int(captured)-int(started),
            alive=bool(int(alive)), file=os.path.basename(image), width=w, height=h)
 with open(path, 'a') as f:
     f.write(json.dumps(row)+'\n')

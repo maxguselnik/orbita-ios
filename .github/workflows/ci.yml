@@ -73,6 +73,11 @@ jobs:
             scripts/ci-visual-audit.sh
             exit 0
           fi
+          if [[ "$PICK" == audit\ * ]]; then
+            read -r -a AUDIT_SCENES <<< "$PICK"
+            scripts/ci-visual-audit.sh "${AUDIT_SCENES[@]:1}"
+            exit 0
+          fi
           if [ "$PICK" = "worldflight" ]; then
             WORLD_GROUPS=new WORLD_MODES="map flight" scripts/ci-worlds.sh
             SCREENS_APP_INSTALLED=1 scripts/ci-screens.sh tarosOrbit systemMap flight
