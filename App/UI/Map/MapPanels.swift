@@ -494,7 +494,14 @@ enum ManeuverResultText {
             if apoapsis.isInfinite { return "Пролёт · Пе " + HUDFormat.distance(periapsis) + mark }
             return "Орбита " + kilometers(apoapsis) + " × " + kilometers(periapsis) + " км" + mark
         case .noEncounter(let body):
-            return body == .luna ? "Встречи с Луной нет" : "Возврата к Терре нет"
+            switch body {
+            case .luna: return "Встречи с Луной нет"
+            case .terra: return "Возврата к Терре нет"
+            case .vella: return "Встречи с Веллой нет"
+            case .arda: return "Встречи с Ардой нет"
+            case .taros: return "Встречи с Таросом нет"
+            case .sol: return "Встречи с Солом нет"
+            }
         case .impact(let body):
             return "Падение на " + MapText.accusative(body)
         }

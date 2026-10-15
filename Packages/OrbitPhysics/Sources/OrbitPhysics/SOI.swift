@@ -20,7 +20,8 @@ extension World {
         }
         guard !children.isEmpty else { return .none }
         let alpha = 2 / state.position.length - state.velocity.lengthSquared / mu
-        let rMin = el.timeToPeriapsis == nil ? state.position.length : el.periapsisRadius
+        // Ниже радиуса тела не опускаемся: падение завершает участок раньше `horizon`.
+        let rMin = max(el.timeToPeriapsis == nil ? state.position.length : el.periapsisRadius, Bodies.body(body).radius)
         let margin = 1_000_000.0
         var t = 0.0
         var st = state

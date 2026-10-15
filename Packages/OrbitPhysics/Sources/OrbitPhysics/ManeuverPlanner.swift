@@ -51,7 +51,8 @@ public enum ManeuverPlanner {
         let outbound = state.position.dot(state.velocity) > 0
         switch body {
         case .terra:
-            guard el.isClosed else { return [] }
+            // Апоцентр за SOI — уже уход к Сол (`classify` → `.escaping`), узлы там не строим.
+            guard el.isClosed, el.apoapsisRadius < b.soiRadius else { return [] }
             let apAlt = el.apoapsisRadius - b.radius
             if peAlt > b.atmosphereHeight {
                 var goals: [ManeuverGoal] = []
