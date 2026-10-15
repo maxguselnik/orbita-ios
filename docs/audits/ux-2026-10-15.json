@@ -1,0 +1,1077 @@
+{
+  "source_commit": "73f3f55a2d4b0a5b694579f53bc6f9418f5da90a",
+  "date": "2026-10-15",
+  "platform": "Linux x86_64",
+  "interactive_ios": false,
+  "tests_run": false,
+  "method": {
+    "engine": "Unmodified OrbitPhysics sources",
+    "app_logic": "GameFlow, lessons, ManeuverExecutor, FlightAdvisor copied with module imports and Observation macros removed; Documents and UserDefaults redirected to scratch.",
+    "ascent": "Built-in autopilot for baseline routes; perfect tracking of AscentGuide marker for first lesson.",
+    "lunar_ui_route": "ManeuverPlanner and ManeuverExecutor with HUD correction orchestration; manual instruction sequence after capture.",
+    "repeats": "One real jump mission record credited over ten restart cycles; not ten separately simulated flights.",
+    "native_screens": "Previously obtained Apple simulator captures; no current interactive capture."
+  },
+  "new_player": [
+    {
+      "event": "new_game",
+      "launchBlock": "В проекте нет деталей. Соберите корабль в цехе",
+      "parts": 0,
+      "science": 0
+    },
+    {
+      "event": "preset",
+      "locked": [],
+      "name": "Прыжок"
+    },
+    {
+      "event": "preset",
+      "locked": [
+        "t400",
+        "shtil",
+        "t800",
+        "vikhr"
+      ],
+      "name": "Орбита"
+    },
+    {
+      "event": "preset",
+      "locked": [
+        "heatShield",
+        "t800",
+        "legs",
+        "shtil",
+        "vikhr",
+        "decouplerXL",
+        "j64",
+        "titan"
+      ],
+      "name": "Луна"
+    },
+    {
+      "event": "preset",
+      "locked": [
+        "t800",
+        "decouplerRadial",
+        "fairing",
+        "fin",
+        "vikhr"
+      ],
+      "name": "Ускорители"
+    },
+    {
+      "altitude_m": 1696.4252441381104,
+      "apo_m": -1,
+      "body": "terra",
+      "event": "jump_result",
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "returnFromSpace"
+      ],
+      "peri_m": -1,
+      "situation": "landed",
+      "speed_m_s": 0,
+      "time_s": 409.89999999991716
+    },
+    {
+      "event": "first_reward",
+      "reached": [
+        "launch",
+        "above10km",
+        "space",
+        "returnFromSpace"
+      ],
+      "science": 24
+    },
+    {
+      "event": "after_rocketry",
+      "orbit_locked": [
+        "t800",
+        "vikhr"
+      ],
+      "science": 19
+    },
+    {
+      "event": "ten_repeat_rewards",
+      "science_after": 79,
+      "science_before": 19
+    },
+    {
+      "event": "orbit_ready",
+      "locked": [],
+      "science": 69
+    },
+    {
+      "event": "orbit_exit_credit",
+      "milestones": [
+        "above10km",
+        "launch",
+        "orbit",
+        "returnFromSpace",
+        "space"
+      ],
+      "science": 85
+    },
+    {
+      "design": "Орбита",
+      "event": "reload",
+      "science": 85,
+      "screen": "spaceCenter"
+    }
+  ],
+  "first_lesson": [
+    {
+      "altitude_m": 79345.50162770483,
+      "apo_m": 80474.13534654444,
+      "body": "terra",
+      "event": "first_lesson_complete",
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit"
+      ],
+      "peri_m": 72538.61429344455,
+      "situation": "orbiting",
+      "speed_m_s": 2077.6279998617024,
+      "time_s": 282.6608020851134
+    }
+  ],
+  "full_lunar_expedition": [
+    {
+      "altitude_m": 0,
+      "apo_m": -1,
+      "body": "terra",
+      "event": "assisted_result",
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit",
+        "lunaLanding",
+        "returnFromSpace"
+      ],
+      "peri_m": -1,
+      "situation": "splashed",
+      "speed_m_s": 0,
+      "time_s": 51530.92989677828
+    }
+  ],
+  "planet_departure_budgets": [
+    {
+      "design": "Орбита",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toLuna",
+      "outcome": "lunaPeriapsis(30028.95751058022)",
+      "planning_ms": 0.7582902908325195,
+      "remaining_dv": 1845.7347971211034,
+      "required_dv": 857.0966660679579,
+      "wait_days": 0.022222222222222223
+    },
+    {
+      "design": "Орбита",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toVella",
+      "outcome": "planetApproach(OrbitUX.BodyID.vella, distance: 285019789.1434145, correction: 146.5224708393517)",
+      "planning_ms": 27.82142162322998,
+      "remaining_dv": 1845.7347971211034,
+      "required_dv": 1020.0114357381608,
+      "wait_days": 71.78242856630193
+    },
+    {
+      "design": "Орбита",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toArda",
+      "outcome": "planetApproach(OrbitUX.BodyID.arda, distance: 6686191.19572816, correction: 2.6133159158056514)",
+      "planning_ms": 47.61695861816406,
+      "remaining_dv": 1845.7347971211034,
+      "required_dv": 1076.8246593006975,
+      "wait_days": 99.35665545127898
+    },
+    {
+      "design": "Орбита",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toTaros",
+      "outcome": "planetApproach(OrbitUX.BodyID.taros, distance: 1045392015.3761686, correction: 88.68621512720216)",
+      "planning_ms": 51.71525478363037,
+      "remaining_dv": 1845.7347971211034,
+      "required_dv": 1928.262104666303,
+      "wait_days": 52.74474206289009
+    },
+    {
+      "design": "Луна",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toLuna",
+      "outcome": "lunaPeriapsis(30017.72378012986)",
+      "planning_ms": 0.5447864532470703,
+      "remaining_dv": 4550.414557498941,
+      "required_dv": 857.2722071622165,
+      "wait_days": 0.000925925925925926
+    },
+    {
+      "design": "Луна",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toVella",
+      "outcome": "planetApproach(OrbitUX.BodyID.vella, distance: 284652424.0560815, correction: 146.31146730911797)",
+      "planning_ms": 27.63807773590088,
+      "remaining_dv": 4550.414557498941,
+      "required_dv": 1020.3646927734217,
+      "wait_days": 71.78912767488913
+    },
+    {
+      "design": "Луна",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toArda",
+      "outcome": "planetApproach(OrbitUX.BodyID.arda, distance: 11033001.353380535, correction: 4.266370311595652)",
+      "planning_ms": 47.7372407913208,
+      "remaining_dv": 4550.414557498941,
+      "required_dv": 1074.6996401071046,
+      "wait_days": 99.35743070258154
+    },
+    {
+      "design": "Луна",
+      "event": "plan_budget",
+      "geometry_good": true,
+      "goal": "toTaros",
+      "outcome": "planetApproach(OrbitUX.BodyID.taros, distance: 1046875170.9953551, correction: 88.69917176072403)",
+      "planning_ms": 46.67866230010986,
+      "remaining_dv": 4550.414557498941,
+      "required_dv": 1928.2529337785113,
+      "wait_days": 52.73397430249234
+    }
+  ],
+  "lunar_instruction_route": [
+    {
+      "altitude_m": 2228967.039243779,
+      "apo_m": -1,
+      "body": "luna",
+      "event": "ui_luna_arrival",
+      "max_thrust": 215000,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI"
+      ],
+      "next_stage": "separate",
+      "peri_m": 41746.11563062371,
+      "pitch": -85.57680320899647,
+      "situation": "escaping",
+      "speed_m_s": 343.2071362965534,
+      "stages": [
+        {
+          "dv": 408.6604931782124,
+          "fuel_fraction": 0.15629546596278848
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 21303.020374964744,
+      "vertical_speed": -334.39139953802294
+    },
+    {
+      "altitude_m": 41761.43534069971,
+      "apo_m": 41826.00209226261,
+      "body": "luna",
+      "event": "ui_landing_brake_start",
+      "max_thrust": 215000,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": 41685.73195545349,
+      "pitch": -0.014416890016769242,
+      "situation": "orbiting",
+      "speed_m_s": 519.0613544290973,
+      "stages": [
+        {
+          "dv": 151.16522598753315,
+          "fuel_fraction": 0.05545657321091243
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27396.80444784494,
+      "vertical_speed": 0.15010798389074864
+    },
+    {
+      "altitude_m": 41761.44918118624,
+      "apo_m": 41762.58157888343,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 215000,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": 37548.288889651536,
+      "pitch": -0.014270070957323638,
+      "situation": "orbiting",
+      "speed_m_s": 516.7815874482119,
+      "stages": [
+        {
+          "dv": 148.88532318146204,
+          "fuel_fraction": 0.05460017092266926
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 215000,
+      "time_s": 27396.904447844943,
+      "vertical_speed": 0.14894982527727052
+    },
+    {
+      "altitude_m": 41162.13257468084,
+      "apo_m": 41760.07740491326,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.76975187243,
+      "pitch": 3.9994848117509987,
+      "situation": "suborbital",
+      "speed_m_s": 369.72133647242384,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27446.904447846035,
+      "vertical_speed": -25.768689823588772
+    },
+    {
+      "altitude_m": 39176.66966637553,
+      "apo_m": 41759.49595909499,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.70432217125,
+      "pitch": 8.214246397923805,
+      "situation": "suborbital",
+      "speed_m_s": 375.7360229550458,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27496.904447847126,
+      "vertical_speed": -53.664803144495494
+    },
+    {
+      "altitude_m": 35789.43915226412,
+      "apo_m": 41758.868300183676,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.63369167081,
+      "pitch": 12.247225505397745,
+      "situation": "suborbital",
+      "speed_m_s": 386.0071661351701,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27546.904447848217,
+      "vertical_speed": -81.86524150908382
+    },
+    {
+      "altitude_m": 30981.268587799656,
+      "apo_m": 41758.16453830592,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.55449671613,
+      "pitch": 16.017671443804797,
+      "situation": "suborbital",
+      "speed_m_s": 400.62694876956823,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27596.90444784931,
+      "vertical_speed": -110.52773241452095
+    },
+    {
+      "altitude_m": 24725.168292991963,
+      "apo_m": 41757.346215535246,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.4624093462,
+      "pitch": 19.457290769242114,
+      "situation": "suborbital",
+      "speed_m_s": 419.7648033350832,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27646.9044478504,
+      "vertical_speed": -139.8062333351917
+    },
+    {
+      "altitude_m": 16986.72237259586,
+      "apo_m": 41756.36088615199,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.35152730967,
+      "pitch": 22.508643501876545,
+      "situation": "suborbital",
+      "speed_m_s": 443.706902415838,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27696.90444785149,
+      "vertical_speed": -169.841383375106
+    },
+    {
+      "altitude_m": 7725.236020801909,
+      "apo_m": 41755.13363011394,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.21341886067,
+      "pitch": 25.120229070984934,
+      "situation": "suborbital",
+      "speed_m_s": 472.90894556955493,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27746.904447852583,
+      "vertical_speed": -200.7382173581278
+    },
+    {
+      "altitude_m": 2154.288346208603,
+      "apo_m": -1,
+      "body": "luna",
+      "event": "ui_brake_progress",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "none",
+      "peri_m": -1,
+      "pitch": 26.313986956022347,
+      "situation": "crashed",
+      "speed_m_s": 0,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27773.604447853166,
+      "vertical_speed": 0
+    },
+    {
+      "event": "ui_brake_crash",
+      "speed": 490.84349173114714
+    },
+    {
+      "altitude_m": 2154.288346208603,
+      "apo_m": -1,
+      "body": "luna",
+      "event": "ui_landing_land_step",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "none",
+      "peri_m": -1,
+      "pitch": 26.313986956022347,
+      "situation": "crashed",
+      "speed_m_s": 0,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27773.604447853166,
+      "vertical_speed": 0
+    }
+  ],
+  "performance_limit": "No device FPS measured. CPU-only timing results are diagnostic, not evidence of touchscreen or RealityKit performance.",
+  "planet_departure_execution": [
+    {
+      "altitude_m": 79337.55184134631,
+      "apo_m": 79356.67587338341,
+      "body": "terra",
+      "corrections": 0,
+      "event": "ui_burn_phase",
+      "goal": "toTaros",
+      "max_thrust": 60000.00000000001,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": 74242.59563929087,
+      "phase": "warping",
+      "pitch": 1.2149881003392273,
+      "situation": "orbiting",
+      "speed_m_s": 2078.152288086631,
+      "stages": [
+        {
+          "dv": 1845.7347971211034,
+          "fuel_fraction": 0.6312252576282146
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 289.0000000000031,
+      "vertical_speed": -1.0496150104947901
+    },
+    {
+      "altitude_m": 79342.87640789163,
+      "apo_m": 79355.53517680173,
+      "body": "terra",
+      "corrections": 0,
+      "event": "ui_burn_phase",
+      "goal": "toTaros",
+      "max_thrust": 60000.00000000001,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": 74243.71920913039,
+      "phase": "burning",
+      "pitch": -7.058130278711238,
+      "situation": "orbiting",
+      "speed_m_s": 2078.132812726966,
+      "stages": [
+        {
+          "dv": 1845.7347971211034,
+          "fuel_fraction": 0.6312252576282146
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 4557397.967444981,
+      "vertical_speed": 0.8543023660673725
+    },
+    {
+      "altitude_m": 88805.17209947889,
+      "apo_m": -1,
+      "body": "terra",
+      "corrections": 0,
+      "event": "ui_burn_phase",
+      "goal": "toTaros",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit"
+      ],
+      "next_stage": "armChute",
+      "peri_m": 79337.25889498077,
+      "phase": "stopped",
+      "pitch": 11.567047448953836,
+      "situation": "escaping",
+      "speed_m_s": 3901.745533697043,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 4557469.267443388,
+      "vertical_speed": 565.6453423803061
+    },
+    {
+      "error": "Не хватает топлива",
+      "event": "ui_burn_failed"
+    }
+  ],
+  "arda_expedition": [
+    {
+      "dv": 17.8048960481703,
+      "event": "ui_correction",
+      "wait_s": 2737830.887459282
+    },
+    {
+      "dv": 1.257268263835703,
+      "event": "ui_correction",
+      "wait_s": 2613920.498307027
+    },
+    {
+      "altitude_m": 47613926.73015267,
+      "apo_m": -1,
+      "body": "arda",
+      "event": "ui_maneuver_complete",
+      "max_thrust": 215000,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "ardaSOI"
+      ],
+      "next_stage": "separate",
+      "peri_m": 79731.17572208156,
+      "pitch": 0.6557510702197766,
+      "situation": "escaping",
+      "speed_m_s": 4699.510154446267,
+      "stages": [
+        {
+          "dv": 173.04151911725708,
+          "fuel_fraction": 0.0637056930376347
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 10750,
+      "time_s": 13936511.960254535,
+      "vertical_speed": -1079.963305845592
+    },
+    {
+      "altitude_m": 47613926.73015267,
+      "apo_m": -1,
+      "body": "arda",
+      "event": "planet_transfer_end",
+      "max_thrust": 215000,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "ardaSOI"
+      ],
+      "next_stage": "separate",
+      "peri_m": 79731.17572208156,
+      "pitch": 0.6557510702197766,
+      "situation": "escaping",
+      "speed_m_s": 4699.510154446267,
+      "stages": [
+        {
+          "dv": 173.04151911725708,
+          "fuel_fraction": 0.0637056930376347
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 10750,
+      "time_s": 13936511.960254535,
+      "vertical_speed": -1079.963305845592
+    },
+    {
+      "altitude_m": 81285.60804046754,
+      "apo_m": 92126.36756514612,
+      "body": "arda",
+      "event": "ui_maneuver_complete",
+      "max_thrust": 60000.00000000001,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "ardaSOI",
+        "ardaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": 69364.81027106335,
+      "pitch": -8.639999448902065,
+      "situation": "orbiting",
+      "speed_m_s": 827.6687451022307,
+      "stages": [
+        {
+          "dv": 2693.4851384228614,
+          "fuel_fraction": 0.7423135365471001
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 3000.0000000000005,
+      "time_s": 13980218.418770807,
+      "vertical_speed": 24.566164727231477
+    }
+  ],
+  "lunar_stage_recovery": [
+    {
+      "altitude_m": 41758.34910717991,
+      "apo_m": 41760.56630299604,
+      "body": "luna",
+      "event": "ui_landing_manual_stage",
+      "max_thrust": 0,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -118900.82476691506,
+      "pitch": 0.24718985009372588,
+      "situation": "suborbital",
+      "speed_m_s": 367.9160000970973,
+      "stages": [
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 3283.59026284399,
+          "fuel_fraction": 1
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 0,
+      "time_s": 27403.304447845083,
+      "vertical_speed": -1.5681895985653682
+    },
+    {
+      "altitude_m": 41520.538747467275,
+      "apo_m": 41594.363102882315,
+      "body": "luna",
+      "event": "ui_landing_land_step",
+      "max_thrust": 60000.00000000001,
+      "milestones": [
+        "launch",
+        "above10km",
+        "space",
+        "orbit",
+        "lunaSOI",
+        "lunaOrbit"
+      ],
+      "next_stage": "separate",
+      "peri_m": -195564.13397954588,
+      "pitch": 7.290267381777424,
+      "situation": "suborbital",
+      "speed_m_s": 99.43386035149055,
+      "stages": [
+        {
+          "dv": 3014.133085890519,
+          "fuel_fraction": 0.876747344692302
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        },
+        {
+          "dv": 0,
+          "fuel_fraction": 0
+        }
+      ],
+      "thrust": 60000.00000000001,
+      "time_s": 27431.10444784569,
+      "vertical_speed": -12.604785931083558
+    }
+  ]
+}
