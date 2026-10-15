@@ -144,11 +144,16 @@ enum BackdropTextures {
                 g -= 0.16 * seam
                 var c = SIMD3<Double>(g, g * 0.99, g * 0.96)
                 // Закопчённая зона у центра.
-                c *= 1 - 0.55 * (1 - smooth(1.5, 9, r)) * (0.6 + 0.8 * noise(x / 1.5, y / 1.5, 13))
+                let soot: Double = 1 - smooth(1.5, 9, r)
+                let sootNoise: Double = 0.6 + 0.8 * noise(x / 1.5, y / 1.5, 13)
+                let darken: Double = 1 - 0.55 * soot * sootNoise
+                c *= darken
                 // Кольцо вокруг стартового стола и крест.
                 let ring = 1 - smooth(0.06, 0.16, abs(r - 5.2))
                 c = mix(c, [0.92, 0.92, 0.88], ring * 0.9)
-                let cross = (1 - smooth(0.05, 0.12, min(abs(x), abs(y)))) * (smooth(5.6, 5.9, r)) * (1 - smooth(7.3, 7.6, r))
+                let crossLine: Double = 1 - smooth(0.05, 0.12, min(abs(x), abs(y)))
+                let crossBand: Double = smooth(5.6, 5.9, r) * (1 - smooth(7.3, 7.6, r))
+                let cross = crossLine * crossBand
                 c = mix(c, [0.92, 0.92, 0.88], cross * 0.9)
                 // Жёлто-чёрные полосы по периметру.
                 let edge = half - max(abs(x), abs(y))

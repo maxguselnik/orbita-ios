@@ -377,6 +377,15 @@ final class HangarModel {
         }
     }
 
+    /// Посадить члена экипажа (nil — освободить) на место кабины; шаг отмены и автосохранение — как у прочих правок.
+    func setSeat(partID: Int, index: Int, memberID: String?) {
+        var d = design
+        d.setSeat(partID: partID, index: index, memberID: memberID)
+        guard d != design else { return }
+        commit(d)
+        feedback(.tap)
+    }
+
     func resetStaging() {
         var d = design
         VesselEditing.resetStaging(in: &d)

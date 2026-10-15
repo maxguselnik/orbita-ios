@@ -96,6 +96,26 @@ final class FlightHUDModel {
     @ObservationIgnored private var lastDragSend: TimeInterval = 0
     /// «К узлу» имеет смысл: узел есть и до прожига больше `ManeuverStatus.warpLead`. Меняется редко.
     private(set) var canWarpToManeuver = false
+    /// Режим «Эксперт» карты: ручки Δv, панель узла, тап по орбите. В уроках всегда выключен.
+    private(set) var mapExpert = false
+    /// Цель, по которой поставлен узел (простая карта); сбрасывается удалением узла и правкой в «Эксперт».
+    private(set) var maneuverGoal: ManeuverGoal?
+    /// Цели, доступные сейчас (обновляются не чаще 4 Гц, пока открыта карта).
+    private(set) var availableGoals: [ManeuverGoal] = []
+    /// Строка фазы автопрожига («Летим к узлу 31:41»); nil — автопрожиг не идёт. Меняется раз в секунду.
+    private(set) var autoBurnText: String?
+    var isAutoBurning: Bool { autoBurnText != nil }
+    /// Автопрожиг (nil — не идёт).
+    @ObservationIgnored private var executor: ManeuverExecutor?
+    /// Тяга, которую записал автопрожиг: любое другое значение — рука игрока.
+    @ObservationIgnored private var autoThrottle = 0.0
+    /// Коррекций подряд после прожига цели (`ManeuverPlanner.correction`), не больше `maxCorrections`.
+    @ObservationIgnored private var corrections = 0
+    private static let maxCorrections = 2
+    @ObservationIgnored private var lastGoalsRefresh = -Double.infinity
+    static let mapExpertKey = "mapExpert"
+    /// Период обновления списка целей, с (4 Гц).
+    static let goalsInterval = 0.25
 
     /// Кнопки ориентации: время нажатия (секунды часов кадра); пишутся жестами, читаются в `tick`, перерисовки не вызывают.
     @ObservationIgnored private var attitudeHeld: [AttitudeButton: TimeInterval] = [:]
@@ -149,15 +169,21 @@ final class FlightHUDModel {
     }
 
     /// Интерактивный урок (nil — обычный полёт). Пока он держит физику на паузе, `tick` принимает ввод, но не двигает мир.
-    /// Меняется, когда тур «Все кнопки» запускают из меню паузы поверх текущего полёта.
     private(set) var tutorial: TutorialController?
-    /// Меню ускорения времени открывалось (счётчик для шага «попробуйте»); перерисовки не вызывает.
+    /// Меню ускорения времени открывалось (счётчик); перерисовки не вызывает.
     @ObservationIgnored private var warpMenuCount = 0
+    /// Подсказка кнопки по долгому нажатию (одна строка на `ControlHint.duration` с); nil — нет.
+    private(set) var controlHint: ControlHintLine?
+    @ObservationIgnored private var controlHintExpiry: TimeInterval = 0
+    @ObservationIgnored private var controlHintCounter = 0
+    @ObservationIgnored private var lastFrameTime: TimeInterval?
     /// Скорость последнего касания поверхности, м/с (итог и ошибка урока «К Луне»).
     @ObservationIgnored private var touchdownSpeed: Double?
 
     @ObservationIgnored private var sim: any FlightSimulation
     private let makeSimulation: () -> any FlightSimulation
+    /// Экипаж полёта (5.4): портреты HUD и реакции.
+    let crew: CrewModel
     @ObservationIgnored private var lastTick: TimeInterval?
     @ObservationIgnored private var advisor = FlightAdvisor()
     @ObservationIgnored private var toastExpiry: TimeInterval = 0
@@ -167,8 +193,9 @@ final class FlightHUDModel {
     @ObservationIgnored private var cameraPending = false
 
     /// `scenario` — сцена отладки/CI: сцены карты открывают карту сразу.
+    /// `crew` — экипаж полёта; nil — по местам кабин корабля.
     init(makeSimulation: @escaping () -> any FlightSimulation = { MockFlight() }, scenario: DemoScenario? = nil,
-         tutorial: TutorialID? = nil) {
+         tutorial: TutorialID? = nil, crew: [CrewMember]? = nil) {
         self.makeSimulation = makeSimulation
         self.tutorial = tutorial.map { TutorialController(id: $0) }
         self.map = MapModel()
@@ -188,27 +215,38 @@ final class FlightHUDModel {
         self.missionActive = t.body == .terra && t.situation == .prelaunch
         self.altimeterOverTerrain = AltimeterMode.overTerrain(previous: false, t)
         self.parts = Self.activeParts(snapshot)
+        self.crew = CrewModel(crew: crew ?? CrewModel.crew(forParts: Self.activeParts(snapshot)),
+                              override: scenario?.crewOverride)
         self.maneuverNode = t.maneuver?.node
         self.canWarpToManeuver = Self.canWarp(t)
         self.throttle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? 0
         self.totalStages = t.stages.count
+        self.mapExpert = tutorial == nil && UserDefaults.standard.bool(forKey: Self.mapExpertKey)
         if let scenario, scenario.opensMap {
             map.focus = scenario.mapFocus
             map.isOpen = true
         }
+        if scenario == .mapManeuver, maneuverNode != nil { maneuverGoal = .toLuna }
+        refreshGoals(now: 0)
         saveTutorialCheckpoint()
     }
 
     /// Один кадр игрового цикла; `now` — время кадра в секундах (CACurrentMediaTime).
     func tick(now: TimeInterval) {
+        lastFrameTime = now
         if toast != nil, now >= toastExpiry {
             self.toast = nil
+        }
+        if controlHint != nil, now >= controlHintExpiry {
+            controlHint = nil
         }
         flushCamera()
         guard !isPaused else { lastTick = nil; return }
         // Длинные паузы (фон, отладчик) не превращаем в скачок симуляции.
         let delta = lastTick.map { min(max(now - $0, 0), 0.1) } ?? 0
         lastTick = now
+        if !(tutorial?.holdsPhysics ?? false) { stepExecutor() }
+        refreshGoals(now: now)
         let tilt = feedback?.tiltInput() ?? (pitch: 0, roll: 0)
         let axes = attitudeAxes(now: now)
         sim.setInput(ControlInput(
@@ -230,7 +268,10 @@ final class FlightHUDModel {
         let events = sim.advance(realDelta: delta)
         noteTouchdown(events)
         publish(sim.snapshot)
+        // Что осталось в ручке после кадра, то и считается «своим»: изменение между кадрами — рука игрока.
+        if executor != nil { autoThrottle = throttle }
         feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
+        feedback?.crew(crew.update(telemetry: snapshot.telemetry, events: events, dt: delta))
         map.update(sim: sim, now: now)
         advise(events: events, now: now)
         if let message = events.compactMap(Self.message(for:)).last {
@@ -260,6 +301,7 @@ final class FlightHUDModel {
         let dpad: [AttitudeButton] = [.pitchUp, .pitchDown, .yawLeft, .yawRight]
         input.dpadHeld = dpad.contains { attitudeHeld[$0] != nil }
         input.mapOpen = map.isOpen
+        input.autoBurn = executor != nil
         input.warpMenuCount = warpMenuCount
         input.time = snapshot.time
         input.touchdownSpeed = touchdownSpeed
@@ -278,11 +320,14 @@ final class FlightHUDModel {
     /// Элементы, которых сейчас нет на экране: шаги тура про них пропускаются.
     private func lessonUnavailable() -> Set<LessonElement> {
         var out: Set<LessonElement> = []
-        if !CrewPlaceholder.hasCabin(parts) { out.insert(.crew) }
+        if crew.isEmpty { out.insert(.crew) }
         if !rcs.available { out.insert(.rcs) }
         if !missionActive { out.insert(.mission) }
         if telemetry.stages.isEmpty { out.insert(.stageStack) }
-        if maneuverNode == nil { out.formUnion([.mapHandle, .mapPanel, .mapToNode, .mapNode]) }
+        if maneuverNode == nil { out.formUnion([.mapHandle, .mapPanel, .mapToNode, .mapNode, .mapExecute]) }
+        if availableGoals.isEmpty { out.insert(.mapGoals) }
+        // Ручки, «К узлу» и тап по орбите — только в «Эксперт».
+        if !mapExpert { out.formUnion([.mapHandle, .mapToNode, .mapNode]) }
         return out
     }
 
@@ -307,15 +352,11 @@ final class FlightHUDModel {
         feedback?.setPaused(tutorial.holdsPhysics || isPaused)
     }
 
-    /// Тур «Все кнопки» поверх текущего полёта (из меню паузы): без смены корабля и без перезапуска.
-    func startTour() {
-        tutorial?.exit()
-        let tour = TutorialController(id: .controls, telemetry: telemetry)
-        tutorial = tour
-        saveTutorialCheckpoint()
-        isPaused = false
-        lastTick = nil
-        feedback?.setPaused(tour.holdsPhysics)
+    /// Подсказка кнопки по долгому нажатию: одна строка на 3 с.
+    func showControlHint(_ text: String) {
+        controlHintCounter += 1
+        controlHint = ControlHintLine(id: controlHintCounter, text: text)
+        controlHintExpiry = (lastFrameTime ?? CACurrentMediaTime()) + ControlHint.duration
     }
 
     /// Меню ускорения времени открыто (шаг «Время и ускорение» засчитывается).
@@ -340,6 +381,8 @@ final class FlightHUDModel {
             return
         }
         checkpointing.restore(saved.sim)
+        executor = nil
+        autoBurnText = nil
         throttle = saved.throttle
         resetAttitudeInput()
         fineControl = false
@@ -402,12 +445,16 @@ final class FlightHUDModel {
 
     /// Перезапуск полёта.
     func restart() {
+        executor = nil
+        autoBurnText = nil
+        maneuverGoal = nil
         dragDraft = nil
         dragDirty = false
         sim = makeSimulation()
         let fresh = sim.snapshot.telemetry
         missionActive = fresh.body == .terra && fresh.situation == .prelaunch
         missionProgress = 0
+        crew.reset()
         publish(sim.snapshot)
         resetAttitudeInput()
         fineControl = false
@@ -521,15 +568,16 @@ final class FlightHUDModel {
         resetTranslationInput()
         isPanelOpen = false
         map.isOpen.toggle()
+        lastGoalsRefresh = -.infinity
     }
 
     func setMapFocus(_ focus: MapFocus) {
         map.focus = focus
     }
 
-    /// Тап по карте: по орбите — поставить узел или перенести существующий в эту точку.
+    /// Тап по карте: по орбите — поставить узел или перенести существующий в эту точку. Только в «Эксперт».
     func mapTap(at point: CGPoint) {
-        guard map.isOpen, let time = map.orbitPick(at: point) else { return }
+        guard map.isOpen, mapExpert, let time = map.orbitPick(at: point) else { return }
         placeManeuver(at: time)
     }
 
@@ -538,6 +586,7 @@ final class FlightHUDModel {
         let t = max(time, snapshot.time + Self.minNodeLead)
         var node = telemetry.maneuver?.node ?? ManeuverNode(time: t)
         node.time = t
+        editedByExpert()
         send(.setManeuver(node))
     }
 
@@ -545,6 +594,7 @@ final class FlightHUDModel {
     func adjustManeuver(_ axis: ManeuverAxis, by deltaV: Double) {
         guard var node = telemetry.maneuver?.node, deltaV.isFinite, deltaV != 0 else { return }
         axis.add(deltaV, to: &node)
+        editedByExpert()
         send(.setManeuver(node))
     }
 
@@ -552,6 +602,7 @@ final class FlightHUDModel {
     func shiftManeuver(by seconds: Double) {
         guard var node = telemetry.maneuver?.node else { return }
         node.time = max(node.time + seconds, snapshot.time + Self.minNodeLead)
+        editedByExpert()
         send(.setManeuver(node))
     }
 
@@ -559,6 +610,8 @@ final class FlightHUDModel {
         dragDraft = nil
         dragDirty = false
         maneuverDrag = nil
+        cancelExecutor(zeroThrottle: true)
+        maneuverGoal = nil
         send(.setManeuver(nil))
     }
 
@@ -569,6 +622,149 @@ final class FlightHUDModel {
             return
         }
         send(.warpToManeuver)
+    }
+
+    // MARK: - Простая карта
+
+    /// Переключатель «Эксперт» / «Просто»; в уроках режим «Эксперт» недоступен. Выбор запоминается.
+    func setMapExpert(_ on: Bool) {
+        let value = on && tutorial?.isActive != true
+        guard value != mapExpert else { return }
+        mapExpert = value
+        maneuverDrag = nil
+        cancelExecutor(zeroThrottle: true)
+        if tutorial?.isActive != true { UserDefaults.standard.set(value, forKey: Self.mapExpertKey) }
+    }
+
+    /// Узел по цели: планировщик ставит его сам. nil от планировщика — тост «Сейчас не получится».
+    func planManeuver(_ goal: ManeuverGoal) {
+        guard let vessel = activeVesselState,
+              let node = ManeuverPlanner.plan(goal, body: vessel.body,
+                                              state: StateVector(position: vessel.position, velocity: vessel.velocity),
+                                              time: snapshot.time) else {
+            notify("Сейчас не получится")
+            return
+        }
+        dragDraft = nil
+        dragDirty = false
+        maneuverDrag = nil
+        cancelExecutor(zeroThrottle: true)
+        maneuverGoal = goal
+        send(.setManeuver(node))
+    }
+
+    /// Прогрейд узла ± шаг кнопок «−/+» (`ManeuverPlanner.fineStep`), цель сохраняется.
+    func nudgeManeuver(by direction: Double) {
+        guard direction != 0, var node = telemetry.maneuver?.node else { return }
+        node.prograde += (direction < 0 ? -1 : 1) * ManeuverPlanner.fineStep(maneuverGoal)
+        send(.setManeuver(node))
+    }
+
+    /// Правка в «Эксперт» уводит узел от цели.
+    private func editedByExpert() {
+        maneuverGoal = nil
+    }
+
+    private var activeVesselState: VesselState? {
+        snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })
+    }
+
+    /// Список целей: не чаще 4 Гц и только на открытой карте.
+    private func refreshGoals(now: TimeInterval) {
+        guard map.isOpen else { lastGoalsRefresh = -.infinity; return }
+        guard now - lastGoalsRefresh >= Self.goalsInterval else { return }
+        lastGoalsRefresh = now
+        let goals: [ManeuverGoal]
+        if let vessel = activeVesselState {
+            goals = ManeuverPlanner.availableGoals(body: vessel.body,
+                                                   state: StateVector(position: vessel.position, velocity: vessel.velocity),
+                                                   time: snapshot.time)
+        } else {
+            goals = []
+        }
+        if goals != availableGoals { availableGoals = goals }
+    }
+
+    // MARK: - Автопрожиг
+
+    /// «Выполнить манёвр»: SAS по узлу, ускорение до узла, разворот, прожиг по остатку Δv.
+    func executeManeuver() {
+        guard executor == nil, let status = telemetry.maneuver, !status.isDone else { return }
+        executor = ManeuverExecutor()
+        autoThrottle = throttle
+        corrections = 0
+        stepExecutor()
+    }
+
+    /// «Стоп»: автопрожиг отменён, тяга 0, SAS держит ориентацию, ускорение ×1.
+    func stopManeuver() {
+        guard executor != nil else { return }
+        cancelExecutor(zeroThrottle: true)
+        if telemetry.warpIndex > 0 { send(.setWarp(index: 0)) }
+        if sas == .maneuver { send(.setSAS(.hold)) }
+        notify("Автопрожиг остановлен")
+    }
+
+    /// Автопрожиг сброшен без команд кораблю; `zeroThrottle` — тягу гасим (иначе она у игрока).
+    private func cancelExecutor(zeroThrottle: Bool) {
+        guard executor != nil else { return }
+        executor = nil
+        autoBurnText = nil
+        if zeroThrottle { throttle = 0 }
+    }
+
+    /// Шаг автопрожига перед `setInput`: рука игрока отменяет, иначе выполняем вывод.
+    private func stepExecutor() {
+        guard var current = executor else { return }
+        if !attitudeHeld.isEmpty || abs(throttle - autoThrottle) > 1e-6 {
+            // Игрок взял управление: тяга и ориентация теперь его.
+            executor = nil
+            autoBurnText = nil
+            notify("Автопрожиг отменён")
+            return
+        }
+        let mass = activeVesselState?.mass ?? 1
+        let out = current.step(telemetry, mass: mass)
+        // Удаление выполненного узла сбрасывает цель в `publish` — для коррекции запоминаем её заранее.
+        let goal = maneuverGoal
+        for command in out.commands { send(command) }
+        throttle = out.throttle
+        autoThrottle = out.throttle
+        if out.finished {
+            executor = nil
+            autoBurnText = nil
+            if out.phase == .done {
+                // Прожиг на конечной тяге неточен, а Пе у Луны/Терры чувствителен: доводим маленьким узлом.
+                if let goal, startCorrection(goal) {
+                    notify("Коррекция курса")
+                    return
+                }
+                maneuverGoal = nil
+            }
+        } else {
+            executor = current
+            let status = ManeuverExecutor.statusText(out.phase, telemetry)
+            let text = corrections > 0 ? "Коррекция · " + status : status
+            if autoBurnText != text { autoBurnText = text }
+        }
+        if let error = out.error { notify(error) }
+        if let toast = out.toast { notify(toast) }
+    }
+
+    /// Узел коррекции для цели `maneuverGoal` после прожига; true — поставлен и автопрожиг продолжается.
+    private func startCorrection(_ goal: ManeuverGoal) -> Bool {
+        guard goal == .toLuna || goal == .returnHome,
+              corrections < Self.maxCorrections, let vessel = activeVesselState,
+              let node = ManeuverPlanner.correction(goal, body: vessel.body,
+                                                    state: StateVector(position: vessel.position, velocity: vessel.velocity),
+                                                    time: snapshot.time)
+        else { return false }
+        corrections += 1
+        send(.setManeuver(node))
+        maneuverGoal = goal
+        executor = ManeuverExecutor()
+        autoBurnText = "Коррекция курса"
+        return true
     }
 
     /// Ближайший допустимый момент узла от текущего времени, с.
@@ -586,9 +782,11 @@ final class FlightHUDModel {
             drag.start = now
             maneuverDrag = drag
         }
-        let rate = ManeuverDrag.rate(offset: drag.offset, held: now - start)
+        let rate = ManeuverDrag.rate(offset: drag.offset, held: now - start) * drag.scale
         let deltaV = rate * drag.handle.sign * delta
         guard deltaV != 0, deltaV.isFinite else { return }
+        // Ручки карты — «Эксперт» (уводят от цели); ползунок «Подправить» цель сохраняет.
+        if !drag.fromJog { editedByExpert() }
         drag.handle.axis.add(deltaV, to: &node)
         dragDraft = node
         if now - lastDragSend >= MapModel.editInterval {
@@ -643,6 +841,7 @@ final class FlightHUDModel {
         if parts != shipParts { parts = shipParts }
         let node = t.maneuver?.node
         if maneuverNode != node { maneuverNode = node }
+        if node == nil, maneuverGoal != nil { maneuverGoal = nil }
         let canWarp = Self.canWarp(t)
         if canWarpToManeuver != canWarp { canWarpToManeuver = canWarp }
     }

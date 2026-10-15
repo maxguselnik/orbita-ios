@@ -1,0 +1,974 @@
+<title>Орбита — живой экипаж</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Тёмный пульт игры: сетка карточек-портретов, как HUD «Орбиты». Одна тема — как в самой игре. */
+:root {
+  --bg: #0a0e16; --panel: #121825; --stroke: #2a3446; --stroke-hi: #4a5670;
+  --text: #e8eef5; --muted: #8c98aa; --green: #7ce38b; --accent: #f2a03d; --sas: #3ec6f0; --red: #ff6b5b;
+  --f-display: "Rubik", system-ui, sans-serif; --f-mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { background: var(--bg); color: var(--text); }
+body { font-family: var(--f-display); font-size: 15px; line-height: 1.5; padding-inline: 16px; padding-block: 24px 64px; }
+.wrap { max-width: 1120px; margin: 0 auto; display: flex; flex-direction: column; gap: 40px; }
+h1 { font-size: 30px; font-weight: 700; margin: 0; text-wrap: balance; }
+h2 { font-size: 20px; font-weight: 500; margin: 0 0 6px; text-wrap: balance; }
+p { margin: 0; max-width: 68ch; color: var(--muted); }
+.lead { color: var(--text); }
+.eyebrow { font-family: var(--f-mono); font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+section { display: flex; flex-direction: column; gap: 14px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--stroke); border-radius: 999px; padding: 5px 12px; cursor: pointer; }
+.chip[aria-pressed="true"] { border-color: var(--green); color: var(--green); }
+.chip:focus-visible, input:focus-visible { outline: 2px solid var(--sas); outline-offset: 2px; }
+
+/* Полоса HUD в натуральную величину */
+.hud { position: relative; border: 1px solid var(--stroke); border-radius: 14px; overflow: hidden; aspect-ratio: 852 / 393; max-width: 100%;
+  background: linear-gradient(180deg, #050812 0%, #0c1830 55%, #2a4a78 100%); }
+.hud .strip { position: absolute; top: 8px; right: 92px; display: flex; gap: 3px; }
+.hud .corner { position: absolute; top: 8px; right: 8px; display: flex; gap: 4px; }
+.hud .corner span { width: 36px; height: 36px; border-radius: 8px; background: rgba(12,16,24,.85); border: 1px solid var(--stroke); }
+.hud .alt { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font-family: var(--f-mono); font-size: 13px; padding: 4px 12px; border-radius: 8px; background: rgba(12,16,24,.85); border: 1px solid var(--stroke); }
+.hud .cap { position: absolute; left: 12px; bottom: 10px; font-size: 12px; color: var(--muted); }
+.hudwrap { overflow-x: auto; }
+.hudwrap .hud { min-width: 640px; }
+.view { display: block; border-radius: 7px; background: #101521; }
+#gl { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 5; }
+
+/* Матрица */
+.matrix { overflow-x: auto; }
+table { border-collapse: separate; border-spacing: 8px; }
+th { font-weight: 500; font-size: 13px; color: var(--muted); text-align: left; vertical-align: bottom; }
+th.row { vertical-align: middle; width: 132px; }
+th.row b { display: block; color: var(--text); font-size: 15px; }
+th.row small { display: block; font-family: var(--f-mono); font-size: 11px; color: var(--muted); }
+td { padding: 0; }
+td .view { width: 112px; height: 130px; }
+
+/* Характер */
+.lab { display: grid; grid-template-columns: 220px 1fr; gap: 24px; align-items: start; }
+.lab .big .view { width: 220px; height: 255px; }
+.lab .controls { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.slider { display: grid; grid-template-columns: 110px 1fr 44px; gap: 10px; align-items: center; }
+.slider label { font-size: 14px; }
+.slider output { font-family: var(--f-mono); font-size: 13px; color: var(--green); text-align: right; }
+input[type=range] { width: 100%; accent-color: var(--green); }
+ul.rules { margin: 0; padding-left: 18px; color: var(--muted); max-width: 68ch; display: flex; flex-direction: column; gap: 4px; }
+ul.rules b { color: var(--text); font-weight: 500; }
+
+/* Таблица порогов */
+.tbl { overflow-x: auto; border: 1px solid var(--stroke); border-radius: 10px; }
+.tbl table { border-spacing: 0; width: 100%; min-width: 640px; }
+.tbl th, .tbl td { padding: 9px 12px; border-bottom: 1px solid var(--stroke); font-size: 14px; text-align: left; vertical-align: top; }
+.tbl tr:last-child td { border-bottom: 0; }
+.tbl td.mono { font-family: var(--f-mono); font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+.tbl td:first-child { white-space: nowrap; color: var(--text); }
+.tbl td { color: var(--muted); }
+
+/* Места в кабинах */
+.seats { display: flex; flex-wrap: wrap; gap: 16px; }
+.pod { background: var(--panel); border: 1px solid var(--stroke); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.pod h3 { margin: 0; font-size: 14px; font-weight: 500; }
+.pod h3 small { color: var(--muted); font-weight: 400; margin-left: 6px; }
+.pod .row { display: flex; gap: 8px; }
+.seat { width: 64px; display: flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--muted); }
+.seat .view { width: 56px; height: 65px; }
+.seat.empty .box { width: 56px; height: 65px; border: 1px dashed var(--stroke-hi); border-radius: 7px; display: grid; place-items: center; color: var(--muted); font-size: 20px; }
+.roster { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.roster .seat { opacity: .9; }
+
+ol.q { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; max-width: 72ch; }
+ol.q li { color: var(--text); }
+ol.q li span { color: var(--muted); }
+
+@media (max-width: 640px) {
+  .lab { grid-template-columns: 1fr; }
+  .lab .big .view { width: 180px; height: 209px; }
+  h1 { font-size: 24px; }
+}
+</style>
+
+<div class="wrap">
+  <header style="display:flex;flex-direction:column;gap:10px">
+    <div class="eyebrow">Этап 5.4 · макет на согласование</div>
+    <h1>Живой экипаж</h1>
+    <p class="lead">Четыре своих персонажа, объёмные 3D-модели: голова в стеклянном шлеме, скафандр, за спиной приборная панель кабины со своим светом. Мимика собрана из деталей модели (веки, зрачки, брови, рот, пот, слёзы), голова двигается, трясётся и плавает. В игре это будет RealityKit, как остальная графика.</p>
+  </header>
+
+  <section>
+    <div class="eyebrow">1 · В полёте</div>
+    <h2>Полоса экипажа в HUD, натуральная величина</h2>
+    <p>Карточки 40 × 46 pt справа сверху, на месте нынешней заглушки 30 × 34. В игре это одна маленькая 3D-сцена на всю полосу: три кабины рядом под одной камерой, без лишней нагрузки. Экран iPhone 15 Pro в ландшафте: 852 × 393 pt. В капсуле К-1 одно место, в К-3 три. Выберите ситуацию.</p>
+    <div class="chips" id="hudMoods" role="group" aria-label="Ситуация в HUD"></div>
+    <div class="hudwrap">
+      <div class="hud" id="hud">
+        <div class="alt">ВЫС 12 480 м · 2.9 g</div>
+        <div class="strip" id="hudStrip"></div>
+        <div class="corner"><span></span><span></span></div>
+        <div class="cap" id="hudCap"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">2 · Ситуации</div>
+    <h2>Шесть ситуаций × четыре характера</h2>
+    <p>Одна и та же ситуация у каждого выглядит по-своему: храбрая Лера в падении сжимает зубы, Мира кричит, Гоша радуется вообще всему.</p>
+    <div class="matrix"><table id="matrix"></table></div>
+  </section>
+
+  <section>
+    <div class="eyebrow">3 · Характер</div>
+    <h2>Храбрость и глупость</h2>
+    <p>У каждого члена экипажа две шкалы от 0 до 1. Они сдвигают выражение лица, а не заменяют его. Двигайте ползунки.</p>
+    <div class="lab">
+      <div class="big" id="labFace"></div>
+      <div class="controls">
+        <div class="chips" id="labMoods" role="group" aria-label="Ситуация"></div>
+        <div class="slider"><label for="brave">Храбрость</label><input type="range" id="brave" min="0" max="1" step="0.05" value="0.5"><output id="braveOut">0.50</output></div>
+        <div class="slider"><label for="silly">Глупость</label><input type="range" id="silly" min="0" max="1" step="0.05" value="0.5"><output id="sillyOut">0.50</output></div>
+        <ul class="rules">
+          <li><b>Храбрый</b> меньше трясётся, в панике и аварии хмурится и сжимает зубы вместо крика, слёз почти нет.</li>
+          <li><b>Трус</b> пугается раньше: панике хватает меньшей скорости падения и нагрева, перегрузку переносит с выпученными глазами.</li>
+          <li><b>Глупый</b> улыбается не к месту, косит глазами, в невесомости высовывает язык, после аварии видит звёздочки и снова улыбается.</li>
+          <li><b>Умный</b> реагирует точно по ситуации и раньше всех замечает опасность: взгляд на неё, брови вверх.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="eyebrow">4 · Когда что</div>
+    <h2>Реакции по телеметрии и событиям</h2>
+    <p>Настроение выбирается по приоритету сверху вниз и держится не меньше 1.5 с, чтобы лица не мелькали. Переходы плавные, около 0.3 с.</p>
+    <div class="tbl"><table>
+      <thead><tr><th>Ситуация</th><th>Когда</th><th>Анимация</th></tr></thead>
+      <tbody>
+        <tr><td>Испуг, грусть</td><td class="mono">crash → до конца полёта</td><td>копоть, трещина на шлеме, слеза или звёздочки</td></tr>
+        <tr><td>Паника</td><td class="mono">нагрев > 0.7 · сгорела деталь (4 с) · падение: до удара &lt; 12 с и v > 1.5× безопасной, купол не раскрыт</td><td>сильная тряска, пот, бегающие зрачки, красный отсвет при нагреве</td></tr>
+        <tr><td>Перегрузка, max Q</td><td class="mono">g > 2.5 · напор > 70 % от max Q · событие maxQ (2 с)</td><td>тряска по g, лицо сплющено вниз, пот, стиснутые зубы</td></tr>
+        <tr><td>Радость</td><td class="mono">touchdown, splashdown целыми (6 с) · вышли на орбиту (4 с)</td><td>прыжки, глаза-дуги, румянец</td></tr>
+        <tr><td>Восторг, невесомость</td><td class="mono">выше атмосферы и тяга 0 (g &lt; 0.1) · первый выход в космос (6 с)</td><td>плавают в шлеме, волосы вверх, огромные глаза с бликами</td></tr>
+        <tr><td>Спокойствие</td><td class="mono">всё остальное, площадка до старта</td><td>моргание раз в 2–5 с, взгляд блуждает, лёгкая улыбка</td></tr>
+      </tbody>
+    </table></div>
+    <p>Пороги паники и перегрузки сдвигает храбрость (трус в 1.5 раза раньше). Звук и вибрация реакции (поток D): короткий вскрик при панике, «ура» при посадке, тихое «ух» при восторге — без слов, своими синтезированными звуками.</p>
+  </section>
+
+  <section>
+    <div class="eyebrow">5 · Места в кабинах</div>
+    <h2>Экипаж в цехе</h2>
+    <p>Места появляются у каждой кабины проекта. По умолчанию их заполняет автоматически по списку. Тап по месту меняет космонавта, крестик оставляет место пустым. Пустой корабль летает без портретов.</p>
+    <div class="seats" id="seats"></div>
+  </section>
+
+  <section>
+    <div class="eyebrow">Нужно ваше решение</div>
+    <h2>Что согласовать</h2>
+    <ol class="q">
+      <li>Персонажи, их вид и имена. <span>Лера (пилот), Антон (инженер), Мира (учёный), Гоша (стажёр).</span></li>
+      <li>Шесть выражений и как их меняет характер.</li>
+      <li>Размер полосы в HUD 40 × 46 pt справа сверху. <span>Если тесно, можно 34 × 40.</span></li>
+      <li>Выбор экипажа в цехе по местам кабин, с автозаполнением.</li>
+    </ol>
+    <p>Ответьте «да» или напишите правки.</p>
+  </section>
+</div>
+
+<canvas id="gl" aria-hidden="true"></canvas>
+<script>
+(() => {
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  const CREW = [
+    { id: "lera",  name: "Лера",  role: "пилот",   brave: .9, silly: .2, suit: 0x3e6fb0, skin: 0xe9a985, hair: 0x9a4a22, head: [1.0, 1.1] },
+    { id: "anton", name: "Антон", role: "инженер", brave: .5, silly: .65, suit: 0xb07a3e, skin: 0xd99772, hair: 0x2c2a28, head: [1.14, 1.0] },
+    { id: "mira",  name: "Мира",  role: "учёный",  brave: .15, silly: .1, suit: 0x4e9a5a, skin: 0xb07455, hair: 0x1d1b2e, head: [0.96, 1.16] },
+    { id: "gosha", name: "Гоша",  role: "стажёр",  brave: 1, silly: .95, suit: 0x8a5cc4, skin: 0xf1b893, hair: 0xe8b23a, head: [0.9, 0.96] },
+  ];
+  const MOODS = [
+    { id: "calm",   title: "Спокойствие",   sub: "на площадке",         alt: "ВЫС 0 м · 1.0 g" },
+    { id: "strain", title: "Перегрузка",    sub: "и max Q",             alt: "ВЫС 12 480 м · 3.4 g · max Q" },
+    { id: "awe",    title: "Восторг",       sub: "космос, невесомость", alt: "ВЫС 84 200 м · 0.0 g" },
+    { id: "panic",  title: "Паника",        sub: "падение, нагрев",     alt: "ВЫС 1 900 м · −240 м/с · нагрев 86 %" },
+    { id: "joy",    title: "Радость",       sub: "посадка",             alt: "Посадка · 4.2 м/с" },
+    { id: "crash",  title: "Испуг, грусть", sub: "авария",              alt: "Авария · 58 м/с" },
+  ];
+  const BASE = {
+    calm:   { brow: 0,   tilt: 0,   eye: 1,    open: 1,    pupil: 1,   smile: .35, mouth: 0,   teeth: 0, shake: 0,   freq: 0,  float: 0, bounce: 0, blush: 0,  sweat: 0, tear: 0, soot: 0, squash: 0,   happy: 0, sparkle: 0, heat: 0, dart: 0 },
+    strain: { brow: -.2, tilt: -.8, eye: .95,  open: .35,  pupil: 1,   smile: -.15, mouth: .3, teeth: 1, shake: .45, freq: 38, float: 0, bounce: 0, blush: .7, sweat: .6, tear: 0, soot: 0, squash: .14, happy: 0, sparkle: 0, heat: 0, dart: 0 },
+    awe:    { brow: .9,  tilt: .1,  eye: 1.25, open: 1.15, pupil: 1.2, smile: .45, mouth: .55, teeth: 0, shake: 0,   freq: 0,  float: 1, bounce: 0, blush: .3, sweat: 0, tear: 0, soot: 0, squash: 0,   happy: 0, sparkle: 1, heat: 0, dart: 0 },
+    panic:  { brow: .8,  tilt: .9,  eye: 1.35, open: 1.3,  pupil: .45, smile: -.7, mouth: 1,   teeth: 0, shake: 1,   freq: 52, float: 0, bounce: 0, blush: 0,  sweat: 1, tear: 0, soot: 0, squash: 0,   happy: 0, sparkle: 0, heat: 1, dart: 1 },
+    joy:    { brow: .5,  tilt: 0,   eye: 1,    open: 1,    pupil: 1,   smile: 1,   mouth: .75, teeth: 1, shake: 0,   freq: 0,  float: 0, bounce: 1, blush: .9, sweat: 0, tear: 0, soot: 0, squash: 0,   happy: 1, sparkle: 0, heat: 0, dart: 0 },
+    crash:  { brow: .3,  tilt: .85, eye: 1.05, open: .85,  pupil: .8,  smile: -.8, mouth: .15, teeth: 0, shake: .12, freq: 9,  float: 0, bounce: 0, blush: 0,  sweat: 0, tear: 1, soot: 1, squash: 0,   happy: 0, sparkle: 0, heat: 0, dart: 0 },
+  };
+  function expr(mood, c) {
+    const p = { ...BASE[mood] }, b = c.brave, s = c.silly;
+    p.cross = 0; p.tongue = 0; p.dizzy = 0;
+    if (mood === "panic") { p.shake *= 1 - .55 * b; p.tilt = p.tilt * (1 - b) - .7 * b; p.mouth *= 1 - .7 * b; p.teeth = b > .5 ? 1 : 0; p.eye -= .3 * b; p.open -= .45 * b; p.smile += 1.3 * s; }
+    if (mood === "strain") { p.eye += .35 * (1 - b); p.open += .7 * (1 - b); p.smile += .7 * s; p.shake *= 1.3 - .5 * b; }
+    if (mood === "crash") { p.tear *= 1 - .8 * b; p.tilt -= .5 * b; p.dizzy = s; p.smile += 1.4 * s; p.open -= .3 * s; }
+    if (mood === "awe") { p.tongue = s > .55 ? 1 : 0; p.eye += .15 * s; }
+    if (mood === "calm") { p.smile += .25 * s; p.tongue = s > .8 ? 1 : 0; }
+    if (mood === "joy") p.mouth += .2 * s;
+    p.cross = Math.max(0, s - .4) * 1.6;
+    p.smile = Math.max(-1, Math.min(1, p.smile));
+    p.open = Math.max(.15, p.open);
+    return p;
+  }
+  const n1 = (t, k) => Math.sin(t * 1.7 + k) * .5 + Math.sin(t * 3.1 + k * 2.3) * .3 + Math.sin(t * 5.9 + k * .7) * .2;
+
+  // ---------- Three.js ----------
+  const canvas = document.getElementById("gl");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  renderer.setScissorTest(true);
+  renderer.outputEncoding = THREE.sRGBEncoding;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = .82;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = true;
+
+  const TAU = Math.PI * 2;
+  const V = (x, y, z) => new THREE.Vector3(x, y, z);
+  const col = hex => new THREE.Color(hex).convertSRGBToLinear();
+  const M = (hex, o = {}) => new THREE.MeshStandardMaterial({ color: col(hex), roughness: .6, metalness: 0, ...o });
+  const B = (hex, o = {}) => new THREE.MeshBasicMaterial({ color: col(hex), ...o });
+
+  // Окружение для отражений (стекло шлема, металл, глаза): тёмная кабина с тёплыми и холодными светильниками.
+  const envTex = (() => {
+    const s = new THREE.Scene();
+    const g = new THREE.SphereGeometry(10, 32, 16);
+    const colors = [];
+    for (let i = 0; i < g.attributes.position.count; i++) {
+      const y = g.attributes.position.getY(i) / 10;
+      const c = new THREE.Color().lerpColors(col(0x1a2030), col(0x6f7f9c), Math.max(0, y) * .9);
+      colors.push(c.r, c.g, c.b);
+    }
+    g.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    s.add(new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.BackSide })));
+    const lamp = (hex, k, x, y, z, w, h) => { const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshBasicMaterial({ color: col(hex).multiplyScalar(k), side: THREE.DoubleSide })); m.position.set(x, y, z); m.lookAt(0, 0, 0); s.add(m); };
+    lamp(0xfff1dc, 6, 3, 6, 5, 5, 2); lamp(0xbcd6ff, 3, -6, 2, 3, 3, 4); lamp(0x7ce3ff, 2, -2, 3, -7, 4, 2); lamp(0xffffff, 4, 0, 9, 0, 6, 6);
+    const pm = new THREE.PMREMGenerator(renderer);
+    return pm.fromScene(s, .03).texture;
+  })();
+
+  // Канва → текстура (надписи, нашивки, экранчики, мягкие пятна).
+  function canvasTex(w, h, draw) {
+    const c = document.createElement("canvas"); c.width = w; c.height = h;
+    draw(c.getContext("2d"), w, h);
+    const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = 4; return t;
+  }
+  const softSpot = canvasTex(64, 64, (g, w) => { const r = g.createRadialGradient(32, 32, 0, 32, 32, 32); r.addColorStop(0, "rgba(255,255,255,1)"); r.addColorStop(1, "rgba(255,255,255,0)"); g.fillStyle = r; g.fillRect(0, 0, w, w); });
+  const sootTex = canvasTex(128, 128, (g) => { for (let i = 0; i < 70; i++) { const x = 64 + Math.cos(i * 2.4) * (i * .7), y = 64 + Math.sin(i * 1.7) * (i * .55); const r = g.createRadialGradient(x, y, 0, x, y, 18 - i * .15); r.addColorStop(0, "rgba(20,20,20,.35)"); r.addColorStop(1, "rgba(20,20,20,0)"); g.fillStyle = r; g.fillRect(0, 0, 128, 128); } });
+  const fabric = canvasTex(256, 256, (g) => { g.fillStyle = "#808080"; g.fillRect(0, 0, 256, 256); for (let y = 0; y < 256; y += 4) { g.fillStyle = y % 8 ? "#8a8a8a" : "#767676"; g.fillRect(0, y, 256, 2); } for (let x = 0; x < 256; x += 4) { g.fillStyle = "rgba(0,0,0,.06)"; g.fillRect(x, 0, 1, 256); } });
+  fabric.wrapS = fabric.wrapT = THREE.RepeatWrapping; fabric.repeat.set(6, 6); fabric.encoding = THREE.LinearEncoding;
+
+  // Радужка в полярных координатах: x — угол, y — от зрачка к краю (прожилки, светлое кольцо у зрачка, тёмный ободок).
+  function irisTex(hex) {
+    const base = new THREE.Color(hex);
+    return canvasTex(256, 64, (g, w, h) => {
+      const grad = g.createLinearGradient(0, 0, 0, h);
+      grad.addColorStop(0, base.clone().lerp(new THREE.Color(0xffe2a0), .45).getStyle());
+      grad.addColorStop(.35, base.getStyle());
+      grad.addColorStop(.82, base.clone().multiplyScalar(.7).getStyle());
+      grad.addColorStop(1, base.clone().multiplyScalar(.25).getStyle());
+      g.fillStyle = grad; g.fillRect(0, 0, w, h);
+      for (let i = 0; i < 140; i++) {
+        const x = (i * 37.3) % w, a = .08 + (i % 5) * .04;
+        g.strokeStyle = i % 3 ? `rgba(255,255,255,${a})` : `rgba(0,0,0,${a})`;
+        g.lineWidth = 1 + (i % 2); g.beginPath(); g.moveTo(x, h * .12); g.lineTo(x + Math.sin(i) * 4, h * .9); g.stroke();
+      }
+    });
+  }
+  // Пряди: светлые и тёмные волоски вдоль трубки (v — вокруг), у корня темнее.
+  const hairTubeTex = canvasTex(128, 128, (g, w, h) => {
+    g.fillStyle = "#d0d0d0"; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 90; i++) { const y = (i * 13.7) % h; g.fillStyle = i % 2 ? "rgba(255,255,255,.35)" : "rgba(40,30,20,.3)"; g.fillRect(0, y, w, 1 + (i % 3)); }
+    const r = g.createLinearGradient(0, 0, w, 0); r.addColorStop(0, "rgba(0,0,0,.35)"); r.addColorStop(.35, "rgba(0,0,0,0)"); g.fillStyle = r; g.fillRect(0, 0, w, h);
+  });
+  const hairCapTex = canvasTex(256, 128, (g, w, h) => {
+    g.fillStyle = "#d0d0d0"; g.fillRect(0, 0, w, h);
+    for (let i = 0; i < 160; i++) { const x = (i * 23.1) % w; g.fillStyle = i % 2 ? "rgba(255,255,255,.14)" : "rgba(40,30,20,.12)"; g.fillRect(x, 0, 1 + (i % 2), h); }
+    const r = g.createLinearGradient(0, 0, 0, h); r.addColorStop(0, "rgba(0,0,0,.3)"); r.addColorStop(.4, "rgba(0,0,0,0)"); g.fillStyle = r; g.fillRect(0, 0, w, h);
+  });
+  // Стекло шлема: ярче по краю (Френель).
+  const fresnelGlass = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    uniforms: { tint: { value: new THREE.Color(0xd8ecff) } },
+    vertexShader: "varying vec3 vN; varying vec3 vV; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.0); vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }",
+    fragmentShader: "uniform vec3 tint; varying vec3 vN; varying vec3 vV; void main(){ float f = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.5); gl_FragColor = vec4(tint, 0.03 + f * 0.55); }",
+  });
+  // Кэш шапочек-сегментов сферы (зрачок меняет размер — геометрия по ключу).
+  const capCache = {};
+  const capGeo = theta => { const k = theta.toFixed(3); return capCache[k] || (capCache[k] = new THREE.SphereGeometry(1, 40, 10, 0, TAU, 0, theta)); };
+
+  const GEO = {
+    sphere: new THREE.SphereGeometry(1, 40, 28),
+    sphereLo: new THREE.SphereGeometry(1, 14, 10),
+    cyl: new THREE.CylinderGeometry(1, 1, 1, 24),
+    cyl6: new THREE.CylinderGeometry(1, 1, 1, 6),
+    box: new THREE.BoxGeometry(1, 1, 1),
+    cone: new THREE.ConeGeometry(1, 1, 14),
+    star: new THREE.OctahedronGeometry(1, 0),
+    upperLid: new THREE.SphereGeometry(1, 32, 14, 0, TAU, 0, Math.PI / 2),
+    lowerLid: new THREE.SphereGeometry(1, 32, 14, 0, TAU, Math.PI / 2, Math.PI / 2),
+    happy: new THREE.TorusGeometry(.15, .034, 10, 28, Math.PI),
+    rim: new THREE.TorusGeometry(1, .1, 14, 48),
+    plane: new THREE.PlaneGeometry(1, 1),
+  };
+
+  // Трубка по точкам; `r0 → r1` — сужение к концу (пряди, усы, ресницы); `ripple` — гофра (шланги).
+  function strand(pts, r0, r1 = r0, seg = 24, rad = 10, ripple = 0) {
+    const curve = new THREE.CatmullRomCurve3(pts.map(p => V(...p)));
+    const g = new THREE.TubeGeometry(curve, seg, 1, rad, false);
+    const pos = g.attributes.position, v = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let i = 0; i <= seg; i++) {
+      curve.getPointAt(i / seg, c);
+      const u = i / seg;
+      const f = (r0 + (r1 - r0) * Math.pow(u, 1.3)) * (1 + (ripple ? Math.sin(u * ripple * TAU) * .18 : 0));
+      for (let j = 0; j <= rad; j++) { const k = i * (rad + 1) + j; v.fromBufferAttribute(pos, k).sub(c).multiplyScalar(f).add(c); pos.setXYZ(k, v.x, v.y, v.z); }
+    }
+    g.computeVertexNormals();
+    return g;
+  }
+
+  const MAT = {
+    white: new THREE.MeshPhysicalMaterial({ color: col(0xfbfbfb), roughness: .15, clearcoat: 1, clearcoatRoughness: .05 }),
+    pupil: B(0x020203), glint: B(0xffffff),
+    mouth: M(0x3d1018, { roughness: .9 }), throat: M(0x1d060b, { roughness: 1 }),
+    teeth: M(0xfffbf0, { roughness: .3 }), tongue: M(0xd85566, { roughness: .45 }),
+    water: new THREE.MeshPhysicalMaterial({ color: col(0xbfe8ff), roughness: .02, transmission: 0, transparent: true, opacity: .8, clearcoat: 1 }),
+    blush: new THREE.MeshBasicMaterial({ map: softSpot, color: col(0xff5468), transparent: true, opacity: .45, depthWrite: false }),
+    soot: new THREE.MeshBasicMaterial({ map: sootTex, transparent: true, depthWrite: false }),
+    suit: M(0xeef0f4, { roughness: .85, bumpMap: fabric, bumpScale: .012 }),
+    suitShade: M(0xc3c9d3, { roughness: .8, bumpMap: fabric, bumpScale: .01 }),
+    metal: M(0xc4ccd8, { metalness: .85, roughness: .28 }), darkMetal: M(0x4a5262, { metalness: .7, roughness: .4 }),
+    gold: M(0xe2b04a, { metalness: 1, roughness: .18 }),
+    glass: new THREE.MeshPhysicalMaterial({ color: col(0xeaf4ff), roughness: 0, metalness: 0, transparent: true, opacity: .1, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.2, depthWrite: false }),
+    glassEdge: new THREE.MeshBasicMaterial({ color: col(0xbfe0ff), transparent: true, opacity: .07, side: THREE.BackSide, depthWrite: false }),
+    shine: new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: .5, depthWrite: false }),
+    crack: new THREE.LineBasicMaterial({ color: 0xf2f6fb }), star: M(0xffd54a, { emissive: col(0x9a7010) }),
+    seat: M(0x1f2a3e, { roughness: .95 }), seatDark: M(0x141c2a, { roughness: 1 }),
+    wall: M(0x222a38, { roughness: .9 }), panel: M(0x343f53, { roughness: .6, metalness: .2 }),
+    cable: M(0x161a22, { roughness: .7 }), foam: M(0x2a2a30, { roughness: 1 }),
+    smoke: new THREE.MeshBasicMaterial({ map: softSpot, color: col(0x8d939b), transparent: true, opacity: .3, depthWrite: false }),
+  };
+  const mesh = (g, m, x = 0, y = 0, z = 0, sx = 1, sy = sx, sz = sx) => { const o = new THREE.Mesh(g, m); o.position.set(x, y, z); o.scale.set(sx, sy, sz); return o; };
+  const ZA = V(0, 0, 1), YA = V(0, 1, 0);
+
+  // ---------- Голова: скульптура по параметрам персонажа ----------
+  // Форма: эллипсоид (hx, hy, hz), «груша» (шире/уже книзу), бугры спереди (подбородок, скулы, «мордочка»,
+  // надбровье) и глазницы. Высота лица z(x, y) задана формулой — по ней же раскладываются детали лица.
+  const G2 = (x, y, cx, cy, sx, sy) => Math.exp(-(((x - cx) / sx) ** 2) - (((y - cy) / sy) ** 2));
+  function shapeOf(c) {
+    const S = {
+      lera:  { hx: 1.0,  hy: 1.1,  hz: .96, pear: -.06, chin: .07, cheek: .07, muzzle: .05 },
+      anton: { hx: 1.1,  hy: 1.0,  hz: .95, pear: .2,   chin: .12, cheek: .05, muzzle: .1 },
+      mira:  { hx: .95,  hy: 1.15, hz: .95, pear: -.14, chin: .04, cheek: .05, muzzle: .04 },
+      gosha: { hx: .93,  hy: .98,  hz: .95, pear: .08,  chin: -.03, cheek: .12, muzzle: .12 },
+    }[c.id] || { hx: 1, hy: 1.08, hz: .95, pear: 0, chin: .06, cheek: .07, muzzle: .06 };
+    return S;
+  }
+  const widen = (S, y) => Math.min(1.3, Math.max(.75, 1 + S.pear * (-y / S.hy)));
+  function bumps(S, x, y) {
+    return S.chin * G2(x, y, 0, -.8 * S.hy, .32, .2)
+      + S.cheek * (G2(x, y, -.46, -.28, .24, .2) + G2(x, y, .46, -.28, .24, .2))
+      + S.muzzle * G2(x, y, 0, -.4, .34, .24)
+      + .02 * G2(x, y, 0, .4, .7, .12)
+      - .035 * (G2(x, y, -.32, .12, .2, .16) + G2(x, y, .32, .12, .2, .16));
+  }
+  const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  function faceZ(S, x, y) {
+    const q = 1 - (x / (S.hx * widen(S, y))) ** 2 - (y / S.hy) ** 2;
+    const ez = S.hz * Math.sqrt(Math.max(0, q));
+    return ez + bumps(S, x, y) * smooth(0, .5 * S.hz, ez);
+  }
+  function headGeometry(S) {
+    const g = new THREE.SphereGeometry(1, 72, 56);
+    const p = g.attributes.position, colors = [];
+    for (let i = 0; i < p.count; i++) {
+      const ux = p.getX(i), uy = p.getY(i), uz = p.getZ(i);
+      const y = uy * S.hy, x = ux * S.hx * widen(S, y);
+      let z = uz * S.hz;
+      if (z > 0) z += bumps(S, x, y) * smooth(0, .5 * S.hz, z);
+      p.setXYZ(i, x, y, z);
+      const front = Math.max(0, uz);
+      const red = front * (.9 * (G2(x, y, -.47, -.25, .2, .16) + G2(x, y, .47, -.25, .2, .16)) + .6 * G2(x, y, 0, -.12, .12, .1) + .25 * G2(x, y, 0, -.82 * S.hy, .25, .14));
+      const ao = 1 - front * .22 * (G2(x, y, -.32, .12, .16, .12) + G2(x, y, .32, .12, .16, .12)) - .35 * smooth(-.55, -.95, uy) * (1 - front * .6);
+      colors.push(ao * (1 - .02 * red), ao * (1 - .2 * red), ao * (1 - .18 * red));
+    }
+    g.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
+    g.computeVertexNormals();
+    return g;
+  }
+  function surface(S, x, y) {
+    const e = .01;
+    const z = faceZ(S, x, y);
+    const dx = (faceZ(S, x + e, y) - faceZ(S, x - e, y)) / (2 * e);
+    const dy = (faceZ(S, x, y + e) - faceZ(S, x, y - e)) / (2 * e);
+    return { p: V(x, y, z), n: V(-dx, -dy, 1).normalize() };
+  }
+  function place(obj, S, x, y, lift = 0) {
+    const s = surface(S, x, y);
+    obj.position.copy(s.p).addScaledVector(s.n, lift);
+    obj.quaternion.setFromUnitVectors(ZA, s.n);
+    return obj;
+  }
+  // Точка на «черепе» над лицом (для волос): направление → поверхность эллипсоида.
+  const onSkull = (S, d, r = 1) => { const n = d.clone().normalize(); return V(n.x * S.hx * widen(S, n.y * S.hy) * r, n.y * S.hy * r, n.z * S.hz * r); };
+
+  const HEAD = 1.22;
+  const BG = { calm: 0x1a2232, strain: 0x2a1a1c, awe: 0x070b1c, panic: 0x3a1212, joy: 0x173826, crash: 0x26262a };
+
+  // Скруглённый брусок (без острых рёбер): прямоугольник со скруглёнными углами, выдавленный с фаской-скруглением.
+  const rbCache = {};
+  function rbox(w, h, d, r = .06) {
+    r = Math.min(r, w / 2 - .001, h / 2 - .001, d / 2 - .001);
+    const k = [w, h, d, r].map(v => v.toFixed(3)).join();
+    if (rbCache[k]) return rbCache[k];
+    const iw = w - 2 * r, ih = h - 2 * r, rc = Math.min(iw, ih) * .25;
+    const s = new THREE.Shape();
+    s.moveTo(-iw / 2 + rc, -ih / 2); s.lineTo(iw / 2 - rc, -ih / 2); s.quadraticCurveTo(iw / 2, -ih / 2, iw / 2, -ih / 2 + rc);
+    s.lineTo(iw / 2, ih / 2 - rc); s.quadraticCurveTo(iw / 2, ih / 2, iw / 2 - rc, ih / 2); s.lineTo(-iw / 2 + rc, ih / 2);
+    s.quadraticCurveTo(-iw / 2, ih / 2, -iw / 2, ih / 2 - rc); s.lineTo(-iw / 2, -ih / 2 + rc); s.quadraticCurveTo(-iw / 2, -ih / 2, -iw / 2 + rc, -ih / 2);
+    const g = new THREE.ExtrudeGeometry(s, { depth: Math.max(.001, d - 2 * r), bevelEnabled: true, bevelThickness: r, bevelSize: r, bevelSegments: 5, curveSegments: 8 });
+    g.translate(0, 0, -(d - 2 * r) / 2);
+    g.computeVertexNormals();
+    return (rbCache[k] = g);
+  }
+  const rmesh = (m, x, y, z, w, h, d, r) => mesh(rbox(w, h, d, r), m, x, y, z);
+  // Звёздочка с мягкими краями.
+  const starGeo = (() => { const s = new THREE.Shape(); for (let i = 0; i < 10; i++) { const a = i / 10 * TAU + Math.PI / 2, r = i % 2 ? .45 : 1; s[i ? "lineTo" : "moveTo"](Math.cos(a) * r, Math.sin(a) * r); } const g = new THREE.ExtrudeGeometry(s, { depth: .2, bevelEnabled: true, bevelSize: .18, bevelThickness: .18, bevelSegments: 4 }); g.center(); return g; })();
+
+  // ---------- Кабина ----------
+  function labelTex(text, fg = "#cfe8d6", bg = "#0f2a1c") {
+    return canvasTex(256, 96, (g, w, h) => { g.fillStyle = bg; g.fillRect(0, 0, w, h); g.fillStyle = fg; g.font = "bold 44px monospace"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, w / 2, h / 2 + 2); });
+  }
+  const screenTexes = [
+    canvasTex(256, 192, (g, w, h) => { g.fillStyle = "#08180f"; g.fillRect(0, 0, w, h); g.strokeStyle = "rgba(124,227,139,.25)"; for (let x = 0; x < w; x += 32) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, h); g.stroke(); } for (let y = 0; y < h; y += 32) { g.beginPath(); g.moveTo(0, y); g.lineTo(w, y); g.stroke(); } g.strokeStyle = "#7ce38b"; g.lineWidth = 4; g.beginPath(); for (let x = 0; x <= w; x += 4) g.lineTo(x, h / 2 + Math.sin(x / 22) * 40 * Math.exp(-x / 300)); g.stroke(); }),
+    canvasTex(256, 192, (g, w, h) => { g.fillStyle = "#0a1420"; g.fillRect(0, 0, w, h); g.strokeStyle = "#3ec6f0"; g.lineWidth = 4; g.beginPath(); g.ellipse(w / 2, h / 2, 90, 50, -.3, 0, TAU); g.stroke(); g.fillStyle = "#3ec6f0"; g.beginPath(); g.arc(w / 2, h / 2, 16, 0, TAU); g.fill(); g.fillStyle = "#f2a03d"; g.beginPath(); g.arc(w / 2 + 70, h / 2 - 40, 8, 0, TAU); g.fill(); }),
+    canvasTex(256, 192, (g, w, h) => { g.fillStyle = "#14100a"; g.fillRect(0, 0, w, h); g.fillStyle = "#f2a03d"; g.font = "bold 34px monospace"; ["ТЯГА 100", "ТОПЛ  62", "Δv  2140"].forEach((s, i) => g.fillText(s, 18, 52 + i * 52)); }),
+  ];
+  function buildCabin(scene, mood) {
+    const g = new THREE.Group(); scene.add(g);
+    g.add(mesh(GEO.box, MAT.wall, 0, 0, -3.6, 12, 9, .2));
+    // Кресло: мягкие стёганые подушки, подголовник, валики.
+    [-1, 0, 1].forEach(i => g.add(rmesh(MAT.seat, i * 1.05, -1.0, -2.45, 1.0, 2.6, .55, .22)));
+    g.add(rmesh(MAT.seat, 0, 1.0, -2.45, 2.7, 1.0, .6, .28));
+    [-1, 1].forEach(sd => g.add(mesh(GEO.sphere, MAT.seat, sd * 1.95, -1.1, -2.1, .38, 1.5, .38)));
+    g.add(new THREE.Mesh(strand([[-2.8, 3.0, -2.4], [-1.2, 3.25, -2.3], [1.2, 3.25, -2.3], [2.8, 3.0, -2.4]], .07), MAT.metal));
+    g.add(rmesh(B(0xfff0d0), 0, 3.6, -2.8, 3.2, .16, .32, .07));
+    // Боковые пульты.
+    const lamps = [];
+    [[-3.2, 1.4, 0], [3.2, 1.4, 1], [-3.3, -.2, 2], [3.3, -.2, 0], [-3.1, -1.8, 1], [3.1, -1.8, 2]].forEach(([x, y, scr], i) => {
+      const panel = new THREE.Group(); panel.position.set(x, y, -2.9); panel.rotation.y = -Math.sign(x) * .38; g.add(panel);
+      panel.add(rmesh(MAT.panel, 0, 0, 0, 1.5, 1.1, .18, .08));
+      panel.add(mesh(GEO.plane, new THREE.MeshBasicMaterial({ map: screenTexes[scr] }), -.2, .1, .095, .72, .54));
+      panel.add(mesh(GEO.plane, new THREE.MeshBasicMaterial({ map: labelTex(["ПИТ", "СВЯЗЬ", "O₂", "СТУП", "РСУ", "SAS"][i]) }), -.2, -.36, .095, .5, .16));
+      [0, 1, 2].forEach(j => {
+        const tg = new THREE.Group(); tg.position.set(.5, .3 - j * .3, .1); panel.add(tg);
+        tg.add(mesh(GEO.sphere, MAT.darkMetal, 0, 0, 0, .06, .06, .03));
+        const lever = new THREE.Mesh(strand([[0, 0, 0], [0, .07, .06], [0, .1, .1]], .016), MAT.metal); lever.rotation.x = (i + j) % 2 ? 0 : Math.PI; tg.add(lever);
+        lever.add(mesh(GEO.sphere, MAT.metal, 0, .1, .1, .028));
+        const l = mesh(GEO.sphereLo, B([0x7ce38b, 0xf2a03d, 0x3ec6f0, 0xff5b5b][(i + j) % 4]).clone(), .2, 0, .02, .035); tg.add(l); lamps.push(l);
+      });
+    });
+    [[-2.5, -2.8], [2.4, -2.6]].forEach(([x, y], i) => g.add(new THREE.Mesh(strand([[x, 1.2, -2.8], [x + (i ? -.3 : .3), 0, -2.4], [x + (i ? .1 : -.1), -1.4, -2.6], [x, y, -2.7]], .05), MAT.cable)));
+    if (mood === "awe") {
+      const port = new THREE.Group(); port.position.set(0, 2.85, -3.4); g.add(port);
+      const disk = mesh(GEO.cyl, B(0x02030a), 0, 0, 0, 1.2, .05, 1.2); disk.rotation.x = Math.PI / 2; port.add(disk);
+      port.add(mesh(GEO.rim, MAT.metal, 0, 0, .06, 1.2, 1.2, 1.4));
+      const earth = new THREE.Mesh(new THREE.CircleGeometry(1.15, 48, Math.PI * 1.18, Math.PI * .64), B(0x2f6fc8)); earth.position.z = .04; port.add(earth);
+      for (let i = 0; i < 16; i++) port.add(mesh(GEO.sphereLo, B(0xffffff), Math.sin(i * 2.4) * .95, Math.cos(i * 1.7) * .45 + .38, .06, .018 + (i % 3) * .008));
+    }
+    return { lamps };
+  }
+
+  // ---------- Причёски и аксессуары: только мягкие объёмы ----------
+  function buildHair(c, S, root, skinM) {
+    const hairM = M(c.hair, { roughness: .5, metalness: .05, map: hairTubeTex });
+    const hairCapM = M(c.hair, { roughness: .5, metalness: .05, map: hairCapTex });
+    const out = { hair: new THREE.Group(), sway: [] };
+    root.add(out.hair);
+    // Объём волос — сфера в масштабе головы, сдвинутая вверх и назад: линия роста волос получается
+    // плавной кривой пересечения двух поверхностей, без тонкого края.
+    const volume = (dy, dz, r, sx = 1) => { const g = new THREE.Group(); g.scale.set(S.hx * sx, S.hy, S.hz); out.hair.add(g); g.add(mesh(GEO.sphere, hairCapM, 0, dy, dz, r)); return g; };
+    const blob = (p, s, rot = [0, 0, 0], m = hairM) => { const b = mesh(GEO.sphere, m, ...p, ...s); b.rotation.set(...rot); out.hair.add(b); return b; };
+    // Прядь-«колбаска» с круглыми концами.
+    const lock = (pts, r0, r1 = r0 * .7) => { out.hair.add(new THREE.Mesh(strand(pts, r0, r1, 20, 10), hairM)); out.hair.add(mesh(GEO.sphere, hairM, ...pts[0], r0)); out.hair.add(mesh(GEO.sphere, hairM, ...pts[pts.length - 1], r1)); };
+    const dir = (az, el) => V(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));
+    if (c.id === "lera") {
+      volume(.2, -.15, 1.07, 1.03);
+      // Мягкая чёлка набок.
+      [[-.3, .7, .3, .2, .22, -.5], [.05, .78, .35, .2, .22, -.25], [.38, .72, .3, .18, .2, .1]].forEach(([x, y, sx, sy, sz, rz]) => {
+        const p = surface(S, x, y).p; blob([p.x, p.y, p.z - .06], [sx, sy, sz], [0, 0, rz]);
+      });
+      // Подкрученные кончики каре.
+      [-1, 1].forEach(sd => [0, 1, 2].forEach(j => { const p = onSkull(S, dir(sd * (1.45 + j * .35), -.12), 1.03); blob([p.x, p.y, p.z], [.2, .17, .2]); }));
+      // Хвостик с резинкой.
+      const tail = new THREE.Group(); tail.position.copy(onSkull(S, dir(2.0, .3), 1.02)); out.hair.add(tail);
+      tail.add(mesh(GEO.rim, M(0xe14c6a, { roughness: .4 }), 0, 0, 0, .14, .14, .5));
+      tail.add(new THREE.Mesh(strand([[0, 0, 0], [.32, -.02, -.05], [.48, -.35, 0], [.42, -.72, .1]], .17, .1, 24, 12), hairM));
+      tail.add(mesh(GEO.sphere, hairM, .42, -.72, .1, .1));
+      out.sway.push({ obj: tail, amp: .22 });
+      [[-.44, -.17], [-.52, -.25], [-.36, -.27], [.44, -.17], [.52, -.25], [.36, -.27]].forEach(([x, y]) =>
+        root.add(place(mesh(GEO.sphereLo, M(0xbf7f58), 0, 0, 0, .024, .024, .006), S, x, y, 0)));
+    } else if (c.id === "anton") {
+      volume(.32, -.1, 1.0, 1.02);
+      // Взъерошенные мягкие хохолки вместо шипов.
+      for (let i = 0; i < 16; i++) {
+        const a = i * 2.39996, r = .15 + .6 * ((i * 7) % 11) / 11;
+        const d = V(Math.cos(a) * r, 1 - r * .4, Math.sin(a) * r * .9 - .2).normalize();
+        const p = V(d.x * .96 * S.hx * 1.02, (.32 + d.y * .96) * S.hy, (-.1 + d.z * .96) * S.hz);
+        const b = blob([p.x, p.y, p.z], [.14, .24, .14]); b.quaternion.setFromUnitVectors(YA, d);
+      }
+      // Ремешок и очки-гоглы.
+      const strap = mesh(GEO.rim, M(0x5a4630, { roughness: .7 }), 0, S.hy * .5, -.05, S.hx * 1.0, S.hz * .97, .6); strap.rotation.x = Math.PI / 2 - .18; out.hair.add(strap);
+      [-1, 1].forEach(sd => {
+        const gg = place(new THREE.Group(), S, sd * .32, S.hy * .55, .07);
+        gg.add(mesh(GEO.rim, M(0x6a5236, { roughness: .45, metalness: .3 }), 0, 0, 0, .18, .18, .9));
+        gg.add(mesh(GEO.sphere, new THREE.MeshPhysicalMaterial({ color: col(0x9fd6e8), roughness: 0, metalness: .2, clearcoat: 1, envMapIntensity: 2 }), 0, 0, .02, .16, .16, .08));
+        out.hair.add(gg);
+      });
+      // Усы — две пухлые подкрученные «колбаски».
+      [-1, 1].forEach(sd => {
+        const m = place(new THREE.Group(), S, 0, -.3, .06);
+        m.add(new THREE.Mesh(strand([[0, 0, .01], [sd * .14, -.01, .01], [sd * .26, -.06, -.01], [sd * .32, -.01, -.03]], .075, .045, 20, 12), hairM));
+        m.add(mesh(GEO.sphere, hairM, sd * .32, -.01, -.03, .05));
+        m.add(mesh(GEO.sphere, hairM, 0, 0, .01, .085, .075, .07));
+        root.add(m);
+      });
+    } else if (c.id === "mira") {
+      volume(.18, -.16, 1.08, 1.04);
+      // Мягкие пряди у висков.
+      [-1, 1].forEach(sd => { const p = onSkull(S, dir(sd * 1.2, .05), 1.0); blob([p.x, p.y, p.z], [.2, .5, .24], [0, 0, sd * -.15], hairCapM); });
+      // Пучок-жгут с резинкой и карандашом без острия.
+      const bun = new THREE.Group(); bun.position.copy(onSkull(S, dir(0, 1.1), 1.02)).add(V(0, .08, -.2)); out.hair.add(bun);
+      bun.add(mesh(new THREE.TorusKnotGeometry(.21, .11, 120, 16, 2, 3), hairM, 0, .12, 0, 1, .85, 1));
+      const tie = mesh(GEO.rim, M(0x9b6be0, { roughness: .4 }), 0, -.06, 0, .25, .25, .6); tie.rotation.x = Math.PI / 2; bun.add(tie);
+      const pencil = new THREE.Group(); pencil.rotation.set(.3, 0, 1.05); pencil.position.y = .14; bun.add(pencil);
+      pencil.add(mesh(GEO.cyl, M(0xf2c230, { roughness: .5 }), 0, 0, 0, .05, .8, .05));
+      pencil.add(mesh(GEO.sphere, M(0xe88aa0), 0, .42, 0, .055, .07, .055));
+      pencil.add(mesh(GEO.cyl, MAT.metal, 0, .38, 0, .054, .05, .054));
+      pencil.add(mesh(GEO.sphere, M(0xe9c79a), 0, -.4, 0, .05, .08, .05));
+      out.sway.push({ obj: bun, amp: .1 });
+      const frameM = M(0x24242f, { metalness: .6, roughness: .25 });
+      [-1, 1].forEach(sd => {
+        const r = place(new THREE.Group(), S, sd * .34, .14, .24);
+        r.add(mesh(GEO.rim, frameM, 0, 0, 0, .27, .27, .3));
+        r.add(mesh(GEO.sphere, new THREE.MeshPhysicalMaterial({ color: col(0xeef6ff), transparent: true, opacity: .14, roughness: 0, clearcoat: 1, envMapIntensity: 2, depthWrite: false }), 0, 0, 0, .26, .26, .02));
+        r.add(new THREE.Mesh(strand([[sd * .27, 0, 0], [sd * .42, .02, -.15], [sd * .5, .03, -.45]], .016), frameM));
+        root.add(r);
+      });
+      const br = place(new THREE.Group(), S, 0, .18, .25); br.add(new THREE.Mesh(strand([[-.08, 0, 0], [0, .04, .02], [.08, 0, 0]], .018), frameM)); root.add(br);
+    } else {
+      volume(.42, -.1, .95, 1.02);
+      [[-.15, .05], [.05, .12], [.2, 0]].forEach(([dx, dz], i) => { const p = onSkull(S, V(dx, 1, dz - .15), 1.0); blob([p.x, p.y + .04, p.z], [.11, .15, .11], [0, 0, -.4 + i * .3]); });
+      const ant = new THREE.Group(); ant.position.copy(onSkull(S, V(0, 1, -.1), .99)); out.hair.add(ant);
+      ant.add(new THREE.Mesh(strand([[0, 0, 0], [.05, .25, 0], [-.1, .45, .02], [.05, .62, 0], [.2, .7, 0]], .05, .035, 30, 10), hairM));
+      ant.add(mesh(GEO.sphere, hairM, .2, .7, 0, .1));
+      out.sway.push({ obj: ant, amp: .5, fast: true });
+      const pl = place(new THREE.Group(), S, .02, -.04, .08);
+      [.6, -.6].forEach(r => { const p = mesh(rbox(.24, .08, .025, .012), M(0xe8c39a, { roughness: .9 })); p.rotation.z = r; pl.add(p); });
+      root.add(pl);
+      [[-.47, -.2], [-.4, -.28], [.47, -.2], [.4, -.28], [-.52, -.3], [.52, -.3]].forEach(([x, y]) => root.add(place(mesh(GEO.sphereLo, M(0xd88a5a), 0, 0, 0, .024, .024, .006), S, x, y, 0)));
+      // Только у Гоши — большие круглые уши.
+      [-1, 1].forEach(sd => {
+        const e = new THREE.Group(); e.position.set(sd * S.hx * widen(S, -.05) * .96, -.05, -.05); e.rotation.y = sd * .5; root.add(e);
+        e.add(mesh(GEO.sphere, skinM, 0, 0, 0, .14, .26, .1));
+        e.add(mesh(GEO.sphere, M(new THREE.Color(c.skin).multiplyScalar(.85).getHex()), sd * .03, 0, .05, .08, .16, .05));
+      });
+    }
+    // Нос-пуговка.
+    const nose = new THREE.Group(); root.add(nose);
+    const ns = { lera: .07, anton: .13, mira: .065, gosha: .09 }[c.id] || .07;
+    place(nose, S, 0, -.08, ns * .4);
+    nose.add(mesh(GEO.sphere, c.id === "gosha" ? M(0xf0a08a, { roughness: .55 }) : c.id === "anton" ? M(0xd8916a, { roughness: .55 }) : skinM, 0, 0, 0, ns, ns * .9, ns * .9));
+    const nostrils = [-1, 1].map(sd => { const n = mesh(GEO.sphere, MAT.throat, sd * ns * .4, -ns * .5, ns * .5, ns * .16, ns * .12, ns * .1); n.userData.base = n.scale.clone(); nose.add(n); return n; });
+    out.nostrils = nostrils;
+    return out;
+  }
+
+  // ---------- Персонаж ----------
+  const NAMES = { lera: "ЛЕРА", anton: "АНТОН", mira: "МИРА", gosha: "ГОША" };
+  function patchTex(hex) {
+    const c = new THREE.Color(hex).getStyle();
+    return canvasTex(128, 128, (g) => {
+      g.fillStyle = "#1b2233"; g.beginPath(); g.arc(64, 64, 62, 0, TAU); g.fill();
+      g.strokeStyle = c; g.lineWidth = 8; g.beginPath(); g.arc(64, 64, 56, 0, TAU); g.stroke();
+      g.strokeStyle = "#f2f4f8"; g.lineWidth = 4; g.beginPath(); g.ellipse(64, 66, 42, 18, -.4, 0, TAU); g.stroke();
+      g.fillStyle = "#3ec6f0"; g.beginPath(); g.arc(64, 66, 16, 0, TAU); g.fill();
+      g.fillStyle = "#ffd54a"; g.beginPath(); g.arc(98, 46, 7, 0, TAU); g.fill();
+    });
+  }
+  function buildCharacter(c, mood) {
+    const scene = new THREE.Scene();
+    scene.background = col(BG[mood]);
+    scene.fog = new THREE.Fog(col(BG[mood]).clone().lerp(col(0x55607a), .08), 7.8, 13);
+    // Боке: размытые огоньки пультов за спиной.
+    for (let i = 0; i < 9; i++) {
+      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: softSpot, color: col([0x7ce38b, 0xf2a03d, 0x3ec6f0, 0xfff0d0][i % 4]), transparent: true, opacity: .28, blending: THREE.AdditiveBlending, depthWrite: false, fog: false }));
+      sp.position.set(Math.sin(i * 2.3) * 3.2, Math.cos(i * 1.7) * 1.8 + .2, -3.0); sp.scale.setScalar(.35 + (i % 3) * .2); scene.add(sp);
+    }
+    scene.environment = envTex;
+    scene.add(new THREE.HemisphereLight(col(0xdfe8ff), col(0x2a2430), mood === "crash" ? .35 : .5));
+    const key = new THREE.DirectionalLight(col(0xfff1e0), mood === "crash" ? 1.6 : 2.4); key.position.set(2.2, 3.2, 4.5);
+    key.castShadow = true; key.shadow.mapSize.set(512, 512); key.shadow.bias = -.0004; key.shadow.normalBias = .02; key.shadow.radius = 3;
+    Object.assign(key.shadow.camera, { left: -2.6, right: 2.6, top: 2.6, bottom: -3, near: 1, far: 14 }); scene.add(key);
+    const fill = new THREE.DirectionalLight(col(0xbcd2ff), .7); fill.position.set(-3.5, .5, 3); scene.add(fill);
+    const rim = new THREE.DirectionalLight(col(mood === "awe" ? 0x8fb4ff : 0x7ce3ff), 1.4); rim.position.set(-2.5, 2.5, -3); scene.add(rim);
+    const heat = new THREE.PointLight(col(0xff5a1f), 0, 7, 1.5); heat.position.set(0, -1.2, 2.6); scene.add(heat);
+    const cabin = buildCabin(scene, mood);
+
+    const S = shapeOf(c);
+    const body = new THREE.Group(); scene.add(body);
+    // Скафандр: торс, плечи цвета персонажа с нашивкой, нагрудный пульт, бирка с именем, шланги, швы.
+    body.add(mesh(GEO.sphere, MAT.suit, 0, -2.75, 0, 2.05, 1.25, 1.3));
+    [-1, 1].forEach(sd => {
+      const sh = mesh(GEO.sphere, M(c.suit, { roughness: .75, bumpMap: fabric, bumpScale: .01 }), sd * 1.55, -2.15, .1, .62, .42, .62); body.add(sh);
+      body.add(new THREE.Mesh(strand([[sd * .55, -1.7, 1.0], [sd * .7, -2.2, 1.25], [sd * .75, -2.9, 1.25]], .022), MAT.suitShade));
+    });
+    const patch = mesh(new THREE.CircleGeometry(.5, 40), new THREE.MeshStandardMaterial({ map: patchTex(c.suit), roughness: .8 }), 1.62, -1.98, .62, .55);
+    patch.lookAt(1.62 * 3, -1.98, .62 * 4); body.add(patch);
+    body.add(rmesh(M(0xe7ebf2, { roughness: .7 }), -.9, -2.28, 1.16, .7, .28, .06, .03)).rotation.x = 0;
+    const tag = mesh(GEO.plane, new THREE.MeshStandardMaterial({ map: labelTex(NAMES[c.id] || "НОВИЧОК", "#20242e", "#e7ebf2"), roughness: .7 }), -.9, -2.28, 1.18, .62, .22);
+    tag.rotation.set(-.35, -.42, 0); body.add(tag);
+    const chest = new THREE.Group(); chest.position.set(.15, -2.32, 1.1); chest.rotation.x = -.35; body.add(chest);
+    chest.add(rmesh(MAT.suitShade, 0, 0, 0, 1.0, .55, .22, .09));
+    chest.add(mesh(GEO.plane, new THREE.MeshBasicMaterial({ map: labelTex("O₂ 98%", "#7ce38b", "#081a10") }), -.2, .1, .105, .45, .16));
+    const buttons = [0xff5b5b, 0x7ce38b, 0xf2a03d].map((h, i) => { const b = mesh(GEO.sphere, M(h, { emissive: col(h), emissiveIntensity: .4, roughness: .3 }), .2 + i * .13, .1, .11, .05, .05, .035); chest.add(b); return b; });
+    const knob = mesh(GEO.sphere, MAT.metal, -.2, -.14, .12, .07, .07, .04); chest.add(knob);
+    // Гофрированные шланги от пульта к кольцу шлема.
+    [-1, 1].forEach(sd => body.add(new THREE.Mesh(strand([[sd * .55 + .15, -2.3, 1.15], [sd * 1.1, -2.0, 1.2], [sd * 1.15, -1.6, .75]], .075, .075, 40, 10, 14), MAT.darkMetal)));
+    // Уплотнитель шеи.
+    body.add(mesh(GEO.sphere, MAT.suitShade, 0, -1.6, -.05, .62, .25, .52));
+    // Шея: сужается к голове, уходит в мягкий воротник; у Антона толстая с кадыком, у Гоши тонкая.
+    const neckR = { anton: .5, gosha: .33, mira: .36 }[c.id] || .4;
+    const neckM = new THREE.MeshPhysicalMaterial({ color: col(c.skin), roughness: .6, clearcoat: .1, clearcoatRoughness: .7, envMapIntensity: .45, emissive: col(0x5a1a10), emissiveIntensity: .12 });
+    body.add(mesh(new THREE.CylinderGeometry(neckR, neckR * 1.18, 1.0, 40, 1, true), neckM, 0, -1.12, -.04));
+    if (c.id === "anton") body.add(mesh(GEO.sphere, neckM, 0, -1.22, neckR - .03, .09, .12, .08));
+    const seal = mesh(GEO.rim, M(c.suit), 0, -1.5, -.03, neckR * 1.35, neckR * 1.35, 1.1); seal.rotation.x = Math.PI / 2; body.add(seal);
+    body.add(mesh(GEO.sphere, MAT.suitShade, 0, -1.78, 0, 1.3, .3, 1.3));
+
+    const headG = new THREE.Group(); headG.position.y = .12; body.add(headG);
+    const face = new THREE.Group(); headG.add(face);
+    const skinM = new THREE.MeshPhysicalMaterial({ color: col(c.skin), roughness: .6, clearcoat: .1, clearcoatRoughness: .7, envMapIntensity: .45, emissive: col(0x5a1a10), emissiveIntensity: .12 });
+    const headM = skinM.clone(); headM.vertexColors = true;
+    const head = mesh(headGeometry(S), headM); face.add(head);
+    const hair = buildHair(c, S, face, skinM);
+
+    // Глаза в глазницах: яблоко с радужкой следит за взглядом, веки-полусферы (у Леры и Миры — ресницы), при радости — дуги.
+    const irisHex = { lera: 0x4a7a3a, anton: 0x5a3a20, mira: 0x3a2a20, gosha: 0x2f6fb0 }[c.id] || 0x4a3a2a;
+    const irisM = new THREE.MeshStandardMaterial({ map: irisTex(irisHex), roughness: .5, envMapIntensity: .1 });
+    const corneaM = new THREE.MeshPhysicalMaterial({ color: 0xffffff, transparent: true, opacity: .08, roughness: 0, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 3, depthWrite: false });
+    const eyeSize = c.id === "mira" ? .25 : c.id === "gosha" ? .3 : .27;
+    const lashes = false;
+    const eyes = [-1, 1].map(sd => {
+      const r = eyeSize * (c.id === "gosha" && sd < 0 ? 1.15 : 1);
+      const g = place(new THREE.Group(), S, sd * .34, .14, -r * .42); face.add(g);
+      const ball = new THREE.Group(); g.add(ball);
+      ball.add(mesh(GEO.sphere, MAT.white, 0, 0, 0, r));
+      const iris = mesh(capGeo(.58), irisM, 0, 0, 0, r * 1.004); iris.rotation.x = Math.PI / 2; ball.add(iris);
+      const pupil = mesh(capGeo(.2), MAT.pupil, 0, 0, 0, r * 1.008); pupil.rotation.x = Math.PI / 2; ball.add(pupil);
+      const cornea = mesh(capGeo(.75), corneaM, 0, 0, 0, r * 1.04); cornea.rotation.x = Math.PI / 2; ball.add(cornea);
+      const glint = mesh(GEO.sphereLo, MAT.glint, -r * .28, r * .3, r * 1.0, r * .11, r * .14, r * .05); g.add(glint);
+      const glint2 = mesh(GEO.sphereLo, MAT.glint, r * .22, -r * .12, r * 1.01, r * .06); g.add(glint2);
+      const upper = mesh(GEO.upperLid, skinM, 0, 0, 0, r * 1.14); g.add(upper);
+      if (lashes) [.35, .6, .85].forEach((a, i) => upper.add(new THREE.Mesh(strand([[sd * Math.sin(a + .1), .02, Math.cos(a + .1)], [sd * Math.sin(a + .2) * 1.15, .14, Math.cos(a + .2) * 1.05], [sd * Math.sin(a + .3) * 1.3, .32 + i * .04, Math.cos(a + .3) * .95]], .05, .01, 10, 6), MAT.pupil)));
+      const crease = new THREE.Group(); g.add(crease);
+      const lower = mesh(GEO.lowerLid, skinM, 0, 0, 0, r * 1.13); g.add(lower);
+      const arc = place(new THREE.Group(), S, sd * .34, .1, .02); face.add(arc);
+      arc.add(mesh(GEO.happy, M(0x2b2b3a)));
+      [-1, 1].forEach(e => arc.add(mesh(GEO.sphere, M(0x2b2b3a), e * .15, 0, 0, .034)));
+      const tear = mesh(GEO.sphere, MAT.water, 0, 0, 0, .05, .075, .035); face.add(tear);
+      return { g, ball, pupil, glint, glint2, upper, lower, arc, tear, crease, sd, r };
+    });
+    // Брови — заострённые к виску.
+    const browR = c.id === "anton" ? .07 : c.id === "gosha" ? .045 : .05;
+    const brows = [-1, 1].map(sd => {
+      const g = new THREE.Group(); face.add(g);
+      const bm = M(c.hair, { roughness: .8 });
+      const m = new THREE.Mesh(strand([[-sd * .15, -.01, 0], [-sd * .05, .03, .01], [sd * .06, .035, .005], [sd * .16, -.015, -.01]], browR, browR * .8, 16, 10), bm);
+      m.add(mesh(GEO.sphere, bm, -sd * .15, -.01, 0, browR)); m.add(mesh(GEO.sphere, bm, sd * .16, -.015, -.01, browR * .8));
+      g.add(m); return { g, m, sd };
+    });
+    // Морщины на лбу (напряжение, паника, грусть).
+    const wrinkles = [0, 1, 2].map(i => { const g = new THREE.Group(); const w = .22 - i * .03; g.add(new THREE.Mesh(strand([[-w, 0, 0], [0, .02, .01], [w, 0, 0]], .012), M(new THREE.Color(c.skin).multiplyScalar(.7).getHex()))); place(g, S, 0, .58 + i * .08, .005); face.add(g); return g; });
+    const mouthG = new THREE.Group(); face.add(mouthG);
+    const blush = [-1, 1].map(sd => { const b = place(mesh(GEO.plane, MAT.blush.clone(), 0, 0, 0, .46, .3), S, sd * .55, -.2, .012); face.add(b); return b; });
+    const soot = [[-.38, -.3, .5, .4], [.42, .4, .4, .3], [.15, -.65, .3, .22], [-.3, .55, .3, .22]].map(([x, y, a, b]) => { const s = place(mesh(GEO.plane, MAT.soot, 0, 0, 0, a, b), S, x, y, .014); face.add(s); return s; });
+    const sweat = [0, 1].map(() => { const g = new THREE.Group(); g.add(mesh(GEO.sphere, MAT.water, 0, 0, 0, .055, .07, .04)); g.add(mesh(GEO.sphere, MAT.water, 0, .05, 0, .035, .06, .028)); face.add(g); return g; });
+
+    // Шлем: стекло с отражениями, кромка, золотой светофильтр поднят, кольцо с болтами и защёлкой, фонари.
+    const helmet = new THREE.Group(); body.add(helmet);
+    helmet.add(mesh(GEO.sphere, MAT.glassEdge, 0, .2, 0, 2.02));
+    helmet.add(mesh(GEO.sphere, MAT.glass, 0, .2, 0, 2.0));
+    helmet.add(mesh(GEO.sphere, fresnelGlass, 0, .2, 0, 2.005));
+    const visor = mesh(new THREE.SphereGeometry(1, 48, 16, 0, TAU, 0, Math.PI * .3), MAT.gold, 0, .2, 0, 2.03); visor.rotation.x = -.75; helmet.add(visor);
+    const shine = new THREE.Mesh(strand([[-1.45, .9], [-1.15, 1.45], [-.55, 1.8]].map(([x, y]) => [x, y, Math.sqrt(Math.max(0, 2.01 ** 2 - x * x - (y - .2) ** 2))]), .06, .06, 16), MAT.shine);
+    helmet.add(shine);
+    helmet.add(mesh(GEO.sphereLo, MAT.shine, 1.2, -.55, 1.45, .07));
+    const ring = mesh(GEO.rim, MAT.metal, 0, -1.62, 0, 1.38, 1.38, 1.6); ring.rotation.x = Math.PI / 2; helmet.add(ring);
+    for (let i = 0; i < 14; i++) { const a = i / 14 * TAU; helmet.add(mesh(GEO.sphere, MAT.darkMetal, Math.sin(a) * 1.38, -1.46, Math.cos(a) * 1.38, .045, .03, .045)); }
+    helmet.add(rmesh(MAT.darkMetal, -.95, -1.62, 1.08, .26, .2, .14, .06));
+    [-1, 1].forEach(sd => { const l = mesh(GEO.cyl, M(0xfff1b0, { emissive: col(0xffe680), emissiveIntensity: 1.2 }), sd * 1.15, -1.48, 1.0, .07, .07, .07); l.rotation.x = Math.PI / 2.6; helmet.add(l); });
+    const crackPts = [[.7, 1.2], [.45, .75], [.75, .5], [.35, .1], [.45, .75], [.08, .7], [.75, .5], [1.05, .25]].map(([x, y]) => V(x, y, Math.sqrt(Math.max(0, 2.0 ** 2 - x * x - (y - .2) ** 2)) + .01));
+    const crack = new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints([0, 1, 1, 2, 2, 3, 4, 5, 6, 7].map(i => crackPts[i])), MAT.crack); helmet.add(crack);
+    const stars = [0, 1, 2].map(() => { const s = mesh(starGeo, MAT.star, 0, 0, 0, .1); scene.add(s); return s; });
+    const smoke = [0, 1, 2].map(() => { const s = mesh(GEO.plane, MAT.smoke.clone(), 0, 0, 0, .8); scene.add(s); return s; });
+
+    // Тени: всё непрозрачное отбрасывает и принимает.
+    scene.traverse(o => { if (o.isMesh && !o.material.transparent && !o.material.isMeshBasicMaterial) { o.castShadow = true; o.receiveShadow = true; } });
+
+    const camera = new THREE.PerspectiveCamera(30, 100 / 116, .1, 50);
+    camera.position.set(0, .3, 9.0); camera.lookAt(0, -.05, 0);
+
+    return { c, mood, S, scene, camera, body, headG, face, hair, eyes, brows, wrinkles, mouthG, blush, soot, sweat, crack, stars, smoke, heat, cabin, buttons, mouthKey: "" };
+  }
+
+  // ---------- Рот ----------
+  // Всё лежит на поверхности лица (z берётся из faceZ). Отверстие пишет трафарет (stencil), зубы и язык рисуются
+  // только внутри отверстия — не вылезают за губы. Губы — трубки с утолщением к середине.
+  const MOUTH_Y = -.42;
+  const STENCIL = { stencilWrite: true, stencilRef: 1, stencilFunc: THREE.EqualStencilFunc, stencilFail: THREE.KeepStencilOp, stencilZFail: THREE.KeepStencilOp, stencilZPass: THREE.KeepStencilOp, depthTest: false, depthWrite: false };
+  const inner = m => { const c = m.clone(); Object.assign(c, STENCIL); return c; };
+  const MOUTH_MAT = {
+    hole: new THREE.MeshBasicMaterial({ vertexColors: true, stencilWrite: true, stencilRef: 1, stencilFunc: THREE.AlwaysStencilFunc, stencilZPass: THREE.ReplaceStencilOp }),
+    teeth: inner(new THREE.MeshPhysicalMaterial({ color: col(0xfffaf0), roughness: .25, clearcoat: .6 })),
+    gum: inner(M(0xd8707a, { roughness: .5 })),
+    tongue: inner(new THREE.MeshPhysicalMaterial({ color: col(0xe0606f), roughness: .4, clearcoat: .3 })),
+    tongueLine: inner(M(0xb84453, { roughness: .6 })),
+  };
+  // Трубка с радиусом по функции r(u), u = 0…1.
+  function tubeR(pts, rf, seg = 32, rad = 12) {
+    const curve = new THREE.CatmullRomCurve3(pts);
+    const g = new THREE.TubeGeometry(curve, seg, 1, rad, false);
+    const pos = g.attributes.position, v = new THREE.Vector3(), c = new THREE.Vector3();
+    for (let i = 0; i <= seg; i++) {
+      curve.getPointAt(i / seg, c); const f = rf(i / seg);
+      for (let j = 0; j <= rad; j++) { const k = i * (rad + 1) + j; v.fromBufferAttribute(pos, k).sub(c).multiplyScalar(f).add(c); pos.setXYZ(k, v.x, v.y, v.z); }
+    }
+    g.computeVertexNormals();
+    return g;
+  }
+
+  function buildMouth(ch, p, t) {
+    const S = ch.S, gosha = ch.c.id === "gosha", s = (ch.opt && ch.opt.char || ch.c).silly;
+    const round = { awe: .5, panic: .25, crash: .3 }[ch.mood] || 0;
+    const open = (ch.mood === "strain" ? Math.max(p.mouth, .45) : p.mouth) * .3 + (p.dart ? Math.abs(Math.sin(t * 11)) * .03 : 0);
+    const w = .36 + .1 * Math.max(0, p.smile) + .04 * p.mouth - .14 * round;
+    const cy = .1 * p.smile;
+    const skew = s > .4 && Math.abs(p.smile) > .2 ? (s - .4) * .08 * Math.sign(p.smile) : 0;
+    const cl = cy - skew, cr = cy + skew;
+    const gap = Math.max(open, .012);
+    const yu = cy * .15 + gap * (.22 + round * .5);
+    const yl = cy * .15 - gap * (.78 + round * .3) - Math.max(0, p.smile) * gap * .55;
+    const key = [w, cl, cr, yu, yl, p.teeth, p.tongue, round].map(v => (+v).toFixed(3)).join();
+    if (key === ch.mouthKey) return;
+    ch.mouthKey = key;
+    ch.mouthG.children.slice().forEach(o => { ch.mouthG.remove(o); o.traverse(x => { if (x.geometry && !Object.values(GEO).includes(x.geometry)) x.geometry.dispose(); }); });
+    ch.mouthG.position.set(0, 0, 0); ch.mouthG.quaternion.identity();
+
+    // Кривые верхней и нижней кромки (квадратичные Безье от уголка к уголку).
+    const qb = (y0, yc, y1, u) => { const c = 2 * yc - (y0 + y1) / 2; return (1 - u) ** 2 * y0 + 2 * (1 - u) * u * c + u * u * y1; };
+    const xu = u => -w + 2 * w * u;
+    const upperY = u => qb(cl, yu, cr, u), lowerY = u => qb(cl, yl, cr, u);
+    const onFace = (x, y, lift = 0) => { const Y = MOUTH_Y + y; return V(x, Y, faceZ(S, x, Y) + lift); };
+
+    // Отверстие: сетка между кромками, цвет — темнее под верхней губой, краснее у языка.
+    const N = 28, Mv = 8, verts = [], cols = [], idx = [];
+    for (let i = 0; i <= N; i++) for (let j = 0; j <= Mv; j++) {
+      const u = i / N, v = j / Mv, x = xu(u), y = lowerY(u) + (upperY(u) - lowerY(u)) * v;
+      const q = onFace(x, y, .004); verts.push(q.x, q.y, q.z);
+      const edge = Math.min(1, Math.sin(Math.PI * u) * 1.6);
+      const c = new THREE.Color().lerpColors(col(0x5a1420), col(0x12030a), Math.min(1, v * 1.1 + (1 - edge) * .3));
+      cols.push(c.r, c.g, c.b);
+    }
+    for (let i = 0; i < N; i++) for (let j = 0; j < Mv; j++) { const a = i * (Mv + 1) + j, b = a + Mv + 1; idx.push(a, b, a + 1, b, b + 1, a + 1); }
+    const hg = new THREE.BufferGeometry(); hg.setAttribute("position", new THREE.Float32BufferAttribute(verts, 3)); hg.setAttribute("color", new THREE.Float32BufferAttribute(cols, 3)); hg.setIndex(idx);
+    const hole = new THREE.Mesh(hg, MOUTH_MAT.hole); hole.renderOrder = 10; ch.mouthG.add(hole);
+
+    const hOpen = yu - yl;
+    if (open > .03) {
+      // Язык снизу, зубы — объёмные дуги внутри (видны только в отверстии).
+      const tongue = mesh(GEO.sphere, MOUTH_MAT.tongue, skew * 2 + (p.tongue ? .05 : 0), 0, 0, w * .5, Math.min(.1, hOpen * .35), .05);
+      const tp = onFace(tongue.position.x, yl + Math.min(.06, hOpen * .18), -.01); tongue.position.copy(tp); tongue.renderOrder = 11; ch.mouthG.add(tongue);
+      const tl = mesh(GEO.sphere, MOUTH_MAT.tongueLine, tp.x, tp.y + .01, tp.z + .05, .006, Math.min(.06, hOpen * .25), .004); tl.renderOrder = 12; ch.mouthG.add(tl);
+    }
+    const teethRow = (yOf, dy, r) => {
+      const pts = []; for (let i = 0; i <= 16; i++) { const u = .04 + .92 * i / 16; pts.push(onFace(xu(u), yOf(u) + dy, -.035)); }
+      const m = new THREE.Mesh(tubeR(pts, u => r * (.75 + .25 * Math.sin(Math.PI * u)), 40, 12), MOUTH_MAT.teeth); m.renderOrder = 12; ch.mouthG.add(m);
+      // Межзубные бороздки.
+      for (let i = 1; i < 6; i++) { const u = .5 + (i - 3) * .09, q = onFace(xu(u), yOf(u) + dy, r * .55 - .035); const gm = mesh(GEO.sphere, MOUTH_MAT.gum, q.x, q.y, q.z, .006, r * .9, .004); gm.renderOrder = 13; ch.mouthG.add(gm); }
+    };
+    const showUpper = p.teeth || (p.smile > .3 && open > .05) || open > .12;
+    const grit = ch.mood === "strain";
+    if (grit) { teethRow(upperY, -hOpen * .27, hOpen * .32); teethRow(lowerY, hOpen * .27, hOpen * .3); }
+    else {
+      if (showUpper && open > .02) teethRow(upperY, -.022, Math.min(.042, hOpen * .3));
+      if (p.teeth && open > .02) teethRow(lowerY, .02, Math.min(.034, hOpen * .25));
+    }
+
+    // Губы с объёмом (толще к середине), уголки — мягкие шарики.
+    const lipM = new THREE.MeshPhysicalMaterial({ color: col(new THREE.Color(ch.c.skin).lerp(new THREE.Color(0xc0505a), .32).getHex()), roughness: .45, clearcoat: .35, clearcoatRoughness: .4, envMapIntensity: .5 });
+    const lipPts = (yOf, off) => { const pts = []; for (let i = 0; i <= 20; i++) { const u = i / 20; pts.push(onFace(xu(u), yOf(u) + off * Math.sin(Math.PI * u), .006)); } return pts; };
+    const upLip = new THREE.Mesh(tubeR(lipPts(upperY, .012), u => .018 + .022 * Math.sin(Math.PI * u) ** .8, 40, 12), lipM); upLip.renderOrder = 14; ch.mouthG.add(upLip);
+    const loLip = new THREE.Mesh(tubeR(lipPts(lowerY, -.016), u => .02 + .03 * Math.sin(Math.PI * u) ** .8, 40, 12), lipM); loLip.renderOrder = 14; ch.mouthG.add(loLip);
+    [[-w, cl], [w, cr]].forEach(([x, y]) => { const q = onFace(x, y, .004); ch.mouthG.add(mesh(GEO.sphere, lipM, q.x, q.y, q.z, .024)); });
+    // Ямочки и складки у уголков при улыбке, складки вниз при грусти.
+    if (Math.abs(p.smile) > .35) [[-1, cl], [1, cr]].forEach(([sd, y]) => {
+      const dir = Math.sign(p.smile);
+      const pts = [onFace(sd * (w + .05), y + .07 * dir, .003), onFace(sd * (w + .085), y, .003), onFace(sd * (w + .06), y - .07 * dir, .003)];
+      const crease = new THREE.Mesh(tubeR(pts, u => .012 * Math.sin(Math.PI * u) + .003, 16, 8), M(new THREE.Color(ch.c.skin).multiplyScalar(.78).getHex(), { roughness: .7 }));
+      ch.mouthG.add(crease);
+    });
+    // Торчащие зубы Гоши — поверх нижней губы, даже при закрытом рте.
+    if (gosha) [-1, 1].forEach(sd => {
+      const q = onFace(sd * .048 + skew, qb(cl, yu, cr, .5) - .045, .012);
+      const tooth = mesh(rbox(.085, .1, .035, .02), new THREE.MeshPhysicalMaterial({ color: col(0xfffaf0), roughness: .25, clearcoat: .6 }), q.x, q.y, q.z);
+      tooth.renderOrder = 15; ch.mouthG.add(tooth);
+    });
+    if (p.tongue && open < .03) { const q = onFace(.08 + skew, lowerY(.62) - .05, .01); ch.mouthG.add(mesh(GEO.sphere, new THREE.MeshPhysicalMaterial({ color: col(0xe0606f), roughness: .4 }), q.x, q.y, q.z, .07, .08, .035)); }
+  }
+
+  function animate(ch, t, opt = {}) {
+    const c = opt.char || ch.c;
+    const p = expr(ch.mood, c);
+    const lowLid = { strain: .3, crash: .25, calm: 0, awe: 0, panic: 0, joy: 0 }[ch.mood];
+    const k = c.id.length * 1.37 + (opt.seed || 0);
+    const sh = p.shake * .07;
+    ch.body.position.x = sh ? (Math.sin(t * p.freq + k) * .6 + n1(t * 6, k) * .4) * sh : 0;
+    ch.body.position.y = Math.sin(t * 1.5 + k) * .018 + (sh ? Math.cos(t * p.freq * 1.13 + k) * .6 * sh : 0) + (p.float ? Math.sin(t * 1.3 + k) * .18 + .12 : 0) + (p.bounce ? Math.abs(Math.sin(t * 5 + k)) * .22 : 0);
+    ch.body.rotation.z = p.float ? Math.sin(t * .8 + k) * .14 : (p.shake ? n1(t * 4, k) * p.shake * .05 : 0);
+    const gx = p.dart ? n1(t * 7, k) : n1(t * .6, k) * .6;
+    const gy = p.dart ? n1(t * 6, k + 4) * .7 : n1(t * .5, k + 2) * .3;
+    ch.headG.rotation.y = gx * (p.dart ? .22 : .16);
+    ch.headG.rotation.x = -gy * .1 + p.squash * .9;
+    ch.headG.rotation.z = p.float ? Math.sin(t * 1.1 + k) * .08 : (ch.mood === "crash" ? -.12 : 0);
+    ch.headG.position.y = .12 - p.squash * .25 + (p.float ? Math.sin(t * 1.7 + k) * .05 : 0);
+    ch.face.scale.set(HEAD * (1 + p.squash * .2), HEAD * (1 - p.squash * .5), HEAD);
+    const period = ch.mood === "panic" ? 1.3 : 2.6 + (k % 2);
+    const ph = ((t + k) % period) / period;
+    const blink = ph > .93 ? Math.sin((ph - .93) / .07 * Math.PI) : 0;
+    const o = Math.max(0, p.open * (1 - blink));
+    ch.eyes.forEach(e => {
+      const show = !p.happy;
+      e.g.visible = show; e.arc.visible = !show;
+      e.g.scale.setScalar(p.eye);
+      e.ball.rotation.y = gx * .35 + p.cross * -e.sd * .3;
+      e.ball.rotation.x = -gy * .3;
+      e.pupil.geometry = capGeo(Math.round(.2 * p.pupil * 40) / 40);
+      e.upper.rotation.x = Math.max(-1.15, Math.min(1.57, o < .6 ? 1.57 - o * 3.0 : -.11 - (o - .6) * .8));
+      e.crease.position.y = (e.upper.rotation.x < 0 ? .02 : -.02) * e.r;
+      e.lower.rotation.x = 1.3 - lowLid * 1.1;
+      e.glint.scale.set(e.r * (p.sparkle ? .17 : .11), e.r * (p.sparkle ? .2 : .14), e.r * .05);
+      e.glint.visible = e.glint2.visible = o > .35;
+      e.tear.visible = p.tear > .1 && e.sd < 0;
+      if (e.tear.visible) { const d = (t * .7 + k) % 1; place(e.tear, ch.S, e.sd * .38, -.08 - d * .45, .025); }
+    });
+    ch.brows.forEach(b => {
+      const y = .5 + p.brow * .1 + (p.eye - 1) * .2;
+      place(b.g, ch.S, b.sd * .34, y, .03);
+      b.m.rotation.z = b.sd * -p.tilt * .42;
+    });
+    ch.wrinkles.forEach((w, i) => w.visible = (p.tilt > .5 || p.brow > .7) && i < 1 + Math.round(p.brow * 2));
+    const flare = ch.mood === "panic" || ch.mood === "strain" ? 1.6 : 1;
+    ch.hair.nostrils.forEach(n => n.scale.set(n.userData.base.x * flare, n.userData.base.y * flare, n.userData.base.z));
+    ch.opt = opt;
+    buildMouth(ch, p, t);
+    ch.blush.forEach(b => { b.visible = p.blush > .05; b.material.opacity = .5 * p.blush; });
+    ch.soot.forEach(s => s.visible = !!p.soot);
+    ch.crack.visible = !!p.soot;
+    ch.sweat.forEach((s, i) => {
+      s.visible = p.sweat > .05 && (i === 0 || p.sweat > .7);
+      if (!s.visible) return;
+      const d = (t * 1.1 + k + i * .5) % 1;
+      place(s, ch.S, (i ? -1 : 1) * (.7 - d * .06), .5 - d * .55, .035);
+      s.quaternion.identity();
+    });
+    ch.hair.sway.forEach((s, i) => { s.obj.rotation.z = Math.sin(t * (s.fast ? 6 : 2.2) + i) * s.amp * (p.float ? 1.6 : p.shake ? 1 : .35); s.obj.rotation.x = p.float ? Math.sin(t * 1.4 + i) * s.amp * .6 : 0; });
+    ch.stars.forEach((s, i) => { s.visible = p.dizzy > .3; const a = t * 2.5 + i * 2.09; s.position.set(Math.cos(a) * 1.25, 1.7 + Math.sin(a) * .12 + ch.body.position.y, Math.sin(a) * 1.0); s.rotation.y = t * 3; });
+    ch.smoke.forEach((s, i) => { s.visible = !!p.soot; const d = (t * .3 + i / 3) % 1; s.position.set(-1.1 + i * 1.1 + Math.sin(t + i) * .1, .8 + d * 1.6, .9); s.scale.setScalar(.6 + d * 1.0); s.material.opacity = .4 * (1 - d); });
+    ch.heat.intensity = p.heat ? 3 + Math.sin(t * 9) * 1 : 0;
+    ch.cabin.lamps.forEach((l, i) => l.visible = ch.mood === "panic" ? Math.sin(t * 8 + i) > 0 : Math.sin(t * .7 + i * 1.3) > -.6);
+    ch.buttons.forEach((b, i) => b.material.emissiveIntensity = ch.mood === "panic" ? (Math.sin(t * 10 + i * 2) > 0 ? 1.5 : .1) : .4);
+  }
+
+  // ---------- Виды ----------
+  const views = []; // { el, ch, opt }
+  function addView(el, c, mood, opt = {}) { const ch = buildCharacter(c, mood); views.push({ el, ch, opt }); return ch; }
+  function setMood(v, mood) { v.ch = buildCharacter(v.ch.c, mood); }
+
+  // 1. HUD
+  let hudMood = "strain";
+  const hudStrip = document.getElementById("hudStrip"), hudCap = document.getElementById("hudCap"), hudAlt = document.querySelector(".hud .alt"), hudChips = document.getElementById("hudMoods");
+  const hudViews = [];
+  [CREW[0], CREW[1], CREW[2]].forEach((c, i) => { const d = document.createElement("div"); d.className = "view"; hudStrip.appendChild(d); addView(d, c, hudMood, { seed: i }); hudViews.push(views[views.length - 1]); });
+  MOODS.forEach(m => {
+    const b = document.createElement("button"); b.className = "chip"; b.type = "button"; b.textContent = m.title; b.id = "hud-" + m.id;
+    b.setAttribute("aria-pressed", m.id === hudMood);
+    b.onclick = () => { hudMood = m.id; [...hudChips.children].forEach(x => x.setAttribute("aria-pressed", x === b)); hudAlt.textContent = m.alt; hudCap.textContent = `К-3 · ${m.title.toLowerCase()} ${m.sub}`; hudViews.forEach(v => setMood(v, m.id)); };
+    hudChips.appendChild(b);
+  });
+  hudAlt.textContent = MOODS[1].alt; hudCap.textContent = "К-3 · перегрузка и max Q";
+  const hudEl = document.getElementById("hud");
+  new ResizeObserver(() => { const s = hudEl.clientWidth / 852; hudStrip.style.top = (8 * s) + "px"; hudStrip.style.right = (92 * s) + "px"; hudStrip.style.gap = (3 * s) + "px"; hudViews.forEach(v => { v.el.style.width = (40 * s) + "px"; v.el.style.height = (46 * s) + "px"; }); }).observe(hudEl);
+
+  // 2. Матрица
+  const mt = document.getElementById("matrix");
+  mt.innerHTML = "<tr><th></th>" + MOODS.map(m => `<th>${m.title}<br><span style="color:var(--muted);font-weight:400">${m.sub}</span></th>`).join("") + "</tr>"
+    + CREW.map(c => `<tr><th class="row"><b>${c.name}</b>${c.role}<small>храбр. ${c.brave.toFixed(2)} · глуп. ${c.silly.toFixed(2)}</small></th>${MOODS.map(m => `<td><div class="view" role="img" aria-label="${c.name}: ${m.title.toLowerCase()}" data-c="${c.id}" data-m="${m.id}"></div></td>`).join("")}</tr>`).join("");
+  mt.querySelectorAll(".view").forEach(el => addView(el, CREW.find(x => x.id === el.dataset.c), el.dataset.m));
+
+  // 3. Характер
+  let labMood = "panic";
+  const lab = { ...CREW[0], id: "lera", name: "Новичок", brave: .5, silly: .5 };
+  const labEl = document.createElement("div"); labEl.className = "view"; document.getElementById("labFace").appendChild(labEl);
+  addView(labEl, lab, labMood, { char: lab, seed: 7 });
+  const labView = views[views.length - 1];
+  const labChips = document.getElementById("labMoods");
+  MOODS.forEach(m => {
+    const b = document.createElement("button"); b.className = "chip"; b.type = "button"; b.textContent = m.title; b.id = "lab-" + m.id;
+    b.setAttribute("aria-pressed", m.id === labMood);
+    b.onclick = () => { labMood = m.id; [...labChips.children].forEach(x => x.setAttribute("aria-pressed", x === b)); setMood(labView, m.id); };
+    labChips.appendChild(b);
+  });
+  ["brave", "silly"].forEach(id => { const i = document.getElementById(id), o = document.getElementById(id + "Out"); i.oninput = () => { lab[id] = +i.value; o.textContent = (+i.value).toFixed(2); }; });
+
+  // 5. Места
+  const seats = document.getElementById("seats");
+  const pod = (title, sub, members) => `<div class="pod"><h3>${title}<small>${sub}</small></h3><div class="row">${members.map(m => m ? `<div class="seat"><div class="view" data-seat="${m.id}"></div>${m.name}</div>` : `<div class="seat empty"><div class="box">+</div>пусто</div>`).join("")}</div></div>`;
+  seats.innerHTML = pod("Капсула К-3", "3 места", [CREW[0], CREW[1], null]) + pod("Капсула К-1", "1 место", [CREW[2]]) + pod("В резерве", "тап по месту — выбрать", [CREW[3]]);
+  seats.querySelectorAll("[data-seat]").forEach((el, i) => addView(el, CREW.find(x => x.id === el.dataset.seat), "calm", { seed: 20 + i }));
+
+  // ---------- Цикл: одна канва поверх страницы, у каждого портрета — свой вьюпорт ----------
+  function frame(now) {
+    const t = now / 1000;
+    const w = canvas.clientWidth, h = canvas.clientHeight;
+    if (canvas.width !== Math.floor(w * renderer.getPixelRatio()) || canvas.height !== Math.floor(h * renderer.getPixelRatio())) renderer.setSize(w, h, false);
+    renderer.setScissorTest(false); renderer.setClearColor(0x000000, 0); renderer.clear(); renderer.setScissorTest(true);
+    views.forEach(v => {
+      const r = v.el.getBoundingClientRect();
+      if (r.bottom < 0 || r.top > h || r.right < 0 || r.left > w || r.width < 2) return;
+      // Только видимая часть контейнера с прокруткой.
+      let clip = { left: 0, top: 0, right: w, bottom: h };
+      const sc = v.el.closest(".matrix, .hudwrap");
+      if (sc) { const s = sc.getBoundingClientRect(); clip = { left: Math.max(0, s.left), top: Math.max(0, s.top), right: Math.min(w, s.right), bottom: Math.min(h, s.bottom) }; }
+      const sl = Math.max(r.left, clip.left), sr = Math.min(r.right, clip.right), st = Math.max(r.top, clip.top), sb = Math.min(r.bottom, clip.bottom);
+      if (sr <= sl || sb <= st) return;
+      animate(v.ch, t, v.opt);
+      v.ch.camera.aspect = r.width / r.height; v.ch.camera.updateProjectionMatrix();
+      renderer.setViewport(r.left, h - r.bottom, r.width, r.height);
+      renderer.setScissor(sl, h - sb, sr - sl, sb - st);
+      renderer.render(v.ch.scene, v.ch.camera);
+    });
+    if (!reduce) requestAnimationFrame(frame);
+  }
+  if (reduce) { const still = () => frame(1200); still(); addEventListener("scroll", still, { passive: true }); addEventListener("resize", still); document.addEventListener("click", () => setTimeout(still, 0)); document.addEventListener("input", still); }
+  else requestAnimationFrame(frame);
+})();
+</script>

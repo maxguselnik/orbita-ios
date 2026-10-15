@@ -79,6 +79,48 @@ final class ProceduralAudio: FlightAudio {
         ensureRunning()
     }
 
+    /// Голоса экипажа: короткие синтезированные звуки без слов, не больше трёх за вызов.
+    func crew(_ cues: [CrewCue]) {
+        guard isEnabled else { return }
+        var voices: [CrewVoiceCue] = []
+        for cue in cues {
+            guard voices.count < 3, let kind = Self.voiceKind(cue.mood) else { continue }
+            let tone = Self.tone(for: cue.memberID)
+            voices.append(CrewVoiceCue(kind: kind, pitch: tone.pitch, formantScale: tone.formants,
+                                       delay: Double(voices.count) * 0.11))
+        }
+        guard !voices.isEmpty else { return }
+        control.crewCount = voices.count
+        control.crew0 = voices[0]
+        control.crew1 = voices.count > 1 ? voices[1] : CrewVoiceCue()
+        control.crew2 = voices.count > 2 ? voices[2] : CrewVoiceCue()
+        control.crewSerial &+= 1
+        push()
+        ensureRunning()
+    }
+
+    private static func voiceKind(_ mood: CrewMood) -> CrewVoiceKind? {
+        switch mood {
+        case .calm: nil
+        case .awe: .awe
+        case .joy: .joy
+        case .strain: .strain
+        case .panic: .panic
+        case .crash: .crash
+        }
+    }
+
+    /// Основной тон и сдвиг формант по члену экипажа; Гоша — писклявый, неизвестный id — средний тон.
+    private static func tone(for id: String) -> (pitch: Double, formants: Double) {
+        switch id {
+        case "lera": (260, 1.05)
+        case "anton": (140, 0.9)
+        case "mira": (300, 1.1)
+        case "gosha": (190 * 1.4, 1.25)
+        default: (200, 1.0)
+        }
+    }
+
     // MARK: - Движок
 
     private func push() {
@@ -162,6 +204,7 @@ final class ProceduralAudio: FlightAudio {
         control.sampleRate = old.sampleRate
         control.serial = old.serial &+ 1
         control.shots = old.shots
+        control.crewSerial = old.crewSerial
         control.resetToken = old.resetToken &+ 1
         push()
     }

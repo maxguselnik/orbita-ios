@@ -102,8 +102,6 @@ enum PatchBuilder {
         mesh.normals.reserveCapacity(mesh.positions.capacity)
         mesh.uvs.reserveCapacity(mesh.positions.capacity)
         mesh.indices.reserveCapacity(n * n * 6 + 4 * n * 12)
-        let noiseScale = radius / (body == .terra ? 900 : 300)
-        let cellSize = CubeSphere.size(key, radius: radius) / Double(n)
 
         for j in 0...n {
             for i in 0...n {
@@ -118,10 +116,9 @@ enum PatchBuilder {
                     normal = simd_normalize(simd_cross(du, dv))
                     if simd_dot(normal, d) < 0 { normal = -normal }
                 }
-                let uv = Palette.terrainUV(body: body, direction: d, height: h,
-                                           noise: hashNoise(d, scale: noiseScale), cell: cellSize,
-                                           slope: 1 - simd_dot(normal, d),
-                                           craterShade: body == .luna ? Terrain.craterShade(body: body, direction: vec3(d)) : 0)
+                let uv = PlanetSurface.uv(face: face,
+                                          a: a0 + span * Double(i) / Double(n),
+                                          b: b0 + span * Double(j) / Double(n))
                 mesh.vertex(f3(pts[k] - center), f3(normal), uv)
             }
         }

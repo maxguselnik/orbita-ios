@@ -73,6 +73,8 @@ struct MapSnapshot: Sendable {
 protocol FlightAudio: AnyObject {
     var isEnabled: Bool { get set }
     func update(snapshot: WorldSnapshot, events: [SimEvent])
+    /// Экипаж вошёл в настроение (5.4).
+    func crew(_ cues: [CrewCue])
 }
 
 /// Поток D: вибрация.
@@ -80,6 +82,18 @@ protocol FlightAudio: AnyObject {
 protocol FlightHaptics: AnyObject {
     var isEnabled: Bool { get set }
     func update(snapshot: WorldSnapshot, events: [SimEvent])
+    /// Экипаж вошёл в настроение (5.4).
+    func crew(_ cues: [CrewCue])
+}
+
+extension FlightAudio {
+    /// Голосовые реакции экипажа (5.4); по умолчанию — тишина.
+    func crew(_ cues: [CrewCue]) {}
+}
+
+extension FlightHaptics {
+    /// Вибрация реакций экипажа (5.4); по умолчанию — нет.
+    func crew(_ cues: [CrewCue]) {}
 }
 
 /// Призрак в превью ангара: детали проекта, которые сейчас тянут пальцем (полупрозрачные).

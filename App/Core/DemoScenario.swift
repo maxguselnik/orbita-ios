@@ -20,8 +20,6 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case tutorial
     /// Урок «Полёт к Луне» на орбите 80 км (первый шаг).
     case tutorialLuna
-    /// Урок «Все кнопки» на площадке (первый шаг).
-    case tutorialControls
     /// Подъём на автопилоте, около max Q.
     case ascent
     /// Подъём на автопилоте, около 1 Маха (конденсационный конус, тряска).
@@ -53,13 +51,17 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case mapManeuver
     /// Карта при входе в сферу влияния Луны, фокус на Луне.
     case mapLuna
+    /// Экипаж (5.4): все персонажи × все настроения крупно поверх полёта на площадке.
+    case crewGallery
+    /// Экипаж из трёх в HUD с принудительным настроением: площадка, подъём у max Q, орбита, вход в атмосферу,
+    /// Луна после посадки, падение без купола.
+    case crewCalm, crewStrain, crewAwe, crewPanic, crewJoy, crewCrash
 
     /// Урок обучения, который открывает сцена.
     var tutorial: TutorialID? {
         switch self {
         case .tutorial: .firstFlight
         case .tutorialLuna: .toLuna
-        case .tutorialControls: .controls
         default: nil
         }
     }
@@ -77,6 +79,24 @@ enum DemoScenario: String, CaseIterable, Sendable {
         self == .mapLuna ? .luna : .vessel
     }
 
+    /// Экипаж сцены; nil — по местам кабин корабля.
+    var crew: [CrewMember]? {
+        crewOverride == nil && self != .crewGallery ? nil : Array(CrewRoster.standard.prefix(3))
+    }
+
+    /// Принудительное настроение экипажа (сцены экипажа).
+    var crewOverride: CrewMood? {
+        switch self {
+        case .crewCalm: .calm
+        case .crewStrain: .strain
+        case .crewAwe: .awe
+        case .crewPanic: .panic
+        case .crewJoy: .joy
+        case .crewCrash: .crash
+        default: nil
+        }
+    }
+
     /// Сценарий из аргумента `-screen`, nil — обычный запуск.
     static var fromArguments: DemoScenario? {
         let args = ProcessInfo.processInfo.arguments
@@ -90,8 +110,14 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial, .tutorialControls:
+        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial,
+             .crewGallery, .crewCalm:
             return FlightSim(design: .orbit)
+        case .crewStrain: return DemoScenario.ascent.makeSimulation()
+        case .crewAwe: return DemoScenario.orbit.makeSimulation()
+        case .crewPanic: return DemoScenario.reentry.makeSimulation()
+        case .crewJoy: return DemoScenario.lunaSurface.makeSimulation()
+        case .crewCrash: return DemoScenario.crash.makeSimulation()
         case .tutorialLuna:
             return TutorialID.toLuna.makeSimulation()
         case .ascent:
@@ -192,33 +218,14 @@ enum DemoScenario: String, CaseIterable, Sendable {
                          attitude: Quat(basisX: side, y: nose, z: side.cross(nose)))
     }
 
-    /// Узел перелёта к Луне: ближайшая точка орбиты с гомановской фазой, прогрейд — гомановский,
-    /// доведённый до Пе у Луны ≈ 30 км (`TrajectoryPredictor.tuneLunaPeriapsis`).
+    /// Узел перелёта к Луне (`ManeuverPlanner.plan(.toLuna, …)`): гомановская фаза, Пе у Луны ≈ 30 км.
     static func lunaTransferNode(_ world: WorldSnapshot) -> ManeuverNode {
         guard let v = world.vessels.first(where: { $0.id == world.activeVessel }) else {
             return ManeuverNode(time: world.time + 600)
         }
-        let mu = Bodies.terra.mu
-        let target = TrajectoryPredictor.hohmannLunaPhase(radius: v.position.length)
-        let period = OrbitElements(position: v.position, velocity: v.velocity, mu: mu).period
-        // Фаза за оборот корабля меняется на ~2π; ищем первое приближение к нужной в пределах двух оборотов.
-        let horizon = period.isFinite ? 2 * period : 20_000
-        var best = (dt: 60.0, error: Double.infinity)
-        var dt = 60.0
-        while dt < horizon {
-            let s = Kepler.propagate(position: v.position, velocity: v.velocity, mu: mu, dt: dt)
-            let phase = TrajectoryPredictor.lunaPhase(position: s.position, velocity: s.velocity, time: world.time + dt)
-            let error = abs(remainder(phase - target, 2 * Double.pi))
-            if error < best.error { best = (dt, error) }
-            if error < 0.01 { break }
-            dt += 5
-        }
-        let radius = v.position.length
-        let hohmann = ManeuverNode(time: world.time + best.dt, prograde: TrajectoryPredictor.hohmannLunaDeltaV(radius: radius))
-        // Гоман целит почти в центр Луны: доводим прогрейд до Пе у Луны ≈ 30 км (не вышло — как есть).
-        return TrajectoryPredictor.tuneLunaPeriapsis(node: hohmann, body: v.body,
-                                                     state: StateVector(position: v.position, velocity: v.velocity),
-                                                     time: world.time) ?? hohmann
+        return ManeuverPlanner.plan(.toLuna, body: v.body,
+                                    state: StateVector(position: v.position, velocity: v.velocity),
+                                    time: world.time) ?? ManeuverNode(time: world.time + 600)
     }
 
     /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
@@ -251,6 +258,8 @@ final class ScenarioFlight: FlightSimulation, FlightCheckpointing {
             _ = sim.advance(realDelta: ap.frameDelta)
         }
         if !keepAutopilot {
+            // Направление автопилота перебивает SAS: без него корабль не слушается ни SAS, ни автопрожига.
+            sim.autopilotDirection = nil
             sim.send(.setWarp(index: 0))
             sim.setInput(.neutral)
         }

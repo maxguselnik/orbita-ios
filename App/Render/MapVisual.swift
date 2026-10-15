@@ -58,6 +58,7 @@ final class MapVisual {
     private var cloudTime = 0.0
     private var terraMesh: MeshResource?
     private var lunaMesh: MeshResource?
+    var areBodiesReady: Bool { terraMesh != nil && lunaMesh != nil }
 
     init() {
         root.isEnabled = false
@@ -123,7 +124,7 @@ final class MapVisual {
 
     // MARK: - Тела
 
-    /// Текстурные материалы рельефа (палитры), когда готовы.
+    /// Материалы с готовыми атласами рельефа, когда готовы.
     func setMaterials(terra: any Material, luna: any Material) {
         terraMaterial = terra
         lunaMaterial = luna

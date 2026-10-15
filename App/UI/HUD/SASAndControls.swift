@@ -224,6 +224,7 @@ struct SASToggleButton: View {
         }
         .buttonStyle(HUDButtonStyle())
         .accessibilityLabel(on ? "Выключить SAS, сейчас: " + SASGrid.fullName(current) : "Включить SAS")
+        .longPressHint("SAS — автопилот: сам держит нос, куда вы указали")
     }
 }
 
@@ -356,6 +357,16 @@ struct StageButton: View {
     var highlighted = false
 
     static let height: CGFloat = 44
+
+    /// Подсказка по долгому нажатию: что сделает кнопка сейчас.
+    static func hint(_ action: StageAction) -> String {
+        switch action {
+        case .ignite: "ПУСК — зажечь двигатели ступени"
+        case .separate: "ОТДЕЛИТЬ — сбросить пустую нижнюю ступень"
+        case .armChute: "ПАРАШЮТ — раскрыть парашют для посадки"
+        case .none: "Все ступени уже использованы"
+        }
+    }
     private static let rim = Color(red: 1.0, green: 0xD0 / 255, blue: 0x8A / 255)
 
     var body: some View {
@@ -409,5 +420,6 @@ struct StageButton: View {
         .hudPulse(pulse, corner: Self.height / 2)
         .disabled(!enabled)
         .accessibilityLabel(enabled ? "\(word), ступень \(t.number), \(detail)" : "Нет действий, " + detail)
+        .longPressHint(Self.hint(t.action))
     }
 }

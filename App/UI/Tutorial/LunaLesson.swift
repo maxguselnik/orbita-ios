@@ -1,13 +1,13 @@
 import Foundation
 import OrbitPhysics
 
-/// Урок «Полёт к Луне»: корабль «Луна» уже на орбите Терры 80 км. Карта, узел «К Луне», подстройка ручкой,
-/// «К узлу», SAS «УЗЕЛ», прожиг по остатку, перелёт, торможение у Луны, посадка.
+/// Урок «Полёт к Луне»: корабль «Луна» уже на орбите Терры 80 км. Карта, «К Луне», «Выполнить манёвр»
+/// (автопрожиг с коррекцией), ускорение до Луны, захват («Скруглить орбиту» + «Выполнить манёвр»), посадка.
 typealias LunaLesson = ScriptLesson<LunaStep>
 
 enum LunaStep: Int, CaseIterable, ScriptStep {
-    case intro, openMap, mapIntro, lunaNode, encounter, tune, toNode, sasNode
-    case burn, coast, brake, land, finish
+    case intro, openMap, lunaNode, encounter, execute
+    case coast, captureNode, captureBurn, retro, brake, land, finish
 
     static var sequence: [LunaStep] { allCases }
     static var endsWithSummary: Bool { true }
@@ -18,10 +18,10 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
     static var periapsisRangeText: String {
         "\(Int(periapsisRange.lowerBound / 1_000))–\(Int(periapsisRange.upperBound / 1_000))"
     }
-    /// Шаг «К узлу» закончен, когда до начала прожига осталось столько секунд.
-    static let burnArrival = ManeuverStatus.warpLead + 5
     /// Апоцентр у Луны, ниже которого орбита считается пойманной, м.
     static let captureApoapsis = 100_000.0
+    /// Скорость относительно грунта, ниже которой торможение окончено и начинается посадка, м/с.
+    static let brakedSpeed = 100.0
     /// Порог «тяга 0».
     static let throttleLow = 0.05
     /// Апоцентр у Терры, выше которого перелёт считается выполненным без узла (узел удалили после прожига), м.
@@ -29,17 +29,19 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
 
     var kind: LessonKind {
         switch self {
-        case .intro, .mapIntro, .encounter, .finish: .pause
-        case .burn, .brake, .land: .live
-        case .openMap, .lunaNode, .tune, .toNode, .sasNode, .coast: .wait
+        case .intro, .encounter, .finish: .pause
+        case .brake, .land: .live
+        case .openMap, .lunaNode, .execute, .coast, .captureNode, .captureBurn, .retro: .wait
         }
     }
 
     var screen: LessonScreen {
         switch self {
         case .intro: .flight
-        case .mapIntro, .lunaNode, .encounter, .tune, .toNode, .sasNode: .map
-        case .openMap, .burn, .coast, .brake, .land, .finish: .any
+        case .lunaNode, .encounter, .execute, .captureNode, .captureBurn: .map
+        // SAS и тяга есть только в полёте: с карты шаг просит «Полёт».
+        case .retro, .brake, .land: .flight
+        case .openMap, .coast, .finish: .any
         }
     }
 
@@ -47,24 +49,31 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
         switch self {
         case .intro, .finish: nil
         case .openMap: .mapButton
-        case .mapIntro, .encounter: .mapSummary
+        case .encounter: .mapSummary
         case .lunaNode: .mapLuna
-        case .tune: .mapHandle
-        case .toNode: .mapToNode
-        case .sasNode: .mapSASNode
-        case .burn, .land: .throttle
+        case .execute, .captureBurn: .mapExecute
+        case .captureNode: .mapCircularize
+        case .land: .throttle
         case .coast: .warp
-        case .brake: .sas
+        case .retro: .sas
+        case .brake: .throttle
         }
     }
 
-    /// Ручку тянут, глядя на линию и сводку: без затемнения, остальные ручки и «К Луне» доступны.
-    var freeHands: Bool { self == .tune }
-    var platesWhileHolding: Bool { self == .tune }
+    var numbered: Bool { self != .intro && self != .finish }
+
+    func fallback(_ i: LessonInput) -> LunaStep? {
+        switch self {
+        case .execute where i.telemetry.maneuver == nil && !Self.transferDone(i.telemetry): .lunaNode
+        case .captureBurn where i.telemetry.maneuver == nil && !Self.captured(i.telemetry): .captureNode
+        default: nil
+        }
+    }
 
     func trigger(_ i: LessonInput, from start: LessonBaseline) -> Bool {
         switch self {
-        case .toNode, .coast: i.telemetry.warpIndex > 0
+        case .execute, .captureBurn: i.autoBurn
+        case .coast: i.telemetry.warpIndex > 0
         default: false
         }
     }
@@ -72,25 +81,24 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
     func isComplete(_ i: LessonInput, from start: LessonBaseline) -> Bool {
         let t = i.telemetry
         switch self {
-        case .intro, .mapIntro, .encounter, .finish:
+        case .intro, .encounter, .finish:
             return false
         case .openMap:
             return i.mapOpen
         case .lunaNode:
             return t.maneuver != nil
-        case .tune:
-            return i.lunaPeriapsis.map { Self.periapsisRange.contains($0) } ?? false
-        case .toNode:
-            guard let m = t.maneuver else { return false }
-            return m.timeToBurn <= Self.burnArrival
-        case .sasNode:
-            return t.sas == .maneuver
-        case .burn:
-            return i.throttle <= Self.throttleLow && Self.transferDone(t)
+        case .execute:
+            return !i.autoBurn && i.throttle <= Self.throttleLow && Self.transferDone(t)
         case .coast:
             return t.body == .luna
+        case .captureNode:
+            return t.body == .luna && t.maneuver != nil
+        case .captureBurn:
+            return !i.autoBurn && i.throttle <= Self.throttleLow && Self.captured(t)
+        case .retro:
+            return t.sas == .retrograde
         case .brake:
-            return Self.landedOnLuna(t) || Self.captured(t)
+            return Self.landedOnLuna(t) || t.surfaceSpeed < Self.brakedSpeed
         case .land:
             return Self.landedOnLuna(t)
         }
@@ -99,8 +107,10 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
     func failure(_ i: LessonInput) -> String? {
         let t = i.telemetry
         switch self {
-        case .burn:
+        case .execute:
             return t.maneuver == nil && !Self.transferDone(t) ? "Узел удалён — повторите шаг" : nil
+        case .captureBurn:
+            return t.maneuver == nil && !Self.captured(t) ? "Узел удалён — повторите шаг" : nil
         case .brake, .land:
             if t.situation == .crashed { return Self.crashText(i) }
             if t.body == .terra, t.mission.enteredLunaSOI { return "Корабль пролетел мимо Луны" }
@@ -150,40 +160,42 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
             return LessonBubble(title: "Полёт к Луне",
                                 text: "Вы на орбите Терры. Цель — перелететь к Луне и сесть.", button: "Понятно")
         case .openMap:
-            return LessonBubble(title: "Карта", text: "Перелёт планируют на карте. Нажмите кнопку карты.", button: nil)
-        case .mapIntro:
-            return LessonBubble(title: "Орбита и Луна",
-                                text: "Голубая линия — ваша орбита. Справа Луна, пунктир вокруг — где её притяжение сильнее Терры.",
-                                button: "Дальше")
+            return LessonBubble(title: "Карта", text: "Нажмите кнопку «Карта» справа вверху.", button: nil,
+                                why: "Перелёт планируют на карте: там видны орбита, Луна и точка, где включать двигатель.")
         case .lunaNode:
-            return LessonBubble(title: "Узел манёвра",
-                                text: "Нажмите «К Луне»: игра поставит точку прожига в нужном месте орбиты.", button: nil)
+            return LessonBubble(title: "Куда летим?", text: "Нажмите «К Луне» слева.", button: nil,
+                                why: "Игра сама поставит узел — точку прожига — в нужном месте орбиты.")
         case .encounter:
-            return LessonBubble(title: "Фиолетовая — встреча",
-                                text: "После прожига вы долетите до Луны. Вверху — Пе у Луны и время в пути.",
-                                button: "Дальше")
-        case .tune:
-            return LessonBubble(title: "Ручки Δv",
-                                text: "Ручка «разгон» — импульс по ходу. Пе у Луны должен быть \(Self.periapsisRangeText) км: "
-                                    + "тяните ручку чуть-чуть или жмите ±0.1 в панели узла.",
-                                button: nil)
-        case .toNode:
-            return LessonBubble(title: "Ускорение до узла",
-                                text: "Нажмите «К узлу»: время ускорится и остановится за \(Int(ManeuverStatus.warpLead)) с до прожига.",
-                                button: nil)
-        case .sasNode:
-            return LessonBubble(title: "Нос на узел",
-                                text: "Включите SAS «УЗЕЛ» — корабль сам повернётся к синей метке прожига.", button: nil)
+            return LessonBubble(title: "Фиолетовая линия — встреча",
+                                text: "После прожига вы долетите до Луны. В сводке: Пе у Луны "
+                                    + "\(Self.periapsisRangeText) км с галочкой — то, что нужно.",
+                                button: "Дальше",
+                                why: "Пе — самая близкая точка к Луне. Слишком близко — упадёте, слишком далеко — пролетите мимо.")
+        case .execute:
+            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа внизу.",
+                                button: nil,
+                                why: "Корабль сам долетит до узла, развернётся, сделает прожиг и поправит курс.")
         case .coast:
             let way = Self.timeToEncounter(i).map { "До Луны \(HUDFormat.countdown($0))." } ?? "До Луны несколько часов."
-            return LessonBubble(title: "Долго лететь",
-                                text: way + " Ускорьте время — у Луны игра сама замедлится.", button: nil)
+            return LessonBubble(title: "Ускорение времени", text: way + " Нажмите ▶▶ вверху слева.", button: nil,
+                                why: "Лететь долго. На ускорении время идёт быстрее; у Луны игра сама вернёт обычную скорость.")
+        case .captureNode:
+            return LessonBubble(title: "Захват", text: "Вы у Луны. Откройте карту и нажмите «Скруглить орбиту».",
+                                button: nil,
+                                why: "Сейчас корабль пролетит мимо. Торможение у ближней точки (Пе) превратит пролёт в орбиту вокруг Луны.")
+        case .captureBurn:
+            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа внизу.",
+                                button: nil, why: "Корабль сам затормозит у Пе — и Луна его «поймает».")
+        case .retro:
+            return LessonBubble(title: "Ретро", text: "Выберите SAS «Ретро» — нос развернётся против движения.",
+                                button: nil,
+                                why: "Двигатель тормозит, только если смотрит против полёта. Чтобы сесть, нужно погасить скорость.")
         case .finish:
             let soft = i.touchdownSpeed.map { "Посадка мягкая: \(HUDFormat.speed($0))." } ?? "Посадка мягкая."
             return LessonBubble(title: "Вы на Луне!",
                                 text: soft + " Можно взлететь обратно — урок «Возврат» позже.",
                                 button: "В ангар", role: .hangar, exitTitle: "Остаться на Луне")
-        case .burn, .brake, .land:
+        case .brake, .land:
             return nil
         }
     }
@@ -191,37 +203,18 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
     func plate(_ i: LessonInput) -> LivePlate? {
         let t = i.telemetry
         switch self {
-        case .tune:
-            guard let peri = i.lunaPeriapsis else {
-                return LivePlate(head: "Встречи с Луной нет · ", value: "тяните «разгон»")
-            }
-            return LivePlate(head: "Пе у Луны ", value: HUDFormat.distance(peri), tail: " · цель \(Self.periapsisRangeText) км")
-        case .toNode:
-            return LivePlate(head: "Летим к узлу · до прожига ", value: HUDFormat.countdown(t.maneuver?.timeToBurn))
-        case .burn:
-            return Self.burnPlate(i)
+        case .execute, .captureBurn:
+            return LivePlate.burn(i)
         case .coast:
             return LivePlate(head: "Летим к Луне · до встречи ", value: HUDFormat.countdown(Self.timeToEncounter(i)))
         case .brake:
-            let apo = t.body == .luna ? t.orbit?.apoapsisAltitude ?? .infinity : .infinity
-            return LivePlate(head: "SAS «Ретро», тяга MAX у Пе · Ап у Луны ", value: HUDFormat.distance(apo),
-                             tail: " → меньше 100 км")
+            return LivePlate(head: "Тяга MAX, нос по ретро · скорость ", value: HUDFormat.speed(t.surfaceSpeed),
+                             tail: " → меньше \(Int(Self.brakedSpeed)) м/с")
         case .land:
             let value = HUDFormat.distance(t.heightAboveTerrain) + ", скорость " + HUDFormat.speed(t.surfaceSpeed)
-            return LivePlate(head: "Ретро, тяга по ситуации · высота ", value: value, tail: " → у грунта < 5 м/с")
-        case .intro, .openMap, .mapIntro, .lunaNode, .encounter, .sasNode, .finish:
+            return LivePlate(head: "Тяга по ситуации · высота ", value: value, tail: " → у грунта < 5 м/с")
+        case .intro, .openMap, .lunaNode, .encounter, .captureNode, .retro, .finish:
             return nil
         }
-    }
-
-    static func burnPlate(_ i: LessonInput) -> LivePlate {
-        guard let m = i.telemetry.maneuver, !m.isDone else {
-            return LivePlate(head: "Прожиг выполнен · ", value: "тяга 0")
-        }
-        if m.timeToBurn > 0, m.remainingDeltaV >= m.deltaV - 0.5 {
-            return LivePlate(head: "Прожиг через ", value: HUDFormat.countdown(m.timeToBurn), tail: " · затем тяга MAX")
-        }
-        return LivePlate(head: "Тяга MAX · осталось ", value: HUDFormat.speed(m.remainingDeltaV),
-                         tail: " из \(HUDFormat.grouped(m.deltaV)) · тяга 0 при 0")
     }
 }

@@ -16,6 +16,7 @@ struct HangarView: View {
     @State private var renaming = false
     @State private var draftName = ""
     @State private var showLessons = false
+    @State private var showCrew = false
     @State private var confirmClear = false
 
     private static let catalogWidth: CGFloat = 158
@@ -51,13 +52,21 @@ struct HangarView: View {
                 HangarStagePanel(model: model)
                     .frame(width: Self.stageWidth)
             }
-            HangarToolbar(model: model, onLessons: { showLessons = true }, onClear: { confirmClear = true })
+            HangarToolbar(model: model, crewOpen: showCrew, onCrew: { showCrew.toggle() }, onLessons: { showLessons = true }, onClear: { confirmClear = true })
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
         .background(Color(red: 0.05, green: 0.06, blue: 0.09).ignoresSafeArea())
         .coordinateSpace(.named(hangarSpace))
         .overlay { lessonList }
+        .overlay(alignment: .bottomTrailing) {
+            if showCrew {
+                HangarCrewPanel(model: model, onClose: { showCrew = false })
+                    .frame(width: 330)
+                    .padding(.trailing, Self.stageWidth + 14)
+                    .padding(.bottom, 54)
+            }
+        }
         .onAppear {
             projects = ShipStore.list()
             model.designChanged()

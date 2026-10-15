@@ -4,7 +4,7 @@ import SwiftUI
 struct PauseMenu: View {
     let model: FlightHUDModel
     let onHangar: () -> Void
-    /// Урок — новый полёт («Первый полёт», «К Луне»); «Все кнопки» идут поверх текущего полёта.
+    /// Урок — новый полёт («Первый полёт», «К Луне»).
     var onTutorial: (TutorialID) -> Void = { _ in }
 
     @State private var note: String?
@@ -17,18 +17,10 @@ struct PauseMenu: View {
                 .onTapGesture { model.resume() }
 
             if showLessons {
-                TutorialListPanel(context: .flight, onStart: start, onClose: { showLessons = false })
+                TutorialListPanel(context: .flight, onStart: onTutorial, onClose: { showLessons = false })
             } else {
                 menu
             }
-        }
-    }
-
-    private func start(_ id: TutorialID) {
-        if id == .controls {
-            model.startTour()
-        } else {
-            onTutorial(id)
         }
     }
 

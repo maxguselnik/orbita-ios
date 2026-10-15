@@ -43,6 +43,8 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.maxguselnik.orbita
         TARGETED_DEVICE_FAMILY: "1"
         CODE_SIGN_STYLE: Automatic
+        # Каталог содержит текстуры планет; иконка приложения в нём не задана.
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
         # Team ID из переменной окружения, чтобы xcodegen generate не сбрасывал выбор.
         DEVELOPMENT_TEAM: ${ORBITA_TEAM}
         MARKETING_VERSION: 0.1.0

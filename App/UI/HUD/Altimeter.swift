@@ -30,6 +30,10 @@ struct AltimeterPanel: View {
             if t.body == .terra {
                 AtmosphereScale(altitude: t.altitude)
             }
+            if let apoapsis = Self.apoapsisToShow(t) {
+                ApoapsisRow(altitude: apoapsis)
+                    .tutorialAnchor(.apoapsis)
+            }
         }
         .padding(.top, 4)
         .padding(.bottom, 5)
@@ -43,6 +47,13 @@ struct AltimeterPanel: View {
         .accessibilityLabel("Высота \(HUDFormat.distance(shownAltitude(t))) \(AltimeterMode.label(overTerrain: model.altimeterOverTerrain))")
     }
 
+    /// Ап для строки «Ап …»: есть орбита, Ап выше 1 км и конечен, корабль не на грунте.
+    static func apoapsisToShow(_ t: FlightTelemetry) -> Double? {
+        guard t.situation != .prelaunch, t.situation != .landed, t.situation != .crashed,
+              let apo = t.orbit?.apoapsisAltitude, apo.isFinite, apo > 1_000 else { return nil }
+        return apo
+    }
+
     private func shownAltitude(_ t: FlightTelemetry) -> Double {
         model.altimeterOverTerrain ? t.heightAboveTerrain : t.altitude
     }
@@ -50,6 +61,25 @@ struct AltimeterPanel: View {
     private var shape: UnevenRoundedRectangle {
         UnevenRoundedRectangle(topLeadingRadius: 0, bottomLeadingRadius: 10,
                                bottomTrailingRadius: 10, topTrailingRadius: 0, style: .continuous)
+    }
+}
+
+/// «Ап 80 км» под высотомером: высшая точка орбиты видна с самого подъёма.
+struct ApoapsisRow: View {
+    let altitude: Double
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text("Ап")
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(HUDPalette.muted)
+            Text(HUDFormat.distance(altitude))
+                .font(.system(size: 11, weight: .heavy).monospacedDigit())
+                .foregroundStyle(HUDPalette.text)
+        }
+        .lineLimit(1)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Апоцентр \(HUDFormat.distance(altitude))")
     }
 }
 

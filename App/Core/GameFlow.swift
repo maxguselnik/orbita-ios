@@ -27,6 +27,12 @@ final class GameFlow {
     }
     /// Растёт при каждом старте: RootView создаёт новый полёт по этому ключу.
     private(set) var flightID = 0
+    /// Экипаж полёта (5.4): рассадка проекта или корабля урока; nil — по местам кабин корабля сцены.
+    var flightCrew: [CrewMember]? {
+        if let scenario { return scenario.crew }
+        if let tutorial { return tutorial.design.crew() }
+        return design.crew()
+    }
     /// Сценарий отладки/CI (`-screen`), для обычного старта — nil.
     private(set) var scenario: DemoScenario?
     /// Текущий урок обучения (полёт идёт по уроку), nil — обычный полёт.
@@ -269,30 +275,27 @@ enum TutorialID: String, CaseIterable, Sendable {
     case firstFlight
     /// «Полёт к Луне»: с орбиты 80 км — карта, узел, прожиг, захват, посадка.
     case toLuna
-    /// «Все кнопки»: тур по каждому элементу HUD и карты.
-    case controls
 
     var title: String {
         switch self {
         case .firstFlight: "Первый полёт"
         case .toLuna: "Полёт к Луне"
-        case .controls: "Все кнопки"
         }
     }
 
     /// Корабль урока.
     var design: VesselDesign {
         switch self {
-        case .firstFlight, .controls: .orbit
+        case .firstFlight: .orbit
         case .toLuna: .luna
         }
     }
 
-    /// Симуляция урока: «Первый полёт» и тур — с площадки; «К Луне» — корабль «Луна» на орбите 80 км
+    /// Симуляция урока: «Первый полёт» — с площадки; «К Луне» — корабль «Луна» на орбите 80 км
     /// (автопилот выводит за кадром, затем управление у игрока; откат шагов поддерживается).
     func makeSimulation() -> any FlightSimulation {
         switch self {
-        case .firstFlight, .controls:
+        case .firstFlight:
             return FlightSim(design: design)
         case .toLuna:
             return ScenarioFlight(design: design, goal: .orbit, keepAutopilot: false) { _, ap in ap.isFinished }
