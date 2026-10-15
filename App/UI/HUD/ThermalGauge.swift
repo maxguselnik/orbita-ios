@@ -55,7 +55,7 @@ struct ThermalGauge: View {
                 pill(d)
                 if d.shieldMisaligned {
                     Text("Экран не к потоку — SAS ретроград")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: HUDFont.caption, weight: .bold))
                         .foregroundStyle(Color.red)
                         .shadow(color: .black.opacity(0.85), radius: 2, y: 1)
                 }
@@ -71,14 +71,14 @@ struct ThermalGauge: View {
         return HStack(spacing: 5) {
             Image(systemName: "flame.fill").font(.system(size: 9))
             Text(d.partName).lineLimit(1).minimumScaleFactor(0.7)
-            Text(d.percentText).font(.system(size: 10, weight: .heavy).monospacedDigit())
+            Text(d.percentText).font(.system(size: HUDFont.caption, weight: .heavy).monospacedDigit())
             if d.hasShield {
                 Text("ЭКРАН \(Int((d.ablatorFraction * 100).rounded())) %")
-                    .font(.system(size: 9, weight: .heavy).monospacedDigit())
+                    .font(.system(size: HUDFont.caption, weight: .heavy).monospacedDigit())
                     .foregroundStyle(HUDPalette.muted)
             }
         }
-        .font(.system(size: 10, weight: .semibold))
+        .font(.system(size: HUDFont.caption, weight: .semibold))
         .foregroundStyle(tint)
         .padding(.horizontal, 8)
         .frame(height: 18)

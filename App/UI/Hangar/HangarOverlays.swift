@@ -84,7 +84,7 @@ struct HangarMarkerOverlay: View {
         }
         context.fill(path, with: .color(Color.black.opacity(0.55)))
         context.stroke(path, with: .color(color), lineWidth: 2)
-        let label = Text(title).font(.system(size: 10, weight: .heavy)).foregroundStyle(color)
+        let label = Text(title).font(.system(size: HUDFont.caption, weight: .heavy)).foregroundStyle(color)
         context.draw(label, at: CGPoint(x: p.x + r + 12, y: p.y), anchor: .center)
     }
 }
@@ -149,12 +149,12 @@ struct GizmoPanel: View {
                 ForEach(rows(rotate: rotate), id: \.axis) { item in
                     HStack(spacing: 2) {
                         Text(item.title)
-                            .font(.system(size: 10.5, weight: .bold))
-                            .frame(width: 50, alignment: .leading)
+                            .font(.system(size: HUDFont.caption, weight: .bold))
+                            .frame(width: 58, alignment: .leading)
                         nudgeButton("minus", axis: item.axis, direction: -1)
                         Text(valueText(node, axis: item.axis, rotate: rotate))
                             .font(.system(size: 11.5, weight: .semibold).monospacedDigit())
-                            .frame(width: 52)
+                            .frame(width: 48)
                         nudgeButton("plus", axis: item.axis, direction: 1)
                     }
                 }
@@ -166,7 +166,7 @@ struct GizmoPanel: View {
             }
             .foregroundStyle(.white)
             .padding(6)
-            .frame(width: 176)
+            .frame(width: 196)
             .hudBackground(Color.black.opacity(0.78), corner: 10)
         }
     }
@@ -213,7 +213,7 @@ struct HangarStatStrip: View {
             } label: {
                 HStack(spacing: 3) {
                     Text(model.environment.title).font(.system(size: 11.5, weight: .bold)).lineLimit(1)
-                    Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                    Image(systemName: "chevron.down").font(.system(size: HUDFont.caption, weight: .bold))
                 }
                 .foregroundStyle(.white)
                 .padding(.horizontal, 8)
@@ -230,7 +230,7 @@ struct HangarStatStrip: View {
     private func metric(_ label: String, _ value: String, warn: Bool = false) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 3) {
             if !label.isEmpty {
-                Text(label).font(.system(size: 9.5, weight: .bold)).foregroundStyle(HUDStyle.secondaryText)
+                Text(label).font(.system(size: HUDFont.caption, weight: .bold)).foregroundStyle(HUDStyle.secondaryText)
             }
             Text(value)
                 .font(.system(size: 12.5, weight: .semibold).monospacedDigit())

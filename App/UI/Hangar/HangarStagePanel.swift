@@ -109,7 +109,7 @@ private struct StageRowView: View {
                 .foregroundStyle(lowTWR ? HUDStyle.accent : Color.white)
             Text(StageEditing.burnText(info.burnTime))
         }
-        .font(.system(size: 10, weight: .semibold).monospacedDigit())
+        .font(.system(size: HUDFont.caption, weight: .semibold).monospacedDigit())
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(.white)
@@ -128,7 +128,7 @@ private struct StageBadgeView: View {
             .background(Color.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
             .overlay(alignment: .topTrailing) {
                 if badge.count > 1 {
-                    Text("×\(badge.count)").font(.system(size: 8, weight: .heavy)).padding(2)
+                    Text("×\(badge.count)").font(.system(size: 10, weight: .heavy)).padding(2)
                 }
             }
             .accessibilityLabel(badge.part.spec.name + (badge.count > 1 ? " ×\(badge.count)" : ""))

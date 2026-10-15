@@ -30,7 +30,7 @@ struct CrewGallery: View {
                     HStack(spacing: 0) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(member.name).font(.system(size: 12, weight: .heavy)).foregroundStyle(.white)
-                            Text(member.role.title).font(.system(size: 10, weight: .medium))
+                            Text(member.role.title).font(.system(size: HUDFont.caption, weight: .medium))
                                 .foregroundStyle(HUDStyle.secondaryText)
                         }
                         .frame(width: Self.labelWidth, alignment: .leading)

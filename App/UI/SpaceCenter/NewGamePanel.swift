@@ -7,6 +7,8 @@ struct NewGamePanel: View {
     let onStart: (GameMode) -> Void
     let onCancel: () -> Void
 
+    @State private var pendingMode: GameMode?
+
     var body: some View {
         ZStack {
             Color.black.opacity(0.7).ignoresSafeArea()
@@ -32,15 +34,26 @@ struct NewGamePanel: View {
             .frame(maxWidth: 560)
             .hudBackground(Color.black.opacity(0.88), corner: 18)
         }
+        .alert("Стереть прогресс?",
+               isPresented: Binding(get: { pendingMode != nil }, set: { if !$0 { pendingMode = nil } }),
+               presenting: pendingMode) { mode in
+            Button("Стереть", role: .destructive) { onStart(mode) }
+            Button("Отмена", role: .cancel) {}
+        } message: { _ in
+            Text("Наука, вехи и проекты ракет будут удалены. Отменить нельзя.")
+        }
     }
 
     private func card(_ mode: GameMode, _ title: String, _ subtitle: String, enabled: Bool) -> some View {
-        Button { onStart(mode) } label: {
+        Button {
+            // canCancel == есть сохранённый прогресс (flow.progress != nil): тогда режим стирает его.
+            if canCancel { pendingMode = mode } else { onStart(mode) }
+        } label: {
             VStack(spacing: 6) {
                 Image(systemName: icon(mode)).font(.system(size: 24, weight: .semibold))
                 Text(title).font(.system(size: 16, weight: .heavy))
                 Text(subtitle)
-                    .font(.system(size: 11.5, weight: .medium))
+                    .font(.system(size: HUDFont.caption, weight: .medium))
                     .foregroundStyle(HUDStyle.secondaryText)
                     .multilineTextAlignment(.center)
             }

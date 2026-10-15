@@ -100,6 +100,10 @@ final class FlightHUDModel {
     private(set) var mapExpert = false
     /// Цель, по которой поставлен узел (простая карта); сбрасывается удалением узла и правкой в «Эксперт».
     private(set) var maneuverGoal: ManeuverGoal?
+    /// Только что удалённый узел: на карте 4 с горит «Вернуть узел».
+    private(set) var deletedNode: ManeuverNode?
+    @ObservationIgnored private var deletedNodeGoal: ManeuverGoal?
+    @ObservationIgnored private var deletedNodeExpiry: TimeInterval = 0
     /// Цели, доступные сейчас (обновляются не чаще 4 Гц, пока открыта карта).
     private(set) var availableGoals: [ManeuverGoal] = []
     /// Строка фазы автопрожига («Летим к узлу 31:41»); nil — автопрожиг не идёт. Меняется раз в секунду.
@@ -109,9 +113,8 @@ final class FlightHUDModel {
     @ObservationIgnored private var executor: ManeuverExecutor?
     /// Тяга, которую записал автопрожиг: любое другое значение — рука игрока.
     @ObservationIgnored private var autoThrottle = 0.0
-    /// Коррекций подряд после прожига цели (`ManeuverPlanner.correction`), не больше `maxCorrections`.
+    /// Коррекций подряд после прожига цели (`ManeuverPlanner.correction`), не больше `ManeuverPlanner.maxCorrections`.
     @ObservationIgnored private var corrections = 0
-    private static let maxCorrections = 2
     @ObservationIgnored private var lastGoalsRefresh = -Double.infinity
     static let mapExpertKey = "mapExpert"
     /// Период обновления списка целей, с (4 Гц).
@@ -167,6 +170,12 @@ final class FlightHUDModel {
             map.renderer = feedback?.renderer
         }
     }
+
+    /// Перед перезапуском и при выходе из урока — итоги полёта на этот момент (начисление науки; подключает RootView).
+    @ObservationIgnored var onRestart: ((MissionRecord) -> Void)?
+    @ObservationIgnored var onTutorialExit: ((MissionRecord) -> Void)?
+    /// Архив начислений за данные на момент старта (ценность результатов во вкладке «Наука»; подключает RootView).
+    @ObservationIgnored var scienceArchive = ScienceArchive()
 
     /// Интерактивный урок (nil — обычный полёт). Пока он держит физику на паузе, `tick` принимает ввод, но не двигает мир.
     private(set) var tutorial: TutorialController?
@@ -236,6 +245,9 @@ final class FlightHUDModel {
         lastFrameTime = now
         if toast != nil, now >= toastExpiry {
             self.toast = nil
+        }
+        if deletedNode != nil, now >= deletedNodeExpiry {
+            deletedNode = nil
         }
         if controlHint != nil, now >= controlHintExpiry {
             controlHint = nil
@@ -398,6 +410,7 @@ final class FlightHUDModel {
 
     /// «Выйти из урока»: полёт продолжается обычным.
     func exitTutorial() {
+        if tutorial?.isActive == true { onTutorialExit?(telemetry.mission) }
         tutorial?.exit()
         feedback?.setPaused(isPaused)
     }
@@ -445,9 +458,11 @@ final class FlightHUDModel {
 
     /// Перезапуск полёта.
     func restart() {
+        onRestart?(telemetry.mission)
         executor = nil
         autoBurnText = nil
         maneuverGoal = nil
+        deletedNode = nil
         dragDraft = nil
         dragDirty = false
         sim = makeSimulation()
@@ -607,12 +622,25 @@ final class FlightHUDModel {
     }
 
     func deleteManeuver() {
+        if let node = maneuverNode {
+            deletedNode = node
+            deletedNodeGoal = maneuverGoal
+            deletedNodeExpiry = CACurrentMediaTime() + 4
+        }
         dragDraft = nil
         dragDirty = false
         maneuverDrag = nil
         cancelExecutor(zeroThrottle: true)
         maneuverGoal = nil
         send(.setManeuver(nil))
+    }
+
+    /// «Вернуть узел»: ставит удалённый узел обратно (в течение 4 с после удаления).
+    func restoreDeletedNode() {
+        guard let node = deletedNode, maneuverNode == nil else { return }
+        deletedNode = nil
+        maneuverGoal = deletedNodeGoal
+        send(.setManeuver(node))
     }
 
     /// Ускорение «на рельсах» до начала прожига.
@@ -651,6 +679,18 @@ final class FlightHUDModel {
         cancelExecutor(zeroThrottle: true)
         maneuverGoal = goal
         send(.setManeuver(node))
+    }
+
+    /// Подпись окна отлёта к планете для меню «К планете»: «окно через 12 дн», «окно сейчас»; на перелёте — «поправить курс».
+    func planetWindowText(_ goal: ManeuverGoal) -> String? {
+        guard let id = goal.planet, let vessel = activeVesselState else { return nil }
+        guard vessel.body == .terra else { return vessel.body == .sol ? "поправить курс" : nil }
+        let el = OrbitElements(position: vessel.position, velocity: vessel.velocity, mu: Bodies.terra.mu)
+        guard el.isClosed, el.period.isFinite else { return nil }
+        let lead = PlanetTransfer.timeToDeparture(id, radius: vessel.position.length, period: el.period,
+                                                  time: snapshot.time)
+        let days = Int((lead / 86_400).rounded(.down))
+        return days < 1 ? "окно сейчас" : "окно через \(days) дн"
     }
 
     /// Прогрейд узла ± шаг кнопок «−/+» (`ManeuverPlanner.fineStep`), цель сохраняется.
@@ -736,7 +776,7 @@ final class FlightHUDModel {
             if out.phase == .done {
                 // Прожиг на конечной тяге неточен, а Пе у Луны/Терры чувствителен: доводим маленьким узлом.
                 if let goal, startCorrection(goal) {
-                    notify("Коррекция курса")
+                    if executor != nil { notify("Коррекция курса") }
                     return
                 }
                 maneuverGoal = nil
@@ -751,10 +791,10 @@ final class FlightHUDModel {
         if let toast = out.toast { notify(toast) }
     }
 
-    /// Узел коррекции для цели `maneuverGoal` после прожига; true — поставлен и автопрожиг продолжается.
+    /// Узел коррекции для цели `maneuverGoal` после прожига; true — поставлен (автопрожиг продолжается,
+    /// а для коррекции больше `PlanetTransfer.goodCorrection` ждёт «Выполнить» игрока).
     private func startCorrection(_ goal: ManeuverGoal) -> Bool {
-        guard goal == .toLuna || goal == .returnHome,
-              corrections < Self.maxCorrections, let vessel = activeVesselState,
+        guard corrections < ManeuverPlanner.maxCorrections(goal), let vessel = activeVesselState,
               let node = ManeuverPlanner.correction(goal, body: vessel.body,
                                                     state: StateVector(position: vessel.position, velocity: vessel.velocity),
                                                     time: snapshot.time)
@@ -762,6 +802,11 @@ final class FlightHUDModel {
         corrections += 1
         send(.setManeuver(node))
         maneuverGoal = goal
+        // Большая коррекция (неточный отлёт) — не жжём молча: узел стоит, игрок решает.
+        if node.deltaV > PlanetTransfer.goodCorrection {
+            notify("Коррекция \(HUDFormat.speed(node.deltaV)) — проверьте и нажмите «Выполнить»")
+            return true
+        }
         executor = ManeuverExecutor()
         autoBurnText = "Коррекция курса"
         return true

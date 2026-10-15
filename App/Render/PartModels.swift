@@ -251,6 +251,27 @@ enum PartModels {
             var fin = MeshBuilder()
             fin.prism(poly, halfThickness: 0.025)
             return [(fin, mats.orange)]
+        case .instrument:
+            // Прибор сбоку: корпус у борта (x = −d/2…0), снаружи — датчик своего вида; низ по Y — 0.
+            var housing = MeshBuilder()
+            housing.box(center: F3(-r / 2, h / 2, 0), x: F3(r / 2, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, 0.5 * r + 0.03))
+            var sensor = MeshBuilder()
+            switch id {
+            case .thermometer:
+                // Тонкий щуп с красной колбой на конце.
+                sensor.box(center: F3(r * 0.45, h * 0.5, 0), x: F3(r * 0.45, 0, 0), y: F3(0, 0.012, 0), z: F3(0, 0, 0.012))
+                var bulb = MeshBuilder()
+                bulb.box(center: F3(r * 0.92, h * 0.5, 0), x: F3(0.025, 0, 0), y: F3(0, 0.025, 0), z: F3(0, 0, 0.025))
+                return [(housing, mats.white), (sensor, mats.metal), (bulb, mats.red)]
+            case .barometer:
+                // Круглая шкала наружу.
+                sensor.box(center: F3(r * 0.08, h * 0.5, 0), x: F3(r * 0.08, 0, 0), y: F3(0, h * 0.32, 0), z: F3(0, 0, h * 0.32))
+                return [(housing, mats.lightGray), (sensor, mats.gold)]
+            default:
+                // Гравиметр: цилиндрический датчик на кронштейне.
+                sensor.box(center: F3(r * 0.4, h * 0.55, 0), x: F3(r * 0.4, 0, 0), y: F3(0, h * 0.3, 0), z: F3(0, 0, r * 0.4))
+                return [(housing, mats.darkGray), (sensor, mats.gold)]
+            }
         case .monoTank:
             let body = lathe([SIMD2(0, 0), SIMD2(r * 0.88, 0), SIMD2(r, 0.13 * h), SIMD2(r, 0.87 * h),
                               SIMD2(r * 0.88, h), SIMD2(0, h)])

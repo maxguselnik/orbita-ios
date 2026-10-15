@@ -58,6 +58,8 @@ struct ManeuverExecutor: Equatable {
     /// Узел, с которым начали: его правка = отмена.
     private var node: ManeuverNode?
     private var warpRequested = false
+    /// Тело, у которого просили ускорение: смена сферы влияния сбрасывает рельсы — просим снова.
+    private var warpBody: BodyID?
     /// Физическое ускорение включено автопрожигом (рельсы заблокированы атмосферой).
     private var physicalWarp = false
     private var started = false
@@ -96,10 +98,12 @@ struct ManeuverExecutor: Equatable {
         if lead > 0 {
             phase = .warping
             if lead > ManeuverStatus.warpLead + 5 {
+                if warpRequested, t.warpIndex == 0, t.body != warpBody { warpRequested = false }
                 if !warpRequested {
                     if t.warpBlocked == nil {
                         // Рельсы можно: один раз летим до узла, дальше ускорение держит физика.
                         warpRequested = true
+                        warpBody = t.body
                         physicalWarp = false
                         commands.append(.warpToManeuver)
                     } else if Self.blockedByGround(t.warpBlocked), !physicalWarp, t.warpIndex < Self.physicalTop {

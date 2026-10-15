@@ -2,7 +2,7 @@ import OrbitPhysics
 import SwiftUI
 
 /// Сборочный цех: каталог слева, 3D-вид с корабле-деревом в центре, редактор ступеней справа,
-/// сверху проекты и «Старт», снизу инструменты. Проект — `flow.design` (сохраняется сам).
+/// сверху проекты и «Пуск», снизу инструменты. Проект — `flow.design` (сохраняется сам).
 /// Деталь берётся пальцем (с плитки каталога или с корабля) и ставится на ближайшую точку крепления.
 struct HangarView: View {
     let flow: GameFlow
@@ -18,6 +18,7 @@ struct HangarView: View {
     @State private var showLessons = false
     @State private var showCrew = false
     @State private var confirmClear = false
+    @State private var projectToDelete: ShipStore.Entry?
 
     private static let catalogWidth: CGFloat = 158
     private static let stageWidth: CGFloat = 172
@@ -52,7 +53,7 @@ struct HangarView: View {
                 HangarStagePanel(model: model)
                     .frame(width: Self.stageWidth)
             }
-            HangarToolbar(model: model, crewOpen: showCrew, onCrew: { showCrew.toggle() }, onLessons: { showLessons = true }, onClear: { confirmClear = true })
+            HangarToolbar(model: model, crewOpen: showCrew, onCrew: { showCrew.toggle() }, onLessons: { showCrew = false; showLessons = true }, onClear: { confirmClear = true })
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
@@ -79,6 +80,12 @@ struct HangarView: View {
                 let name = draftName.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !name.isEmpty { model.rename(String(name.prefix(40))) }
             }
+            Button("Отмена", role: .cancel) {}
+        }
+        .alert(Text("Удалить проект „\(projectToDelete?.name ?? "")“?"),
+               isPresented: Binding(get: { projectToDelete != nil }, set: { if !$0 { projectToDelete = nil } }),
+               presenting: projectToDelete) { entry in
+            Button("Удалить", role: .destructive) { deleteProject(entry.id) }
             Button("Отмена", role: .cancel) {}
         }
         .confirmationDialog("Очистить проект?", isPresented: $confirmClear, titleVisibility: .visible) {
@@ -131,7 +138,7 @@ struct HangarView: View {
                 .accessibilityLabel("Повторить правку")
 
             Button { start(locked: locked) } label: {
-                Label("СТАРТ", systemImage: "play.fill")
+                Label("ПУСК", systemImage: "play.fill")
                     .font(.system(size: 16, weight: .heavy))
                     .padding(.horizontal, 10)
                     .frame(minWidth: 100, minHeight: 44)
@@ -182,14 +189,14 @@ struct HangarView: View {
             if !projects.isEmpty {
                 Menu("Удалить", systemImage: "trash") {
                     ForEach(projects) { entry in
-                        Button(entry.name, role: .destructive) { deleteProject(entry.id) }
+                        Button(entry.name, role: .destructive) { projectToDelete = entry }
                     }
                 }
             }
         } label: {
             HStack(spacing: 4) {
-                Text("Проекты").font(.system(size: 14, weight: .bold))
-                Image(systemName: "chevron.down").font(.system(size: 11, weight: .bold))
+                Text("Проекты").font(.system(size: HUDFont.body, weight: .bold))
+                Image(systemName: "chevron.down").font(.system(size: HUDFont.caption, weight: .bold))
             }
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
@@ -248,7 +255,6 @@ struct HangarView: View {
                     armedCard
                 }
                 Spacer(minLength: 0)
-                GizmoPanel(model: model)
             }
             .padding(6)
             Spacer(minLength: 0)
@@ -273,6 +279,10 @@ struct HangarView: View {
             }
             EngineerReportView(issues: model.report.issues)
                 .padding(.bottom, 6)
+        }
+        .overlay(alignment: .bottomLeading) {
+            // Гизмо над нижней панелью слева: не налезает на сводку Δv/TWR сверху.
+            GizmoPanel(model: model).padding(6)
         }
         .animation(.easeOut(duration: 0.2), value: model.toast)
     }

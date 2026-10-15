@@ -13,7 +13,7 @@ extension PartSpec {
         }
     }
     /// Принимает ли детей на узлы `.top`/`.bottom`.
-    var acceptsAxial: Bool { id != .fin && id != .decouplerRadial }
+    var acceptsAxial: Bool { id != .fin && id != .decouplerRadial && kind != .instrument }
 }
 
 /// Единичный вектор азимута в плоскости XZ: 0° — +X, 90° — +Z.

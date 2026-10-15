@@ -24,6 +24,8 @@ public enum GameMode: String, Sendable, Hashable, Codable, CaseIterable {
 /// Технология дерева исследовательского центра.
 public enum TechID: String, Sendable, Hashable, Codable, CaseIterable {
     case basics, rocketry, stability, aero, liquid, landing, control, crew, heavy
+    /// Научные приборы (первая поставка науки).
+    case instruments, gravimetry
 }
 
 public struct TechNode: Sendable, Hashable, Identifiable {
@@ -59,6 +61,10 @@ public enum TechTree {
                  parts: [.podK3], column: 4, row: 2),
         TechNode(id: .heavy, title: "Тяжёлые ракеты", cost: 30, requires: [.aero, .liquid],
                  parts: [.titan, .j64, .decouplerXL, .fairingXL, .heatShieldXL], column: 3, row: 0),
+        TechNode(id: .instruments, title: "Приборостроение", cost: 10, requires: [.basics],
+                 parts: [.thermometer, .barometer], column: 1, row: 1),
+        TechNode(id: .gravimetry, title: "Гравиметрия", cost: 20, requires: [.instruments],
+                 parts: [.gravimeter], column: 3, row: 2),
     ]
 
     public static func node(_ id: TechID) -> TechNode { nodes.first { $0.id == id }! }
@@ -72,6 +78,7 @@ public enum TechTree {
 /// Веха полёта: наука начисляется один раз за игру.
 public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
     case launch, above10km, space, orbit, lunaSOI, lunaOrbit, lunaLanding, returnFromSpace
+    case vellaSOI, vellaOrbit, ardaSOI, ardaOrbit, tarosSOI, tarosOrbit
 
     public var science: Int {
         switch self {
@@ -83,6 +90,8 @@ public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
         case .lunaOrbit: 20
         case .lunaLanding: 30
         case .returnFromSpace: 10
+        case .vellaSOI, .ardaSOI, .tarosSOI: 30
+        case .vellaOrbit, .ardaOrbit, .tarosOrbit: 45
         }
     }
 
@@ -96,6 +105,12 @@ public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
         case .lunaOrbit: "Орбита Луны"
         case .lunaLanding: "Посадка на Луну"
         case .returnFromSpace: "Возвращение из космоса"
+        case .vellaSOI: "У Веллы"
+        case .vellaOrbit: "Орбита Веллы"
+        case .ardaSOI: "У Арды"
+        case .ardaOrbit: "Орбита Арды"
+        case .tarosSOI: "У Тароса"
+        case .tarosOrbit: "Орбита Тароса"
         }
     }
 
@@ -110,6 +125,11 @@ public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
         if m.lunaOrbit { out.append(.lunaOrbit) }
         if m.landedLuna { out.append(.lunaLanding) }
         if m.returnedFromSpace { out.append(.returnFromSpace) }
+        for (planet, soi, orbit) in [(BodyID.vella, Milestone.vellaSOI, Milestone.vellaOrbit),
+                                     (.arda, .ardaSOI, .ardaOrbit), (.taros, .tarosSOI, .tarosOrbit)] {
+            if m.visitedPlanets.contains(planet) { out.append(soi) }
+            if m.orbitedPlanets.contains(planet) { out.append(orbit) }
+        }
         return out
     }
 }
@@ -120,12 +140,24 @@ public struct GameProgress: Sendable, Hashable, Codable {
     public var science: Int
     public var researched: Set<TechID>
     public var milestones: Set<Milestone>
+    /// Начисления за научные данные (нет в сохранениях до первой поставки науки — пустой).
+    public var archive = ScienceArchive()
 
     public init(mode: GameMode, science: Int = 0, researched: Set<TechID> = [.basics], milestones: Set<Milestone> = []) {
         self.mode = mode
         self.science = science
         self.researched = researched.union([.basics])
         self.milestones = milestones
+    }
+
+    private enum CodingKeys: String, CodingKey { case mode, science, researched, milestones, archive }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(mode: try c.decode(GameMode.self, forKey: .mode), science: try c.decode(Int.self, forKey: .science),
+                  researched: try c.decode(Set<TechID>.self, forKey: .researched),
+                  milestones: try c.decode(Set<Milestone>.self, forKey: .milestones))
+        archive = try c.decodeIfPresent(ScienceArchive.self, forKey: .archive) ?? ScienceArchive()
     }
 
     public func isResearched(_ t: TechID) -> Bool { mode == .sandbox || researched.contains(t) }
@@ -146,25 +178,36 @@ public struct GameProgress: Sendable, Hashable, Codable {
         return true
     }
 
-    /// Наука за повтор уже достигнутой вехи (как убывающая ценность повторных отчётов в KSP): четверть, не меньше 1.
-    public static func repeatScience(_ m: Milestone) -> Int { max(1, m.science / 4) }
-
-    /// Начислить науку за полёт: новые вехи — полностью, повторные — `repeatScience`.
+    /// Начислить науку за полёт: только новые за игру вехи (повтор вехи науки не даёт — наука растёт за новые
+    /// данные, SCI-07; заработанное раньше не отнимается).
     /// Возвращает новые вехи и всю начисленную науку (для экрана итогов).
     @discardableResult
     public mutating func award(_ mission: MissionRecord) -> (fresh: [Milestone], science: Int) {
+        award(Milestone.reached(in: mission))
+    }
+
+    /// Начислить науку за вехи: новые за игру — полностью, уже полученные — ничего.
+    @discardableResult
+    public mutating func award(_ reached: [Milestone]) -> (fresh: [Milestone], science: Int) {
         var fresh: [Milestone] = []
         var gained = 0
-        for m in Milestone.reached(in: mission) {
-            if milestones.insert(m).inserted {
-                fresh.append(m)
-                gained += m.science
-            } else {
-                gained += Self.repeatScience(m)
-            }
+        for m in reached where milestones.insert(m).inserted {
+            fresh.append(m)
+            gained += m.science
         }
         science += gained
         return (fresh, gained)
+    }
+
+    /// Доставить научные результаты (возврат капсулы). Баланс растёт на целую часть общего начисленного за данные:
+    /// дробные остатки копятся в архиве, округление науку не создаёт и не теряет. Возвращает прибавку баланса.
+    @discardableResult
+    public mutating func deliver(_ data: [ScienceData]) -> Int {
+        let before = Int((archive.total + 1e-9).rounded(.down))
+        for d in data { archive.deliver(d) }
+        let gained = Int((archive.total + 1e-9).rounded(.down)) - before
+        science += gained
+        return gained
     }
 
     /// Детали проекта, которые ещё закрыты (старт запрещён).
@@ -172,4 +215,40 @@ public struct GameProgress: Sendable, Hashable, Codable {
         var seen = Set<PartID>()
         return design.parts.filter { !isUnlocked($0) && seen.insert($0).inserted }
     }
+}
+
+/// Начисление за один полёт: каждая веха — не больше раза за полёт, сколько бы раз ни открывались итоги
+/// или ни продолжался полёт; перезапуск — новый полёт (`reset`). Итог — всё начисленное за полёт.
+public struct FlightAward: Sendable, Hashable {
+    /// Вехи полёта, уже учтённые (начисленные или пропущенные в уроке).
+    public private(set) var counted: Set<Milestone> = []
+    /// Новые за игру вехи этого полёта и вся начисленная за полёт наука (вехи + данные).
+    public private(set) var fresh: [Milestone] = []
+    public private(set) var science = 0
+    /// Из неё — за доставленные данные.
+    public private(set) var dataScience = 0
+
+    public init() {}
+
+    /// Начислить вехи `mission`, ещё не учтённые в этом полёте, и доставить `recovered` (данные вернувшейся
+    /// на Терру капсулы; повторная доставка тех же результатов ничего не добавляет). Возвращает итог полёта.
+    @discardableResult
+    public mutating func credit(_ mission: MissionRecord, recovered: [ScienceData] = [],
+                                to progress: inout GameProgress) -> (fresh: [Milestone], science: Int) {
+        let pending = Milestone.reached(in: mission).filter { !counted.contains($0) }
+        counted.formUnion(pending)
+        let r = progress.award(pending)
+        let d = progress.deliver(recovered)
+        fresh += r.fresh
+        science += r.science + d
+        dataScience += d
+        return (fresh, science)
+    }
+
+    /// Учесть вехи без начисления (пройдены в уроке до выхода из него).
+    public mutating func skip(_ mission: MissionRecord) {
+        counted.formUnion(Milestone.reached(in: mission))
+    }
+
+    public mutating func reset() { self = FlightAward() }
 }

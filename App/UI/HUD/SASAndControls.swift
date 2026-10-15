@@ -27,7 +27,7 @@ struct SASGrid: View {
     /// Вызывается после выбора режима (закрыть панель).
     var onPick: () -> Void = {}
 
-    private static let cell: CGFloat = 46
+    private static let cell: CGFloat = 56
 
     var body: some View {
         let current = model.sas
@@ -59,8 +59,9 @@ struct SASGrid: View {
                 SASIcon(mode: mode)
                     .frame(width: 18, height: 18)
                 Text(Self.shortName(mode))
-                    .font(.system(size: 8, weight: .bold))
+                    .font(.system(size: HUDFont.caption, weight: .bold))
                     .lineLimit(1)
+                    .minimumScaleFactor(0.85)
             }
             .foregroundStyle(current == mode ? Color.black : Self.tint(mode))
             .frame(width: Self.cell, height: HUDStyle.minTouch)
@@ -208,7 +209,7 @@ struct SASToggleButton: View {
                 if stacked {
                     VStack(spacing: 0) {
                         Text("SAS").font(.system(size: 12, weight: .heavy))
-                        Text(on ? SASGrid.shortName(current) : "ВЫКЛ").font(.system(size: 9, weight: .bold))
+                        Text(on ? SASGrid.shortName(current) : "ВЫКЛ").font(.system(size: HUDFont.caption, weight: .bold))
                     }
                     .foregroundStyle(on ? HUDStyle.active : Color.white)
                     .lineLimit(1)

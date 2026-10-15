@@ -16,12 +16,12 @@ struct FlightStatusView: View {
                 Image(systemName: "diamond.fill").font(.system(size: 7))
                 Text(advice.text)
             } else {
-                Text(title(t)).font(.system(size: 9, weight: .heavy))
+                Text(title(t)).font(.system(size: HUDFont.caption, weight: .heavy))
                 Text(verbatim: "·").foregroundStyle(HUDPalette.muted)
                 Text(detail(t)).foregroundStyle(HUDPalette.muted)
             }
         }
-        .font(.system(size: 10, weight: .medium))
+        .font(.system(size: HUDFont.caption, weight: .medium))
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(advice == nil ? HUDPalette.text : HUDPalette.advice)
