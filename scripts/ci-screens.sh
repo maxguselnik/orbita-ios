@@ -52,7 +52,9 @@ t "bootstatus"
 xcrun simctl bootstatus "$UDID" -b
 xcrun simctl ui "$UDID" appearance dark || true
 t "install"
-xcrun simctl install "$UDID" "$APP"
+if [ "${SCREENS_APP_INSTALLED:-0}" != 1 ]; then
+  xcrun simctl install "$UDID" "$APP"
+fi
 
 for scene in "${SCENES[@]}"; do
   t "$scene: terminate"

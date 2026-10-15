@@ -7,8 +7,8 @@ mkdir -p screens
 xcrun simctl bootstatus "$SCREENS_UDID" -b
 xcrun simctl install "$SCREENS_UDID" build/Build/Products/Debug-iphonesimulator/Orbita.app
 PLANET_DATA=$(xcrun simctl get_app_container "$SCREENS_UDID" com.maxguselnik.orbita data)
-for GROUP in new original; do
-  for MODE in map flight surface; do
+for GROUP in ${WORLD_GROUPS:-new original}; do
+  for MODE in ${WORLD_MODES:-map flight surface}; do
     xcrun simctl terminate "$SCREENS_UDID" com.maxguselnik.orbita 2>/dev/null || true
     ARGS=(-planet-preview)
     BODIES=(terra luna)

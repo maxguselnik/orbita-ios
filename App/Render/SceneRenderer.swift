@@ -272,6 +272,7 @@ final class SceneRenderer: FlightRenderer {
         let camToTarget = simd_length(target - eye)
         var terraScale = 1.0
         var bodyScales: [BodyID: Double] = [:]
+        var renderExtent = 0.0
         for b in BodyID.allCases {
             guard let lod = planets[b] else { continue }
             let center = RenderFrame.bodyCenter(b, in: frame, time: snapshot.time) - eye
@@ -287,10 +288,17 @@ final class SceneRenderer: FlightRenderer {
             } else {
                 scale = min(1, 1.6e6 / dist)
             }
+            renderExtent = max(renderExtent, (dist + Bodies.body(b).radius) * scale)
             bodyScales[b] = scale
             if b == .terra { terraScale = scale }
             lod.update(eyeBF: brot.inverse.act(-center), center: center, rotation: brot, scale: scale)
         }
+
+        // Небо всегда за всей видимой геометрией, включая большой газовый гигант.
+        // Масштабируем только фон: положение и глубина планеты относительно корабля сохраняются.
+        let skyScale = Float(max(1, renderExtent / (Double(SkyVisual.starRadius) * 0.8)))
+        sky.root.scale = F3(repeating: skyScale)
+        camera.camera.far = max(Self.flightFar, SkyVisual.skyRadius * skyScale * 1.1)
 
         // Площадка.
         let terraCenter = RenderFrame.bodyCenter(.terra, in: frame, time: snapshot.time) - eye
