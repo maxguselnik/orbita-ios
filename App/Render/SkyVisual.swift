@@ -133,7 +133,10 @@ final class SkyVisual {
             self?.lastStarOpacity = -1
             for (body, tint) in [(BodyID.vella, D3(0.95, 0.66, 0.30)),
                                  (.arda, D3(0.84, 0.49, 0.33)), (.taros, D3(0.60, 0.72, 0.80))] {
-                let row = Palette.skyRow.map { tint * max($0.x, $0.y, $0.z) }
+                let row: [Palette.Key] = Palette.skyRow.map { key in
+                    let level: Double = max(key.rgb.x, key.rgb.y, key.rgb.z)
+                    return Palette.Key(u: key.u, rgb: tint * level)
+                }
                 let texture = await Palette.texture([row])
                 self?.atmosphereTextures[body] = texture
                 self?.lastBrightness = -1

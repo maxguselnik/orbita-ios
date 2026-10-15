@@ -249,7 +249,7 @@ final class SceneRenderer: FlightRenderer {
                 eye = center + RenderFrame.bodyRotation(inspectionBody, time: snapshot.time)
                     .act(radial * (Bodies.body(inspectionBody).radius + h + 160))
             } else {
-                eye = center + simd_normalize(direction) * Bodies.body(inspectionBody).radius * 2.88
+                eye = center + simd_normalize(direction) * Bodies.body(inspectionBody).radius * PlanetInspection.distance(inspectionBody)
             }
         }
 

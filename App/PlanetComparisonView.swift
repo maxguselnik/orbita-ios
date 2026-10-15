@@ -95,7 +95,7 @@ private struct PlanetComparisonViewport: View {
         let elevation = atan2(direction.z, hypot(direction.x, direction.y))
         renderer.apply(CameraInput(orbitDelta: SIMD2(Float(azimuth - MapCamera.defaultAzimuth),
                                                      Float(elevation - MapCamera.defaultElevation)),
-                                   zoomFactor: 0.7))
+                                   zoomFactor: bodyID == .terra || bodyID == .luna ? 0.7 : 0.9))
         renderer.update(snapshot: snapshot, events: [], frameDelta: 1)
         driver.frameRate = .hz60
         driver.start { [renderer, snapshot] _ in
@@ -109,6 +109,7 @@ private struct PlanetComparisonViewport: View {
 
 /// Один ракурс для сравнения карты и полёта, всегда над освещённой стороной новых миров.
 enum PlanetInspection {
+    static func distance(_ id: BodyID) -> Double { id == .terra || id == .luna ? 2.88 : 3.7 }
     static func direction(_ id: BodyID) -> Vec3 {
         if id == .terra { return Vec3(1, 0.55, 0.3) }
         if id == .luna { return Vec3(-0.6, 1, 0.25) }
