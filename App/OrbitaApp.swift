@@ -6,8 +6,12 @@ struct OrbitaApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
-                .environment(settings)
+            if ProcessInfo.processInfo.arguments.contains("-planet-preview") {
+                PlanetComparisonView(flightMode: ProcessInfo.processInfo.arguments.contains("-flight-render"))
+            } else {
+                RootView()
+                    .environment(settings)
+            }
         }
     }
 }

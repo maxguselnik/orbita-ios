@@ -37,6 +37,8 @@ jobs:
           UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; phones=[x for rt,r in d.items() if 'iOS' in rt for x in r if x['name'].startswith('iPhone')]; exact=[x for x in phones if x['name']=='iPhone 16 Pro']; print((exact or phones)[-1]['udid'])")
           echo "Симулятор: $UDID"
           echo "SCREENS_UDID=$UDID" >> "$GITHUB_ENV"
+          # Загрузка симулятора параллельно сборке сокращает ожидание снимков.
+          xcrun simctl boot "$UDID" || true
       - name: Сборка под симулятор
         env:
           BUILD_ONLY: ${{ contains(github.event.head_commit.message, '[build-only]') || contains(github.event.pull_request.title, '[build-only]') }}
@@ -66,6 +68,19 @@ jobs:
         run: |
           PICK=$(printf '%s' "$COMMIT_MESSAGE" | sed -n 's/.*\[screens: *\([^]]*\)\].*/\1/p' | head -1)
           if [ -z "$PICK" ] || [ "$PICK" = "none" ]; then echo "Снимки пропущены (нет метки [screens: …])"; mkdir -p screens; exit 0; fi
+          if [ "$PICK" = "planets" ]; then
+            mkdir -p screens
+            xcrun simctl bootstatus "$SCREENS_UDID" -b
+            xcrun simctl install "$SCREENS_UDID" build/Build/Products/Debug-iphonesimulator/Orbita.app
+            xcrun simctl launch "$SCREENS_UDID" com.maxguselnik.orbita -planet-preview
+            sleep 15
+            xcrun simctl io "$SCREENS_UDID" screenshot screens/planets-map-native.png
+            xcrun simctl terminate "$SCREENS_UDID" com.maxguselnik.orbita || true
+            xcrun simctl launch "$SCREENS_UDID" com.maxguselnik.orbita -planet-preview -flight-render
+            sleep 15
+            xcrun simctl io "$SCREENS_UDID" screenshot screens/planets-flight-native.png
+            exit 0
+          fi
           if [ "$PICK" = "all" ]; then PICK=$(cat screens-all.txt); fi
           if [ "$PICK" = "default" ]; then PICK=$(cat screens.txt); fi
           scripts/ci-screens.sh $PICK

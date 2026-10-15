@@ -45,6 +45,9 @@ final class SceneRenderer: FlightRenderer {
     private var shake = CameraShake()
     /// Желаемая частота кадров (из настроек) — для авто-качества.
     var targetFrameRate: Double = 90
+    /// Только диагностический кадр -planet-preview: общий план тела в настоящей полётной сцене.
+    /// В обычной игре nil: камера и все эффекты работают как прежде.
+    var inspectionBody: BodyID?
 
     init() {
         camera.camera.fieldOfViewInDegrees = 60
@@ -220,6 +223,11 @@ final class SceneRenderer: FlightRenderer {
         }
         let cam = rig.offset(forward: forward, up: up, dt: switched ? 0 : frameDelta)
         var eye = target + cam.offset
+        if let inspectionBody {
+            let center = RenderFrame.bodyCenter(inspectionBody, in: frame, luna: luna)
+            let direction = inspectionBody == .terra ? D3(1, 0.55, 0.3) : D3(-0.6, 1, 0.25)
+            eye = center + simd_normalize(direction) * Bodies.body(inspectionBody).radius * 2.88
+        }
 
         // Камера не уходит под грунт.
         let body = Bodies.body(frame)
@@ -366,6 +374,11 @@ final class SceneRenderer: FlightRenderer {
         let lookPoint = target - cam.up * (camToTarget * (0.12 - jolt.y)) + side * (camToTarget * jolt.x)
         camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
         camera.camera.fieldOfViewInDegrees = Float(60 + 5 * shake.speedFeel)
+        if let inspectionBody {
+            let center = RenderFrame.bodyCenter(inspectionBody, in: frame, luna: luna)
+            camera.look(at: f3(center - eye), from: .zero, upVector: F3(0, 0, 1), relativeTo: nil)
+            camera.camera.fieldOfViewInDegrees = Float(MapScale.fovDegrees)
+        }
         let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)
         // Ближняя плоскость мала, пока камера у корабля: факел длиной с корабль не должен
         // обрезаться у камеры; дальность глубины на горизонте для рельефа не критична.
