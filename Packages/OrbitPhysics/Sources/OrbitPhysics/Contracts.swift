@@ -240,10 +240,15 @@ public struct MissionRecord: Sendable, Hashable {
     public var landedLuna: Bool
     /// Посадка или приводнение на Терре после выхода в космос.
     public var returnedFromSpace: Bool
+    /// Планеты (Велла, Арда, Тарос), в SOI которых побывал корабль.
+    public var visitedPlanets: Set<BodyID>
+    /// Планеты, вокруг которых была замкнутая орбита выше атмосферы.
+    public var orbitedPlanets: Set<BodyID>
 
     public init(launched: Bool = false, maxAltitude: Double = 0, maxSpeed: Double = 0, maxGForce: Double = 0,
                 reachedSpace: Bool = false, reachedOrbit: Bool = false, enteredLunaSOI: Bool = false,
-                lunaOrbit: Bool = false, landedLuna: Bool = false, returnedFromSpace: Bool = false) {
+                lunaOrbit: Bool = false, landedLuna: Bool = false, returnedFromSpace: Bool = false,
+                visitedPlanets: Set<BodyID> = [], orbitedPlanets: Set<BodyID> = []) {
         self.launched = launched
         self.maxAltitude = maxAltitude
         self.maxSpeed = maxSpeed
@@ -254,6 +259,8 @@ public struct MissionRecord: Sendable, Hashable {
         self.lunaOrbit = lunaOrbit
         self.landedLuna = landedLuna
         self.returnedFromSpace = returnedFromSpace
+        self.visitedPlanets = visitedPlanets
+        self.orbitedPlanets = orbitedPlanets
     }
 }
 

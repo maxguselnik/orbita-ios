@@ -72,6 +72,7 @@ public enum TechTree {
 /// Веха полёта: наука начисляется один раз за игру.
 public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
     case launch, above10km, space, orbit, lunaSOI, lunaOrbit, lunaLanding, returnFromSpace
+    case vellaSOI, vellaOrbit, ardaSOI, ardaOrbit, tarosSOI, tarosOrbit
 
     public var science: Int {
         switch self {
@@ -83,6 +84,8 @@ public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
         case .lunaOrbit: 20
         case .lunaLanding: 30
         case .returnFromSpace: 10
+        case .vellaSOI, .ardaSOI, .tarosSOI: 30
+        case .vellaOrbit, .ardaOrbit, .tarosOrbit: 45
         }
     }
 
@@ -96,6 +99,12 @@ public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
         case .lunaOrbit: "Орбита Луны"
         case .lunaLanding: "Посадка на Луну"
         case .returnFromSpace: "Возвращение из космоса"
+        case .vellaSOI: "У Веллы"
+        case .vellaOrbit: "Орбита Веллы"
+        case .ardaSOI: "У Арды"
+        case .ardaOrbit: "Орбита Арды"
+        case .tarosSOI: "У Тароса"
+        case .tarosOrbit: "Орбита Тароса"
         }
     }
 
@@ -110,6 +119,11 @@ public enum Milestone: String, Sendable, Hashable, Codable, CaseIterable {
         if m.lunaOrbit { out.append(.lunaOrbit) }
         if m.landedLuna { out.append(.lunaLanding) }
         if m.returnedFromSpace { out.append(.returnFromSpace) }
+        for (planet, soi, orbit) in [(BodyID.vella, Milestone.vellaSOI, Milestone.vellaOrbit),
+                                     (.arda, .ardaSOI, .ardaOrbit), (.taros, .tarosSOI, .tarosOrbit)] {
+            if m.visitedPlanets.contains(planet) { out.append(soi) }
+            if m.orbitedPlanets.contains(planet) { out.append(orbit) }
+        }
         return out
     }
 }

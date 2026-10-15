@@ -150,12 +150,13 @@ struct MapGoalsColumn: View {
         let goals = model.availableGoals
         if !goals.isEmpty {
             let active = model.maneuverGoal
+            let planets = goals.filter { $0.planet != nil }
             VStack(alignment: .leading, spacing: 4) {
                 Text("КУДА ЛЕТИМ?")
                     .font(.system(size: 10, weight: .heavy))
                     .foregroundStyle(HUDStyle.secondaryText)
                     .padding(.leading, 2)
-                ForEach(goals, id: \.self) { goal in
+                ForEach(goals.filter { $0.planet == nil }, id: \.self) { goal in
                     Button {
                         model.planManeuver(goal)
                     } label: {
@@ -180,6 +181,9 @@ struct MapGoalsColumn: View {
                     .longPressHint(Self.hint(goal))
                     .accessibilityAddTraits(goal == active ? .isSelected : [])
                 }
+                if !planets.isEmpty {
+                    PlanetGoalsMenu(model: model, goals: planets, active: active)
+                }
             }
             .tutorialAnchor(.mapGoals)
         }
@@ -201,6 +205,8 @@ struct MapGoalsColumn: View {
         case .circularize: "Скруглить орбиту — узел, после которого орбита станет круговой"
         case .changeOrbit: "Выше / ниже — узел для небольшого изменения орбиты"
         case .returnHome: "Домой на Терру — узел возврата с орбиты Луны"
+        case .toVella, .toArda, .toTaros:
+            "К планете — игра выберет окно, поставит узел отлёта и сама поправит курс в пути"
         }
     }
 
@@ -210,6 +216,9 @@ struct MapGoalsColumn: View {
         case .circularize: "Скруглить орбиту"
         case .changeOrbit: "Выше / ниже"
         case .returnHome: "Домой на Терру"
+        case .toVella: "К Велле"
+        case .toArda: "К Арде"
+        case .toTaros: "К Таросу"
         }
     }
 
@@ -219,7 +228,53 @@ struct MapGoalsColumn: View {
         case .circularize: "circle.dashed"
         case .changeOrbit: "arrow.up.and.down"
         case .returnHome: "house.fill"
+        case .toVella, .toArda, .toTaros: "globe"
         }
+    }
+}
+
+/// Кнопка «К планете»: меню планет с временем до окна отлёта (с орбиты Терры) — два нажатия до узла.
+struct PlanetGoalsMenu: View {
+    let model: FlightHUDModel
+    let goals: [ManeuverGoal]
+    let active: ManeuverGoal?
+
+    var body: some View {
+        let current = goals.first { $0 == active }
+        Menu {
+            ForEach(goals, id: \.self) { goal in
+                Button {
+                    model.planManeuver(goal)
+                } label: {
+                    if let window = model.planetWindowText(goal) {
+                        Text(MapGoalsColumn.title(goal) + " · " + window)
+                    } else {
+                        Text(MapGoalsColumn.title(goal))
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "globe")
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(width: 18)
+                Text(current.map(MapGoalsColumn.title) ?? "К планете")
+                    .font(.system(size: 13, weight: .bold))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.leading)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .bold))
+            }
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .menuStyle(.button)
+        .buttonStyle(HUDButtonStyle(isActive: current != nil))
+        .accessibilityLabel("К планете")
+        .accessibilityHint(MapGoalsColumn.hint(.toArda))
+        .accessibilityAddTraits(current != nil ? .isSelected : [])
     }
 }
 
@@ -493,6 +548,11 @@ enum ManeuverResultText {
         case .orbit(_, let apoapsis, let periapsis):
             if apoapsis.isInfinite { return "Пролёт · Пе " + HUDFormat.distance(periapsis) + mark }
             return "Орбита " + kilometers(apoapsis) + " × " + kilometers(periapsis) + " км" + mark
+        case .planetPeriapsis(let body, let altitude):
+            return "Пе у " + MapText.genitive(body) + " " + HUDFormat.distance(altitude) + mark
+        case .planetApproach(let body, let distance, let correction):
+            return "Сближение с " + MapText.instrumental(body) + " " + HUDFormat.distance(distance)
+                + " · коррекция ~" + HUDFormat.speed(correction) + mark
         case .noEncounter(let body):
             switch body {
             case .luna: return "Встречи с Луной нет"

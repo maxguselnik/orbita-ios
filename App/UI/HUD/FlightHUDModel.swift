@@ -109,9 +109,8 @@ final class FlightHUDModel {
     @ObservationIgnored private var executor: ManeuverExecutor?
     /// Тяга, которую записал автопрожиг: любое другое значение — рука игрока.
     @ObservationIgnored private var autoThrottle = 0.0
-    /// Коррекций подряд после прожига цели (`ManeuverPlanner.correction`), не больше `maxCorrections`.
+    /// Коррекций подряд после прожига цели (`ManeuverPlanner.correction`), не больше `ManeuverPlanner.maxCorrections`.
     @ObservationIgnored private var corrections = 0
-    private static let maxCorrections = 2
     @ObservationIgnored private var lastGoalsRefresh = -Double.infinity
     static let mapExpertKey = "mapExpert"
     /// Период обновления списка целей, с (4 Гц).
@@ -659,6 +658,18 @@ final class FlightHUDModel {
         send(.setManeuver(node))
     }
 
+    /// Подпись окна отлёта к планете для меню «К планете»: «окно через 12 дн», «окно сейчас»; на перелёте — «поправить курс».
+    func planetWindowText(_ goal: ManeuverGoal) -> String? {
+        guard let id = goal.planet, let vessel = activeVesselState else { return nil }
+        guard vessel.body == .terra else { return vessel.body == .sol ? "поправить курс" : nil }
+        let el = OrbitElements(position: vessel.position, velocity: vessel.velocity, mu: Bodies.terra.mu)
+        guard el.isClosed, el.period.isFinite else { return nil }
+        let lead = PlanetTransfer.timeToDeparture(id, radius: vessel.position.length, period: el.period,
+                                                  time: snapshot.time)
+        let days = Int((lead / 86_400).rounded(.down))
+        return days < 1 ? "окно сейчас" : "окно через \(days) дн"
+    }
+
     /// Прогрейд узла ± шаг кнопок «−/+» (`ManeuverPlanner.fineStep`), цель сохраняется.
     func nudgeManeuver(by direction: Double) {
         guard direction != 0, var node = telemetry.maneuver?.node else { return }
@@ -742,7 +753,7 @@ final class FlightHUDModel {
             if out.phase == .done {
                 // Прожиг на конечной тяге неточен, а Пе у Луны/Терры чувствителен: доводим маленьким узлом.
                 if let goal, startCorrection(goal) {
-                    notify("Коррекция курса")
+                    if executor != nil { notify("Коррекция курса") }
                     return
                 }
                 maneuverGoal = nil
@@ -757,10 +768,10 @@ final class FlightHUDModel {
         if let toast = out.toast { notify(toast) }
     }
 
-    /// Узел коррекции для цели `maneuverGoal` после прожига; true — поставлен и автопрожиг продолжается.
+    /// Узел коррекции для цели `maneuverGoal` после прожига; true — поставлен (автопрожиг продолжается,
+    /// а для коррекции больше `PlanetTransfer.goodCorrection` ждёт «Выполнить» игрока).
     private func startCorrection(_ goal: ManeuverGoal) -> Bool {
-        guard goal == .toLuna || goal == .returnHome,
-              corrections < Self.maxCorrections, let vessel = activeVesselState,
+        guard corrections < ManeuverPlanner.maxCorrections(goal), let vessel = activeVesselState,
               let node = ManeuverPlanner.correction(goal, body: vessel.body,
                                                     state: StateVector(position: vessel.position, velocity: vessel.velocity),
                                                     time: snapshot.time)
@@ -768,6 +779,11 @@ final class FlightHUDModel {
         corrections += 1
         send(.setManeuver(node))
         maneuverGoal = goal
+        // Большая коррекция (неточный отлёт) — не жжём молча: узел стоит, игрок решает.
+        if node.deltaV > PlanetTransfer.goodCorrection {
+            notify("Коррекция \(HUDFormat.speed(node.deltaV)) — проверьте и нажмите «Выполнить»")
+            return true
+        }
         executor = ManeuverExecutor()
         autoBurnText = "Коррекция курса"
         return true

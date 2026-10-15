@@ -36,6 +36,7 @@ struct FlightResultPanel: View {
                     achievement("Луна (SOI)", m.enteredLunaSOI)
                     achievement("Орбита Луны", m.lunaOrbit)
                     achievement("Посадка на Луну", m.landedLuna)
+                    achievement("Другая планета", !m.visitedPlanets.isEmpty)
                     achievement("Возврат", m.returnedFromSpace)
                 }
                 .frame(width: 150, alignment: .leading)

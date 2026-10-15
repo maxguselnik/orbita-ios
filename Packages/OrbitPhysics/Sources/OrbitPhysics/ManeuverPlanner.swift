@@ -6,6 +6,32 @@ public enum ManeuverGoal: String, CaseIterable, Sendable, Hashable, Codable {
     case circularize
     case changeOrbit
     case returnHome
+    case toVella
+    case toArda
+    case toTaros
+
+    /// Планета перелёта (`PlanetTransfer`); nil — цель не межпланетная.
+    public var planet: BodyID? {
+        switch self {
+        case .toVella: .vella
+        case .toArda: .arda
+        case .toTaros: .taros
+        case .toLuna, .circularize, .changeOrbit, .returnHome: nil
+        }
+    }
+
+    /// Цель перелёта к планете.
+    public static func toPlanet(_ id: BodyID) -> ManeuverGoal? {
+        switch id {
+        case .vella: .toVella
+        case .arda: .toArda
+        case .taros: .toTaros
+        case .sol, .terra, .luna: nil
+        }
+    }
+
+    /// Цели «К планете» в порядке кнопок.
+    public static let planetGoals: [ManeuverGoal] = PlanetTransfer.planets.compactMap { toPlanet($0) }
 }
 
 /// Итог манёвра по прогнозу после узла.
@@ -17,6 +43,10 @@ public struct ManeuverOutcome: Sendable, Hashable {
         case terraPeriapsis(Double)
         /// Орбита после узла: высоты Ап (∞ — незамкнутая или за SOI) и Пе, м.
         case orbit(body: BodyID, apoapsis: Double, periapsis: Double)
+        /// Встреча с планетой: тело и высота Пе над уровнем моря, м.
+        case planetPeriapsis(BodyID, Double)
+        /// Встречи с планетой пока нет: сближение, м, и оценка коррекции в пути, м/с.
+        case planetApproach(BodyID, distance: Double, correction: Double)
         /// Нужной встречи нет.
         case noEncounter(BodyID)
         /// Падение на тело.
@@ -59,7 +89,7 @@ public enum ManeuverPlanner {
                 if el.apoapsisRadius < 0.5 * Bodies.luna.orbitRadius { goals.append(.toLuna) }
                 if el.eccentricity > 0.01 { goals.append(.circularize) }
                 goals.append(.changeOrbit)
-                return goals
+                return goals + ManeuverGoal.planetGoals
             }
             // Суборбита: Ап над атмосферой и ещё впереди.
             return apAlt > b.atmosphereHeight && outbound ? [.circularize] : []
@@ -74,11 +104,13 @@ public enum ManeuverPlanner {
             goals.append(.changeOrbit)
             return goals
         default:
+            // Гелиоцентрическая дуга: сначала коррекция курса к планете.
+            let planets = body == .sol ? ManeuverGoal.planetGoals : []
             if !el.isClosed || el.apoapsisRadius > b.soiRadius {
-                return peAlt > rails && !outbound ? [.circularize] : []
+                return planets + (peAlt > rails && !outbound ? [.circularize] : [])
             }
-            guard peAlt > rails else { return [] }
-            return el.eccentricity > 0.01 ? [.circularize, .changeOrbit] : [.changeOrbit]
+            guard peAlt > rails else { return planets }
+            return planets + (el.eccentricity > 0.01 ? [.circularize, .changeOrbit] : [.changeOrbit])
         }
     }
 
@@ -91,13 +123,32 @@ public enum ManeuverPlanner {
         case .circularize: circularize(body: body, state: state, time: time)
         case .changeOrbit: changeOrbit(body: body, state: state, time: time)
         case .returnHome: returnHome(body: body, state: state, time: time)?.node
+        case .toVella, .toArda, .toTaros:
+            planetTransfer(goal, body: body, state: state, time: time)
+        }
+    }
+
+    /// Межпланетная цель: с орбиты Терры — отлёт в ближайшее окно, на перелёте — коррекция курса.
+    static func planetTransfer(_ goal: ManeuverGoal, body: BodyID, state: StateVector, time: Double) -> ManeuverNode? {
+        guard let id = goal.planet else { return nil }
+        if body == .terra { return PlanetTransfer.departure(to: id, state: state, time: time) }
+        return correction(goal, body: body, state: state, time: time)
+    }
+
+    /// Сколько коррекций подряд ставит автопрожиг после прожига цели: перелёты к Луне и домой — 2,
+    /// к планете — 3 (середина пути, вход в SOI, запас). 0 — коррекций нет.
+    public static func maxCorrections(_ goal: ManeuverGoal) -> Int {
+        switch goal {
+        case .toLuna, .returnHome: 2
+        case .toVella, .toArda, .toTaros: 3
+        case .circularize, .changeOrbit: 0
         }
     }
 
     /// Шаг кнопок «−/+», м/с: перелёты чувствительны — 0.1, прочее — 1.
     public static func fineStep(_ goal: ManeuverGoal?) -> Double {
         switch goal {
-        case .toLuna, .returnHome: 0.1
+        case .toLuna, .returnHome, .toVella, .toArda, .toTaros: 0.1
         case .circularize, .changeOrbit, nil: 1
         }
     }
@@ -107,9 +158,11 @@ public enum ManeuverPlanner {
     /// Итог по прогнозу после узла (первый участок начинается в момент узла).
     public static func outcome(_ goal: ManeuverGoal?, trajectory: Trajectory) -> ManeuverOutcome {
         guard let first = trajectory.patches.first else {
-            return ManeuverOutcome(kind: .noEncounter(goal == .toLuna ? .luna : .terra), isGood: false)
+            return ManeuverOutcome(kind: .noEncounter(goal?.planet ?? (goal == .toLuna ? .luna : .terra)), isGood: false)
         }
         switch goal {
+        case .toVella, .toArda, .toTaros:
+            return planetOutcome(goal?.planet ?? .arda, trajectory: trajectory)
         case .toLuna:
             if let enc = trajectory.encounter, enc.body == .luna {
                 if let hit = trajectory.impact, hit.body == .luna {
@@ -148,6 +201,35 @@ public enum ManeuverPlanner {
         }
     }
 
+    /// Итог перелёта к планете: Пе у неё (уже в SOI или по встрече), иначе сближение и оценка коррекции.
+    static func planetOutcome(_ id: BodyID, trajectory: Trajectory) -> ManeuverOutcome {
+        let range = PlanetTransfer.goodPeriapsis(id)
+        if let hit = trajectory.impact, hit.body != id { return ManeuverOutcome(kind: .impact(hit.body), isGood: false) }
+        let hitsPlanet = trajectory.impact?.body == id
+        if let first = trajectory.patches.first, first.body == id {
+            if hitsPlanet { return ManeuverOutcome(kind: .impact(id), isGood: false) }
+            let pe = first.elements.periapsisRadius - Bodies.body(id).radius
+            return ManeuverOutcome(kind: .planetPeriapsis(id, pe), isGood: range.contains(pe))
+        }
+        let enc = trajectory.encounter.flatMap { $0.body == id ? $0 : nil }
+        if let enc, !hitsPlanet, range.contains(enc.periapsisAltitude) {
+            return ManeuverOutcome(kind: .planetPeriapsis(id, enc.periapsisAltitude), isGood: true)
+        }
+        // До планеты ещё гелиоцентрическая дуга: промах (и неточный Пе) снимет коррекция в пути.
+        if let a = PlanetTransfer.helioApproach(to: id, trajectory: trajectory) {
+            // Встреча есть, но Пе не тот: промах — расстояние до нужного Пе; поправить можно, пока до SOI далеко.
+            let distance = enc.map { abs($0.periapsisAltitude - PlanetTransfer.targetPeriapsis(id)) } ?? a.distance
+            let arrival = enc?.time ?? a.time
+            let dv = PlanetTransfer.correctionEstimate(distance: distance, from: a.patch.startTime, to: arrival)
+            let early = arrival - a.patch.startTime > 86_400
+            return ManeuverOutcome(kind: .planetApproach(id, distance: distance, correction: dv),
+                                   isGood: early && dv <= PlanetTransfer.goodCorrection)
+        }
+        if hitsPlanet { return ManeuverOutcome(kind: .impact(id), isGood: false) }
+        if let enc { return ManeuverOutcome(kind: .planetPeriapsis(id, enc.periapsisAltitude), isGood: false) }
+        return ManeuverOutcome(kind: .noEncounter(id), isGood: false)
+    }
+
     // MARK: Коррекция
 
     /// Коррекция после неточного прожига перелёта: узел в `time + 60`, импульс (прогрейд, при необходимости
@@ -169,12 +251,31 @@ public enum ManeuverPlanner {
         switch (goal, body) {
         case (.toLuna, .terra): (target, targetAltitude) = (Bodies.luna, 30_000)
         case (.returnHome, .luna), (.returnHome, .terra): (target, targetAltitude) = (Bodies.terra, returnPeriapsis)
+        case (.toVella, _), (.toArda, _), (.toTaros, _):
+            guard let id = goal.planet else { return nil }
+            (target, targetAltitude) = (Bodies.body(id), PlanetTransfer.targetPeriapsis(id))
         default: return nil
         }
         let patches = TrajectoryPredictor.defaultMapPatches
         let pre = TrajectoryPredictor.predict(body: body, state: state, time: time, maxPatches: patches)
         var predictions = 1
-        if outcome(goal, trajectory: pre).isGood { return nil }
+        let current = outcome(goal, trajectory: pre)
+        if current.isGood {
+            // К планете годное сближение без встречи — ещё не цель: коррекция нужна.
+            if goal.planet == nil { return nil }
+            if case .planetPeriapsis = current.kind { return nil }
+        }
+        var nodeTime = time + 60
+        if let id = goal.planet, body != id {
+            // К планете: встреча уже есть — доводим Пе сразу после входа в SOI (там Пе мало чувствителен),
+            // иначе — коррекция курса на середине гелиоцентрической дуги.
+            if let enc = pre.encounter, enc.body == id {
+                nodeTime = enc.time + 60
+            } else {
+                guard let node = PlanetTransfer.courseCorrection(to: id, trajectory: pre, time: time) else { return nil }
+                return (node, predictions)
+            }
+        }
 
         /// Пе со знаком: «+» — облёт по ходу движения Луны (h_z ≥ 0), «−» — против.
         /// Через нулевой прицельный параметр меняется плавно — секущие не застревают у дна «V».
@@ -185,7 +286,6 @@ public enum ManeuverPlanner {
             }
             return nil
         }
-        let nodeTime = time + 60
         func evaluate(_ node: ManeuverNode) -> Double? {
             predictions += 1
             guard let p = TrajectoryPredictor.predict(node: node, body: body, state: state, time: time,
@@ -229,6 +329,11 @@ public enum ManeuverPlanner {
         }
         if let n = solve({ ManeuverNode(time: nodeTime, prograde: $0) }) { return (n, predictions) }
         if let n = solve({ ManeuverNode(time: nodeTime, radial: $0) }) { return (n, predictions) }
+        // Встреча с планетой есть, но Пе далеко от цели: в SOI не дотянуть — правим курс на перелёте.
+        if let id = goal.planet, body != id,
+           let node = PlanetTransfer.courseCorrection(to: id, trajectory: pre, time: time) {
+            return (node, predictions)
+        }
         return nil
     }
 
