@@ -319,6 +319,12 @@ final class MapVisual {
             if let parent = Bodies.body(id).parent {
                 let origin = World.position(of: parent, relativeTo: .terra, at: s.time).d3 / MapScale.metersPerUnit
                 orbitEntities[id]?.position = f3(origin - f)
+                // Вершина окружности совпадает с текущим центром планеты.
+                // Иначе хорда большой орбиты срезает сотни километров и рисуется поверх диска.
+                let b = Bodies.body(id)
+                let normal = simd_quatd(angle: b.inclination, axis: D3(1, 0, 0)).act(D3(0, 0, 1))
+                let phase = wrap2Pi(b.orbitPhase + World.orbitalRate(id) * s.time)
+                orbitEntities[id]?.orientation = simd_quatf(angle: Float(phase), axis: f3(normal))
             }
         }
         cloudTime += dt
