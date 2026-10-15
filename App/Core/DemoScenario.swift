@@ -35,6 +35,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
     case lunaSurface
+    /// EVA (этап 6): космонавт вышел на Луну рядом с посадочным кораблём.
+    case evaSurface
+    /// EVA на круговой орбите Луны 30 км: ранец включён, топлива ~18 %.
+    case evaOrbit
     /// Последние 25 м реальной посадки автопилота и неподвижный корабль после касания.
     case lunaTouchdown
     /// Посадочный блок в 1.5 км над Луной (свободное падение, касание через ~40 с) при низком Солнце: видны кратеры у места посадки.
@@ -155,6 +159,13 @@ enum DemoScenario: String, CaseIterable, Sendable {
             }
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .evaSurface:
+            let flight = ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+            flight.send(.evaExit)
+            Self.roll(flight, seconds: 2)
+            return flight
+        case .evaOrbit:
+            return Self.evaOrbit()
         case .lunaTouchdown:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: true) { sim, ap in
                 sim.activeBody == .luna && ap.phase == .descent && sim.snapshot.telemetry.heightAboveTerrain < 25
@@ -259,6 +270,30 @@ enum DemoScenario: String, CaseIterable, Sendable {
     }
 
     /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
+    /// Капсула К-1 на круговой орбите Луны 30 км; космонавт снаружи, ранец выработан импульсами туда-обратно до ~18 %.
+    private static func evaOrbit() -> FlightSim {
+        let r = Vec3(Bodies.luna.radius + 30_000, 0, 0)
+        let v = Vec3(0, (Bodies.luna.mu / r.length).squareRoot(), 0)
+        let sim = FlightSim(design: VesselDesign(name: "EVA", parts: [.chute, .podK1]), body: .luna, position: r, velocity: v,
+                            attitude: Quat(basisX: Vec3.unitY, y: Vec3.unitX, z: Vec3.unitY.cross(Vec3.unitX)))
+        sim.send(.evaExit)
+        let side = Vec3.unitZ
+        for k in 0..<40 {
+            sim.setEVAInput(EVAInput(move: side * [1.0, -1, -1, 1][k % 4]))
+            for _ in 0..<30 { _ = sim.advance(realDelta: 1.0 / 60) }
+        }
+        sim.setEVAInput(EVAInput(move: Vec3.unitY * 0.4))
+        for _ in 0..<60 { _ = sim.advance(realDelta: 1.0 / 60) }
+        sim.setEVAInput(.neutral)
+        for _ in 0..<120 { _ = sim.advance(realDelta: 1.0 / 60) }
+        return sim
+    }
+
+    /// Прокрутить сцену `seconds` секунд кадрами по 1/60.
+    private static func roll(_ sim: some FlightSimulation, seconds: Double) {
+        for _ in 0..<Int(seconds * 60) { _ = sim.advance(realDelta: 1.0 / 60) }
+    }
+
     private static func roll(_ sim: FlightSim, until done: (FlightSim) -> Bool) {
         var t = 0.0
         while !done(sim) && t < 600 {
@@ -312,6 +347,10 @@ final class ScenarioFlight: FlightSimulation, FlightCheckpointing {
 
     func send(_ command: FlightCommand) {
         sim.send(command)
+    }
+
+    func setEVAInput(_ input: EVAInput) {
+        sim.setEVAInput(input)
     }
 
     func predictTrajectory(maxPatches: Int) -> Trajectory {
