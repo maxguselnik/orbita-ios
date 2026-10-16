@@ -70,7 +70,18 @@ struct EVALadderTests {
         #expect(l.top.z > h.z)
         // Без опор лестницы нет.
         #expect(Ship(design: Self.noLegs).ladders.isEmpty)
-        #expect(Ship(design: .luna).ladders.count == 1)
+        // Полная ракета: под опорами разделители — лестницы нет; после отделения ступеней — есть.
+        #expect(Ship(design: .luna).ladders.isEmpty)
+        let sim2 = FlightSim(design: .luna)
+        var stages = 0
+        while sim2.snapshot.vessels.first(where: { $0.isActive })?.ladders.isEmpty ?? true, stages < 10 {
+            sim2.send(.stage)
+            _ = sim2.advance(realDelta: 1.0 / 60)
+            stages += 1
+        }
+        let lander = sim2.active.ship
+        #expect(lander.ladders.count == 1)
+        #expect(!lander.parts.contains { $0.id == .decouplerXL || $0.id == .titan })
     }
 
     @Test func exitHoldsLadderTopAndClimbsDownSafely() throws {
@@ -84,9 +95,16 @@ struct EVALadderTests {
         #expect(abs((g.along ?? -1) - l.length) < 1e-9)
         #expect(!c.onGround && c.canBoard && !c.canGrip)
         let n = Vec3(0, 0, 1)
-        #expect((c.position - world(v, l.top + n * EVABalance.ladderStandoff)).length < 1e-6)
-        // Лицом к кораблю.
+        // Руки у верха лестницы, стопы на `handHeight` ниже, вне корпуса (не ближе радиус + bodyRadius).
+        let feet = v.attitude.conjugate.rotate(c.position - v.position)
+        #expect(abs(feet.y - (l.top.y - EVABalance.handHeight)) < 1e-6)
+        #expect(abs(feet.x - l.top.x) < 1e-6)
+        #expect(feet.z >= l.top.z + EVABalance.ladderStandoff - 1e-9)
+        #expect(feet.z >= 0.625 + EVABalance.bodyRadius)
+        #expect(feet.z < l.top.z + 0.4)
+        // Лицом к кораблю, ось тела — по оси корабля.
         #expect(c.attitude.rotate(-.unitZ).dot(v.attitude.rotate(-n)) > 0.99)
+        #expect(c.attitude.rotate(.unitY).dot(v.attitude.rotate(.unitY)) > 0.9999)
         #expect(c.fuel == EVABalance.jetpackFuel)
 
         let t0 = sim.time
@@ -94,7 +112,8 @@ struct EVALadderTests {
         c = try controlled(sim)
         #expect(c.onGround && c.grip == nil && c.health == .ok)
         #expect(abs(groundGap(c)) < 1e-6)
-        #expect(abs(sim.time - t0 - l.length / EVABalance.climbSpeed) < 0.3)
+        // Стопы доходят до низа, когда руки на `handHeight`.
+        #expect(abs(sim.time - t0 - (l.length - EVABalance.handHeight) / EVABalance.climbSpeed) < 0.3)
         #expect(!ev.contains { if case .evaInjured = $0 { true } else { false } })
         #expect(!ev.contains { if case .evaDied = $0 { true } else { false } })
         // Снизу лестницы, далеко от люка по 3D — войти нельзя.
@@ -116,7 +135,8 @@ struct EVALadderTests {
         sim.send(.evaGrab)
         c = try controlled(sim)
         let g = try #require(c.grip)
-        #expect((g.along ?? -1) < 0.1)
+        // Руки — на `handHeight` выше стоп.
+        #expect(abs((g.along ?? -1) - EVABalance.handHeight) < 0.1)
         #expect(!c.canBoard)
         sim.send(.evaBoard)
         #expect(sim.snapshot.cosmonauts.count == 1)
@@ -190,6 +210,7 @@ struct EVALadderTests {
         let center = hatch + n * d
         sim.cosmonauts[0].r = center - center.normalized * EVABalance.centerHeight
         sim.cosmonauts[0].v = v.velocity
+        sim.cosmonauts[0].bodyUp = nil
     }
 
     @Test func grabWithinGripRadiusOnly() throws {
@@ -223,6 +244,7 @@ struct EVALadderTests {
         let center = world(v, Vec3(0, tank.center.y, 3))
         sim.cosmonauts[0].r = center - center.normalized * EVABalance.centerHeight
         sim.cosmonauts[0].v = v.velocity
+        sim.cosmonauts[0].bodyUp = nil
         sim.setEVAInput(EVAInput(move: -n))
         var minRho = Double.infinity
         _ = run(sim, limit: 8, frame: 1.0 / 30) { s, _ in
@@ -305,7 +327,9 @@ struct EVALadderTests {
         let pod = try #require(ship.parts.first { $0.id == .lk2 })
         let h = try #require(ship.hatches.first)
         #expect(abs(h.point.y - (pod.placement.bottom + 0.35 * 1.4)) < 1e-9)
-        #expect(abs(h.point.z - 0.625) < 1e-9)
+        // На корпусе-конусе, как в рендере (`PartModels.podHull`): 0.625 − 0.25·(0.35 − 0.08)/0.82.
+        #expect(abs(h.point.z - (0.625 - 0.25 * 0.27 / 0.82)) < 1e-9)
+        #expect(abs(Ship.hatchRadius(PartCatalog.spec(.podK1)) - (0.625 - 0.25 * 0.42 / 0.82)) < 1e-12)
 
         let d = VesselDesign.luna2
         #expect(d.name == "Луна-2")
@@ -316,7 +340,8 @@ struct EVALadderTests {
         #expect(!d.issues().contains { $0.isBlocking }, "\(d.issues())")
         let sim = FlightSim(design: d)
         #expect(sim.active.ship.parts[1].crew.count == 2)
-        #expect(sim.snapshot.vessels[0].ladders.count == 1)
+        // Полная ракета на старте — без лестницы.
+        #expect(sim.snapshot.vessels[0].ladders.isEmpty)
     }
 
     @Test func lk2LanderLadderFromLowHatch() throws {
@@ -330,5 +355,74 @@ struct EVALadderTests {
         climbDown(sim)
         let c = try controlled(sim)
         #expect(c.onGround && c.health == .ok)
+    }
+
+    // MARK: Ревью F: сход на вращающемся теле, отпускание, поза, торец
+
+    @Test func ladderStepOffOnRotatingTerra() throws {
+        // Посадочный корабль на площадке Терры (вращается): сход не отстаёт от корабля.
+        let sim = FlightSim(design: Self.lunaLander)
+        _ = sim.advance(realDelta: 1.0 / 60)
+        exit(sim)
+        #expect(try controlled(sim).grip != nil)
+        climbDown(sim)
+        let c = try controlled(sim)
+        #expect(c.onGround && c.grip == nil)
+        let v = sim.snapshot.vessels[0]
+        let l = try #require(v.ladders.first)
+        let d = c.position - world(v, l.bottom)
+        let up = c.position.normalized
+        let horiz = (d - up * d.dot(up)).length
+        #expect(horiz < 0.4, "\(horiz)")
+        #expect(horiz >= EVABalance.ladderStandoff - 0.05)
+    }
+
+    @Test func releaseOnOrbitDoesNotJump() throws {
+        let sim = orbit()
+        exit(sim)
+        let v0 = sim.snapshot.vessels[0]
+        let rel0 = v0.attitude.conjugate.rotate(try controlled(sim).position - v0.position)
+        sim.send(.evaRelease)
+        _ = sim.advance(realDelta: 1.0 / 60)
+        let v1 = sim.snapshot.vessels[0]
+        let rel1 = v1.attitude.conjugate.rotate(try controlled(sim).position - v1.position)
+        #expect((rel1 - rel0).length < 0.02, "\((rel1 - rel0).length)")
+    }
+
+    @Test func handrailPoseHandsAtHatch() throws {
+        let sim = orbit()
+        exit(sim)
+        let c = try controlled(sim)
+        let v = sim.snapshot.vessels[0]
+        let feet = v.attitude.conjugate.rotate(c.position - v.position)
+        let hatch = v.hatches[0]
+        // Стопы — на `handHeight` ниже люка по оси корабля, снаружи корпуса.
+        #expect(abs(feet.y - (hatch.y - EVABalance.handHeight)) < 1e-6)
+        #expect(abs(feet.x - hatch.x) < 1e-6 && feet.z > hatch.z)
+        #expect(feet.z >= 0.625 + EVABalance.bodyRadius)
+        let shipUp = v.attitude.rotate(.unitY)
+        #expect(c.attitude.rotate(.unitY).dot(shipUp) > 0.9999)
+        #expect(c.attitude.rotate(-.unitZ).dot(v.attitude.rotate(-.unitZ)) > 0.9999)
+    }
+
+    @Test func hullPushFromEndGoesAxially() throws {
+        let sim = orbit()
+        exit(sim)
+        sim.send(.evaRelease)
+        let v = sim.snapshot.vessels[0]
+        let shipUp = v.attitude.rotate(.unitY)
+        // Голова чуть вошла в низ двигателя снизу, рядом с осью; движется вверх вдоль оси.
+        var c = sim.cosmonauts[0]
+        c.bodyUp = shipUp
+        let headH = 2 * EVABalance.centerHeight - EVABalance.bodyRadius
+        c.r = world(v, Vec3(0.1, 0.02 - headH, 0))
+        c.v = v.velocity + shipUp
+        sim.pushOutOfHulls(&c)
+        let feet = v.attitude.conjugate.rotate(c.r - v.position)
+        // Вытолкнут вниз из торца, не вбок.
+        #expect(abs(feet.x - 0.1) < 1e-9 && abs(feet.z) < 1e-9)
+        #expect(feet.y + headH <= 0)
+        #expect(feet.y + headH > -0.01)
+        #expect((c.v - v.velocity).dot(shipUp) <= 1e-9)
     }
 }

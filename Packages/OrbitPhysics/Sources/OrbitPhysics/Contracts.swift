@@ -684,6 +684,8 @@ public enum EVABalance {
     public static let ladderTopReach = 0.3
     /// Радиус космонавта для столкновений с корпусом, м.
     public static let bodyRadius = 0.35
+    /// Руки держащегося — на столько выше стоп по оси корабля, м (`EVAGrip.along` — высота рук на лестнице).
+    public static let handHeight = 1.2
 }
 
 /// Лестница люка (6.2): вертикальный отрезок в осях корабля относительно `VesselState.position`,
@@ -703,7 +705,8 @@ public struct EVALadder: Sendable, Hashable {
     public var length: Double { (top - bottom).length }
 }
 
-/// Захват (6.2): за лестницу (`along` — м от низа, 0…`length`) или за поручни у люка (`along` = nil).
+/// Захват (6.2): за лестницу (`along` — высота рук от низа, м, 0…`length`; стопы на `EVABalance.handHeight` ниже)
+/// или за поручни у люка (`along` = nil; стопы на `handHeight` ниже люка по оси корабля).
 public struct EVAGrip: Sendable, Hashable {
     public var vessel: VesselID
     /// Индекс в `VesselState.hatches`.
