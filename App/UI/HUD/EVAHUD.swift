@@ -18,6 +18,12 @@ struct EVAHUDState: Equatable {
     var onGround: Bool
     var injured: Bool
     var canBoard: Bool
+    /// Держится за лестницу/поручни (6.2).
+    var gripped: Bool
+    /// Держится именно за лестницу (`along != nil`).
+    var onLadder: Bool
+    /// Можно ухватиться (свободен и рядом лестница/поручни).
+    var canGrip: Bool
     /// Красная плашка под статусом (nil — нет).
     var warning: String?
     var flagBlocker: ScienceBlocker?
@@ -34,7 +40,13 @@ struct EVAHUDState: Equatable {
         name = c.name
         let bodyName = Bodies.body(c.body).name
         let hatch = c.hatchDistance.map { "до люка " + Self.near($0) }
-        if c.onGround || c.orbit == nil {
+        gripped = c.grip != nil
+        onLadder = c.grip?.along != nil
+        canGrip = c.grip == nil && c.canGrip
+        if let grip = c.grip {
+            title = "\(c.name) · " + (grip.along != nil ? "на лестнице" : "держится за корабль")
+            detail = hatch ?? ""
+        } else if c.onGround || c.orbit == nil {
             title = "\(c.name) · \(bodyName)"
             detail = (["скорость " + HUDFormat.speed(c.surfaceSpeed)] + [hatch].compactMap { $0 }).joined(separator: " · ")
         } else {
@@ -50,7 +62,9 @@ struct EVAHUDState: Equatable {
         onGround = c.onGround
         injured = c.health == .injured
         canBoard = c.canBoard
-        if !c.onGround, c.verticalSpeed < Self.dangerFall, c.heightAboveTerrain < Self.dangerHeight {
+        if c.grip != nil {
+            warning = nil
+        } else if !c.onGround, c.verticalSpeed < Self.dangerFall, c.heightAboveTerrain < Self.dangerHeight {
             warning = "Скорость падения \(Int(abs(c.verticalSpeed).rounded())) м/с — опасно"
         } else if c.jetpackOn, fraction < Self.lowFuel {
             warning = "Мало топлива ранца — вернитесь к люку"
@@ -69,7 +83,8 @@ struct EVAHUDState: Equatable {
 
     /// Подпись под джойстиком.
     var stickLabel: String {
-        onGround ? "идти" : (jetpackOn ? "лететь" : "дрейф")
+        if gripped { return onLadder ? "лезть" : "перебирать" }
+        return onGround ? "идти" : (jetpackOn ? "лететь" : "дрейф")
     }
 }
 
@@ -106,11 +121,9 @@ extension FlightHUDModel {
         }
     }
 
-    /// К кораблю: переключение идёт по кругу через всех космонавтов снаружи, поэтому — до возврата к кораблю.
+    /// К кораблю: управление возвращается кораблю одной командой (6.2).
     func evaSelectShip() {
-        for _ in 0...snapshot.cosmonauts.count where snapshot.controlledCosmonaut != nil {
-            send(.evaSwitch)
-        }
+        send(.evaSelect(memberID: nil))
     }
 
     /// Переключатель в режиме корабля: есть экипаж или кто-то снаружи; не в уроках и не на карте.
@@ -223,9 +236,11 @@ struct EVALayer: View {
             }
             .evaFrame("stick")
             Spacer(minLength: 8)
-            EVABoardButton(canBoard: s.canBoard) {
+            EVABoardButton(canBoard: s.canBoard, hint: s.gripped ? "наверху" : "ближе \(Int(EVABalance.boardRadius)) м") {
                 if s.canBoard {
                     model.send(.evaBoard)
+                } else if s.gripped {
+                    model.notify("Поднимитесь к люку")
                 } else {
                     model.notify("Подойдите к люку ближе \(Int(EVABalance.boardRadius)) м")
                 }
@@ -243,36 +258,57 @@ struct EVALayer: View {
 
     private func actions(_ s: EVAHUDState) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
-            if s.onGround {
-                EVAButton(title: "Флаг", muted: s.flagBlocker != nil) {
-                    model.evaAction(.evaPlantFlag, blocker: s.flagBlocker)
-                }
-                .evaFrame("flag")
-                EVAButton(title: "Образец", muted: s.sampleBlocker != nil) {
-                    model.evaAction(.evaCollectSample, blocker: s.sampleBlocker)
-                }
-                .evaFrame("sample")
-            }
-            EVAButton(title: "Отчёт", muted: s.reportBlocker != nil) {
-                model.evaAction(.evaReport, blocker: s.reportBlocker)
-            }
-            .evaFrame("report")
-            HStack(spacing: 6) {
-                EVAHoldButton(title: "Вниз", muted: !s.jetpackOn) { model.evaVertical = $0 ? -1 : 0 }
-                    .evaFrame("down")
-                if s.jetpackOn {
-                    EVAHoldButton(title: "Вверх", muted: false) { model.evaVertical = $0 ? 1 : 0 }
-                        .evaFrame("up")
-                } else {
-                    EVAButton(title: "Прыжок", muted: !s.onGround || s.injured) {
-                        if s.injured {
-                            model.notify("Травма: прыгать нельзя")
-                        } else if s.onGround {
-                            model.send(.evaJump)
-                        }
+            if s.gripped {
+                EVAButton(title: "Отпустить", tint: HUDPalette.green) { model.send(.evaRelease) }
+                    .evaFrame("release")
+                if s.onLadder {
+                    HStack(spacing: 6) {
+                        EVAHoldButton(title: "Вниз", muted: false) { model.evaVertical = $0 ? -1 : 0 }
+                            .evaFrame("down")
+                        EVAHoldButton(title: "Вверх", muted: false) { model.evaVertical = $0 ? 1 : 0 }
+                            .evaFrame("up")
                     }
-                    .evaFrame("jump")
                 }
+            } else {
+                freeActions(s)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func freeActions(_ s: EVAHUDState) -> some View {
+        if s.onGround {
+            EVAButton(title: "Флаг", muted: s.flagBlocker != nil) {
+                model.evaAction(.evaPlantFlag, blocker: s.flagBlocker)
+            }
+            .evaFrame("flag")
+            EVAButton(title: "Образец", muted: s.sampleBlocker != nil) {
+                model.evaAction(.evaCollectSample, blocker: s.sampleBlocker)
+            }
+            .evaFrame("sample")
+        }
+        EVAButton(title: "Отчёт", muted: s.reportBlocker != nil) {
+            model.evaAction(.evaReport, blocker: s.reportBlocker)
+        }
+        .evaFrame("report")
+        HStack(spacing: 6) {
+            EVAHoldButton(title: "Вниз", muted: !s.jetpackOn) { model.evaVertical = $0 ? -1 : 0 }
+                .evaFrame("down")
+            if s.canGrip {
+                EVAButton(title: "Держаться", tint: HUDPalette.green) { model.send(.evaGrab) }
+                    .evaFrame("grab")
+            } else if s.jetpackOn {
+                EVAHoldButton(title: "Вверх", muted: false) { model.evaVertical = $0 ? 1 : 0 }
+                    .evaFrame("up")
+            } else {
+                EVAButton(title: "Прыжок", muted: !s.onGround || s.injured) {
+                    if s.injured {
+                        model.notify("Травма: прыгать нельзя")
+                    } else if s.onGround {
+                        model.send(.evaJump)
+                    }
+                }
+                .evaFrame("jump")
             }
         }
     }
@@ -432,6 +468,7 @@ struct EVAJetpackButton: View {
 struct EVAButton: View {
     let title: String
     var muted = false
+    var tint: Color? = nil
     let action: () -> Void
 
     static let width: CGFloat = 86
@@ -441,9 +478,9 @@ struct EVAButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: HUDFont.body, weight: .bold))
-                .foregroundStyle(muted ? HUDPalette.muted : HUDPalette.text)
+                .foregroundStyle(muted ? HUDPalette.muted : (tint ?? HUDPalette.text))
                 .frame(width: Self.width, height: Self.height)
-                .classicPanel(corner: 8)
+                .classicPanel(corner: 8, stroke: tint ?? HUDPalette.stroke)
                 .opacity(muted ? 0.7 : 1)
                 .contentShape(Rectangle())
         }
@@ -480,6 +517,7 @@ struct EVAHoldButton: View {
 /// «В капсулу» 120 × 44: оранжевая, когда можно войти; иначе тёмная с подписью «ближе 2 м».
 struct EVABoardButton: View {
     let canBoard: Bool
+    var hint = "ближе \(Int(EVABalance.boardRadius)) м"
     let action: () -> Void
 
     var body: some View {
@@ -493,7 +531,7 @@ struct EVABoardButton: View {
                     VStack(spacing: 0) {
                         Text("В капсулу")
                             .font(.system(size: HUDFont.body, weight: .bold))
-                        Text("ближе \(Int(EVABalance.boardRadius)) м")
+                        Text(hint)
                             .font(.system(size: HUDFont.caption))
                     }
                     .foregroundStyle(HUDPalette.muted)
@@ -507,6 +545,6 @@ struct EVABoardButton: View {
         }
         .buttonStyle(HUDPressStyle())
         .accessibilityLabel("В капсулу")
-        .accessibilityValue(canBoard ? "доступно" : "подойдите ближе")
+        .accessibilityValue(canBoard ? "доступно" : hint)
     }
 }

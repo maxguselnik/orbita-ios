@@ -9,6 +9,7 @@ private final class EVAStubFlight: FlightSimulation {
     private let base = MockFlight()
     var cosmonaut: CosmonautState
     var inputs: [EVAInput] = []
+    var commands: [FlightCommand] = []
 
     init(_ cosmonaut: CosmonautState) { self.cosmonaut = cosmonaut }
 
@@ -19,7 +20,7 @@ private final class EVAStubFlight: FlightSimulation {
         return s
     }
     func setInput(_ input: ControlInput) { base.setInput(input) }
-    func send(_ command: FlightCommand) { base.send(command) }
+    func send(_ command: FlightCommand) { commands.append(command); base.send(command) }
     func advance(realDelta: Double) -> [SimEvent] { base.advance(realDelta: realDelta) }
     func predictTrajectory(maxPatches: Int) -> Trajectory { base.predictTrajectory(maxPatches: maxPatches) }
     func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction? {
@@ -58,6 +59,38 @@ struct EVAHUDTests {
         #expect(EVAHUDState(fall).warning == "Скорость падения 9 м/с — опасно")
     }
 
+    private static func gripped(ladder: Bool) -> CosmonautState {
+        var c = ground()
+        c.grip = EVAGrip(vessel: 1, hatch: 0, along: ladder ? 2.5 : nil)
+        c.canBoard = false
+        c.hatchDistance = 3.2
+        c.verticalSpeed = -9
+        c.jetpackOn = true
+        c.fuel = 1
+        return c
+    }
+
+    @Test func gripState() {
+        let l = EVAHUDState(Self.gripped(ladder: true))
+        #expect(l.gripped && l.onLadder && !l.canGrip)
+        #expect(l.title == "Лера · на лестнице" && l.detail == "до люка 3.2 м")
+        #expect(l.stickLabel == "лезть" && l.warning == nil)
+        let h = EVAHUDState(Self.gripped(ladder: false))
+        #expect(h.title == "Лера · держится за корабль" && !h.onLadder && h.stickLabel == "перебирать")
+        var free = Self.ground()
+        free.canGrip = true
+        #expect(EVAHUDState(free).canGrip)
+    }
+
+    @Test func shipSelectSendsNil() {
+        let stub = EVAStubFlight(Self.ground())
+        let model = FlightHUDModel(makeSimulation: { stub })
+        model.tick(now: 1)
+        model.tick(now: 1.05)
+        model.evaSelectShip()
+        #expect(stub.commands == [.evaSelect(memberID: nil)])
+    }
+
     @Test func eventToasts() {
         #expect(FlightHUDModel.message(for: .evaExited(memberID: "lera")) == "Лера вышла")
         #expect(FlightHUDModel.message(for: .evaBoarded(memberID: "lera")) == "Лера в капсуле")
@@ -82,11 +115,20 @@ struct EVAHUDTests {
     /// Раскладка HUD EVA на 740 × 371 и 852 × 393: всё внутри кадра, элементы не пересекаются.
     @Test(arguments: [CGSize(width: 740, height: 371), CGSize(width: 852, height: 393)], [true, false])
     func layoutFits(size: CGSize, ground: Bool) async throws {
-        let stub = EVAStubFlight(ground ? Self.ground() : Self.orbit())
+        try await checkLayout(size: size, stub: EVAStubFlight(ground ? Self.ground() : Self.orbit()), fall: !ground)
+    }
+
+    /// То же при захвате: лестница (с «Вверх/Вниз») и поручни.
+    @Test(arguments: [CGSize(width: 740, height: 371), CGSize(width: 852, height: 393)], [true, false])
+    func layoutFitsGripped(size: CGSize, ladder: Bool) async throws {
+        try await checkLayout(size: size, stub: EVAStubFlight(Self.gripped(ladder: ladder)), fall: false)
+    }
+
+    private func checkLayout(size: CGSize, stub: EVAStubFlight, fall: Bool) async throws {
         let model = FlightHUDModel(makeSimulation: { stub })
         model.tick(now: 1)
         model.tick(now: 1.05)
-        if !ground {
+        if fall {
             // Орбита: плашка падения показывается, чтобы проверить и её.
             var fall = stub.cosmonaut
             fall.verticalSpeed = -9
