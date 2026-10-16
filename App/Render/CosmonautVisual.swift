@@ -114,6 +114,29 @@ final class CosmonautVisual {
         }
     }
 
+    /// Расстояние от стоп до бёдер, м (для посадки в кресло).
+    static var hipHeight: Float { hipY }
+
+    /// Сидячая поза (водитель ровера): бёдра согнуты, руки на коленях; корень ставит вызывающий.
+    func updateSeated() {
+        var t = SuitPose()
+        t.thighL = 1.45; t.thighR = 1.45
+        t.kneeL = -1.2; t.kneeR = -1.2
+        t.armL = 0.9; t.armR = 0.9
+        t.elbow = 0.9
+        t.lean = 0.02
+        if firstFrame { firstFrame = false }
+        pose = t
+        upper.orientation = simd_quatf(angle: -pose.lean, axis: F3(1, 0, 0))
+        upper.position = F3(0, Self.hipY, 0)
+        func rx(_ a: Float) -> simd_quatf { simd_quatf(angle: a, axis: F3(1, 0, 0)) }
+        legL.orientation = rx(pose.thighL); legR.orientation = rx(pose.thighR)
+        shinL.orientation = rx(pose.kneeL); shinR.orientation = rx(pose.kneeR)
+        armL.orientation = rx(pose.armL); armR.orientation = rx(pose.armR)
+        foreL.orientation = rx(pose.elbow); foreR.orientation = rx(pose.elbow)
+        for j in jets where j.entity.isEnabled { j.entity.isEnabled = false }
+    }
+
     /// Положение/поворот и анимация. `rel` — центр модели относительно камеры (Double → Float здесь).
     func update(_ c: CosmonautState, rel: D3, dt: Double) {
         root.transform = Transform(scale: .one, rotation: quatf(c.attitude.quatd), translation: f3(rel))
