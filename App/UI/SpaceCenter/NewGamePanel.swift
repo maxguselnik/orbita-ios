@@ -96,9 +96,10 @@ struct GameMenuPanel: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Закрыть меню")
             }
-            HStack(spacing: 14) {
+            HStack(alignment: .top, spacing: 14) {
                 VStack(spacing: 2) {
                     Toggle("Звук", isOn: $settings.soundEnabled)
+                    Toggle("Музыка", isOn: $settings.musicEnabled)
                     Toggle("Вибрация", isOn: $settings.hapticsEnabled)
                 }
                 VStack(spacing: 2) {

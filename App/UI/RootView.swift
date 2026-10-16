@@ -57,7 +57,7 @@ struct RootView: View {
         .onChange(of: flow.screen) { _, screen in
             if screen != .flight { musicController().menu() }
         }
-        .onChange(of: settings.soundEnabled) { musicController().syncSettings() }
+        .onChange(of: settings.musicEnabled) { musicController().syncSettings() }
     }
 
     /// Новый полёт: свежая модель HUD, чистая сцена, звук и вибрация включены.

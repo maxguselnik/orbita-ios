@@ -12,7 +12,10 @@ enum FrameRate: Int, CaseIterable, Codable, Sendable {
 @Observable
 final class GameSettings {
     var frameRate: FrameRate = .hz90
+    /// Звуки полёта и голоса экипажа.
     var soundEnabled = true
+    /// Фоновая музыка (независимо от звуков).
+    var musicEnabled = true
     var hapticsEnabled = true
     /// Управление наклоном телефона, по умолчанию выключено.
     var tiltControl = false
