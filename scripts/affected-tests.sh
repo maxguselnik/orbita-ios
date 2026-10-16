@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Какие тесты нужны для изменённого кода. Печатает две строки:
 #   physics: all | none | <Suite> ...   (для swift test --filter)
-#   app:     all | none | <Suite> ...   (для xcodebuild -only-testing:AppTests/<Suite>)
+#   app:     all | none | <Suite> ...   (для xcodebuild -only-testing:OrbitaTests/<Suite>)
 # Файлы — аргументами, иначе дифф от main (коммиты ветки + незакоммиченное + новые).
 # Правило: тест нужен, если его файл изменён или упоминает тип из изменённого файла.
 # Ядро физики (FlightSim, Kepler, Vec3, …) и Package.swift — полный прогон физики.

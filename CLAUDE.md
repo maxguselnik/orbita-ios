@@ -38,7 +38,7 @@
 - `docs/PROGRESS.md` — короткий, читать целиком. `docs/HISTORY.md` — архив, при старте не читать.
 - Большие документы (`CONTRACTS.md`, `SPEC.md`, `CAREER_ECONOMY.md`, `MISSION_CATALOG.md`, `SCIENCE_TASKS.md`) — только нужный раздел: `grep -n '^#' файл`, затем `sed -n 'начало,конецp'`. В бриф субагенту — название раздела, не весь файл.
 - Логи сборки и тестов — через `scripts/run.sh` (итог и ошибки), полный лог открывать только при провале и по `grep`.
-- Локально по умолчанию — только тесты изменённого кода: `scripts/affected-tests.sh` выбирает наборы по диффу, его используют `check.sh`, `scripts/run.sh` и хук физики. Вручную — `swift test --filter <Suite>`, `xcodebuild test -only-testing:AppTests/<Suite>`. Полный прогон (`check.sh --full`, `FULL=1 scripts/run.sh`) — только по просьбе пользователя или при правке ядра (FlightSim, Kepler, контракты); остальное проверяет CI.
+- Локально по умолчанию — только тесты изменённого кода: `scripts/affected-tests.sh` выбирает наборы по диффу, его используют `check.sh`, `scripts/run.sh` и хук физики. Вручную — `swift test --filter <Suite>`, `xcodebuild test -only-testing:OrbitaTests/<Suite>`. Полный прогон (`check.sh --full`, `FULL=1 scripts/run.sh`) — только по просьбе пользователя или при правке ядра (FlightSim, Kepler, контракты); остальное проверяет CI.
 - Тесты физики (`physics-linux`) в CI идут всегда; `[build-only]` пропускает только тесты приложения. Менял `Packages/OrbitPhysics` — тесты физики должны быть зелёными до слияния.
 
 ## Стек

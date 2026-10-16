@@ -241,8 +241,11 @@ struct CompactThrottle: View {
 
     var body: some View {
         let value = model.solidLocked ? 1 : min(max(model.throttle, 0), 1)
-        VStack(spacing: 2) {
-            Text(model.solidLocked ? "РДТТ" : "ТЯГА").font(.system(size: 10, weight: .medium))
+        let locked = model.solidLocked
+        VStack(spacing: 0) {
+            ThrottleEndLabel(title: "MAX", label: "Полная тяга", pulse: guide == .fullThrottle, enabled: !locked) {
+                model.throttle = 1
+            }
             GeometryReader { geo in
                 ZStack(alignment: .bottom) {
                     Capsule().fill(HUDPalette.stroke).frame(width: 4)
@@ -255,32 +258,36 @@ struct CompactThrottle: View {
                 .gesture(DragGesture(minimumDistance: 0)
                     .updating($dragging) { _, state, _ in state = true }
                     .onChanged { drag in
-                        guard !model.solidLocked else { return }
+                        guard !locked else { return }
                         if dragBase == nil { dragBase = model.throttle }
                         model.throttle = min(max((dragBase ?? value) - Double(drag.translation.height / max(geo.size.height - 16, 1)), 0), 1)
                     }
                     .onEnded { _ in dragBase = nil })
             }
-            .frame(height: 94)
-            Text(HUDFormat.percent(value)).font(.system(size: 12, weight: .bold).monospacedDigit())
-        }
-        .foregroundStyle(HUDPalette.accent)
-        .padding(.vertical, 7)
-        .frame(width: 52, height: 139)
-        .classicPanel(corner: 10)
-        .hudPulse(guide == .fullThrottle || guide == .zeroThrottle)
-        .onChange(of: dragging) { _, active in if !active { dragBase = nil } }
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(model.solidLocked ? "Тяга РДТТ не регулируется" : "Тяга")
-        .accessibilityValue(HUDFormat.percent(value))
-        .accessibilityAdjustableAction { direction in
-            guard !model.solidLocked else { return }
-            switch direction {
-            case .increment: model.throttle = min(1, model.throttle + 0.1)
-            case .decrement: model.throttle = max(0, model.throttle - 0.1)
-            @unknown default: break
+            .frame(height: 72)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(locked ? "Тяга РДТТ не регулируется" : "Тяга")
+            .accessibilityValue(HUDFormat.percent(value))
+            .accessibilityAdjustableAction { direction in
+                guard !locked else { return }
+                switch direction {
+                case .increment: model.throttle = min(1, model.throttle + 0.1)
+                case .decrement: model.throttle = max(0, model.throttle - 0.1)
+                @unknown default: break
+                }
+            }
+            Text(locked ? "РДТТ" : HUDFormat.percent(value))
+                .font(.system(size: 12, weight: .bold).monospacedDigit())
+                .padding(.top, 2)
+            ThrottleEndLabel(title: "0", label: "Тяга ноль", pulse: guide == .zeroThrottle, enabled: !locked) {
+                model.throttle = 0
             }
         }
+        .foregroundStyle(HUDPalette.accent)
+        .padding(.vertical, 4)
+        .frame(width: 52)
+        .classicPanel(corner: 10)
+        .onChange(of: dragging) { _, active in if !active { dragBase = nil } }
     }
 }
 
