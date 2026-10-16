@@ -12,6 +12,8 @@ public enum PartKind: String, Sendable, Hashable, Codable {
     case heatShield
     /// Научный прибор (крепится сбоку, детей не принимает; `ExperimentID.instrument`).
     case instrument
+    /// Ровер (этап 6.3): колесо (мотор, тормоз, руль — передние), рама, батарея, солнечная панель, кресло.
+    case wheel, roverFrame, battery, solar, seat
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
@@ -28,6 +30,8 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case heatShield, heatShieldXL
     /// Научные приборы.
     case thermometer, barometer, gravimeter
+    /// Ровер (6.3).
+    case wheelK1, wheelK2, roverFrame, batteryB1, solarS1, roverSeat
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -60,12 +64,15 @@ public struct PartSpec: Sendable, Hashable {
         case .pod, .engine, .fairing: 2400
         case .tank, .decoupler, .monoTank, .fin: 2000
         case .probe, .chute, .legs, .rcs, .instrument: 1600
+        case .wheel, .roverFrame, .battery, .solar, .seat: 1200
         }
     }
 
     public var mount: PartMount {
         switch id {
-        case .decouplerRadial, .fin, .thermometer, .barometer, .gravimeter: .radial
+        case .decouplerRadial, .fin, .thermometer, .barometer, .gravimeter,
+             .wheelK1, .wheelK2, .batteryB1, .solarS1, .roverSeat: .radial
+        case .roverFrame: .any
         case .t100, .t200, .t400, .t800, .j64, .shtil, .vikhr, .titan, .molot, .rcsBlock, .m100: .any
         default: .axial
         }
@@ -122,6 +129,13 @@ public enum PartCatalog {
         make(.heatShieldXL, "Теплозащитный экран Э-2", .heatShield, dry: 0.3, fuel: 0.8, h: 0.3, w: 2.5),
         // Научные приборы (SPEC «Наука»): `h` — высота вдоль оси, `w` — вынос от борта.
         make(.thermometer, "Термометр Т-1", .instrument, dry: 0.005, h: 0.2, w: 0.12),
+        // Ровер (6.3): размеры колёс — высота = диаметр колеса, ширина = ширина шины; рама — длина по оси.
+        make(.wheelK1, "Колесо К-1", .wheel, dry: 0.04, h: 0.6, w: 0.25),
+        make(.wheelK2, "Колесо К-2", .wheel, dry: 0.08, h: 1.0, w: 0.35),
+        make(.roverFrame, "Рама «Тропа»", .roverFrame, dry: 0.15, h: 2.0, w: 0.6),
+        make(.batteryB1, "Батарея Б-1", .battery, dry: 0.02, h: 0.25, w: 0.35),
+        make(.solarS1, "Солнечная панель С-1", .solar, dry: 0.02, h: 0.6, w: 0.9),
+        make(.roverSeat, "Кресло", .seat, dry: 0.05, crew: 1, h: 0.6, w: 0.5),
         make(.barometer, "Барометр Б-1", .instrument, dry: 0.05, h: 0.3, w: 0.2),
         make(.gravimeter, "Гравиметр Г-1", .instrument, dry: 0.05, h: 0.35, w: 0.2),
     ]

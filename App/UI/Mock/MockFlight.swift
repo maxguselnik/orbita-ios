@@ -120,7 +120,7 @@ final class MockFlight: FlightSimulation {
         case .collectScience, .discardScience:
             break
         case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport,
-             .evaGrab, .evaRelease, .evaSelect:
+             .evaGrab, .evaRelease, .evaSelect, .setHandbrake, .setRoverStabilizer, .deployRover, .selectVessel:
             break
         case .setManeuver(let node):
             maneuverNode = node

@@ -300,7 +300,7 @@ public final class FlightSim: FlightSimulation {
         case .collectScience(let e): collectScience(e)
         case .discardScience(let id): discardScience(id)
         case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport,
-             .evaGrab, .evaRelease, .evaSelect:
+             .evaGrab, .evaRelease, .evaSelect, .setHandbrake, .setRoverStabilizer, .deployRover, .selectVessel:
             sendEVA(command)
         }
         rebuildSnapshot()

@@ -81,6 +81,31 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     case evaRelease
     /// Управлять космонавтом `memberID` (снаружи) или кораблём (nil).
     case evaSelect(memberID: String?)
+    // Ровер (6.3), docs/CONTRACTS.md «Ровер».
+    /// Ручной тормоз активного ровера.
+    case setHandbrake(Bool)
+    /// Стабилизатор ровера (держит ровно, мешает опрокинуться).
+    case setRoverStabilizer(Bool)
+    /// Отделить ровер с активного корабля на грунте (`WorldSnapshot.roverDeployable`): ставится колёсами вниз рядом.
+    case deployRover
+    /// Сделать активным корабль/ровер из `WorldSnapshot.controllable`.
+    case selectVessel(VesselID)
+}
+
+/// Ввод ровера: джойстик (макет «B», 2026-10-16). Действует, когда активный корабль — ровер с водителем
+/// (космонавт в кресле) или модулем управления.
+public struct RoverInput: Sendable, Hashable, Codable {
+    /// Газ −1 (назад) … 1 (вперёд).
+    public var drive: Double
+    /// Руль −1 (влево) … 1 (вправо).
+    public var steer: Double
+
+    public init(drive: Double = 0, steer: Double = 0) {
+        self.drive = drive
+        self.steer = steer
+    }
+
+    public static let neutral = RoverInput()
 }
 
 /// Непрерывный ввод космонавта (EVA); UI выставляет каждый кадр, пока управляет космонавтом.
@@ -144,6 +169,8 @@ public struct VesselState: Sendable, Hashable {
     public var hatches: [Vec3] = []
     /// Лестницы (6.2) в осях корабля относительно `position`: по одной на люк кабины, если на корабле есть опоры.
     public var ladders: [EVALadder] = []
+    /// Колёса ровера (6.3) для рендера; пусто — не ровер.
+    public var wheels: [WheelState] = []
 
     public init(id: VesselID, body: BodyID, position: Vec3, velocity: Vec3,
                 attitude: Quat = .identity, angularVelocity: Vec3 = .zero,
@@ -560,8 +587,14 @@ public struct WorldSnapshot: Sendable {
     public var flags: [FlagState] = []
     /// Почему `evaExit` сейчас нельзя; nil — можно.
     public var evaExitBlocker: EVABlocker? = nil
+    /// Ровер (6.3): состояние активного ровера; nil — активный корабль не ровер.
+    public var rover: RoverStatus? = nil
     /// Погибшие в этом полёте (id отряда), по порядку.
     public var deadCrew: [String] = []
+    /// Ровер (6.3): у активного корабля на грунте есть неотделённый ровер.
+    public var roverDeployable: Bool = false
+    /// Корабли и роверы, которыми можно управлять (экипаж или модуль управления), по порядку появления.
+    public var controllable: [ControllableVessel] = []
 
     /// Управляемый космонавт.
     public var controlled: CosmonautState? {
@@ -640,11 +673,108 @@ public protocol FlightSimulation: AnyObject {
     func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction?
     /// Ввод управляемого космонавта (EVA); без космонавта — игнорируется.
     func setEVAInput(_ input: EVAInput)
+    /// Ввод ровера (6.3); активный корабль не ровер — игнорируется.
+    func setRoverInput(_ input: RoverInput)
 }
 
 extension FlightSimulation {
     /// Симуляции без EVA (заглушки UI) ввод космонавта игнорируют.
     public func setEVAInput(_ input: EVAInput) {}
+    /// Симуляции без роверов ввод ровера игнорируют.
+    public func setRoverInput(_ input: RoverInput) {}
+}
+
+// MARK: - Ровер (этап 6.3)
+
+/// Числа ровера (docs/CONTRACTS.md «Ровер»); A уточняет по тестам и сообщает.
+public enum RoverBalance {
+    /// Предельная скорость по грунту, м/с.
+    public static let maxSpeed = 8.0
+    /// Предельный угол поворота передних колёс, рад.
+    public static let maxSteer = 0.5
+    /// Батарея Б-1: ёмкость, ед.; расход мотора на полном газу, ед./с на колесо; панель С-1 на солнце, ед./с.
+    public static let batteryCapacity = 100.0
+    public static let motorDrain = 0.15
+    public static let solarCharge = 0.3
+    /// Сесть: расстояние по горизонтали до кресла, м (как люк).
+    public static let seatRadius = 2.0
+}
+
+/// Колесо ровера для рендера.
+public struct WheelState: Sendable, Hashable {
+    /// Индекс детали в `VesselState.parts`.
+    public var part: Int
+    /// Поворот руля, рад (+ — вправо); вращение колеса, рад (растёт при езде вперёд); сжатие подвески, м.
+    public var steer: Double
+    public var spin: Double
+    public var compression: Double
+    public var onGround: Bool
+
+    public init(part: Int, steer: Double = 0, spin: Double = 0, compression: Double = 0, onGround: Bool = false) {
+        self.part = part
+        self.steer = steer
+        self.spin = spin
+        self.compression = compression
+        self.onGround = onGround
+    }
+}
+
+/// Состояние активного ровера для HUD и звука.
+public struct RoverStatus: Sendable, Hashable {
+    /// Скорость по грунту со знаком (+ вперёд), м/с.
+    public var speed: Double
+    public var charge: Double
+    public var chargeCapacity: Double
+    public var chargeFraction: Double { chargeCapacity > 0 ? charge / chargeCapacity : 0 }
+    /// Панели заряжают сейчас.
+    public var charging: Bool
+    public var handbrake: Bool
+    public var stabilizer: Bool
+    public var wheelsOnGround: Int
+    public var wheelCount: Int
+    /// Лежит на боку/на крыше (не едет).
+    public var tipped: Bool
+    /// Кто ведёт: id космонавта в кресле; nil — с модулем управления или некому.
+    public var driverID: String?
+    /// Можно ехать (водитель или модуль управления, есть заряд).
+    public var canDrive: Bool
+    /// До ближайшего другого корабля с экипажем/люком на этом теле, м; nil — нет.
+    public var distanceToShip: Double?
+    /// Мотор крутит (|газ| > 0 и есть заряд) — для звука.
+    public var motorLoad: Double
+
+    public init(speed: Double = 0, charge: Double = 0, chargeCapacity: Double = 0, charging: Bool = false,
+                handbrake: Bool = false, stabilizer: Bool = false, wheelsOnGround: Int = 0, wheelCount: Int = 0,
+                tipped: Bool = false, driverID: String? = nil, canDrive: Bool = false, distanceToShip: Double? = nil,
+                motorLoad: Double = 0) {
+        self.speed = speed
+        self.charge = charge
+        self.chargeCapacity = chargeCapacity
+        self.charging = charging
+        self.handbrake = handbrake
+        self.stabilizer = stabilizer
+        self.wheelsOnGround = wheelsOnGround
+        self.wheelCount = wheelCount
+        self.tipped = tipped
+        self.driverID = driverID
+        self.canDrive = canDrive
+        self.distanceToShip = distanceToShip
+        self.motorLoad = motorLoad
+    }
+}
+
+/// Корабль или ровер в переключателе HUD.
+public struct ControllableVessel: Sendable, Hashable {
+    public var id: VesselID
+    public var isRover: Bool
+    /// «Луна», «Тропа» — имя проекта/ровера.
+    public var name: String
+
+    public init(id: VesselID, isRover: Bool, name: String) {
+        self.id = id
+        self.isRover = isRover
+        self.name = name
+    }
 }
 
 // MARK: - EVA (этап 6)
@@ -779,6 +909,8 @@ public struct CosmonautState: Sendable, Hashable {
     /// 6.2: держится за лестницу/поручни (nil — нет); можно ухватиться сейчас.
     public var grip: EVAGrip? = nil
     public var canGrip: Bool = false
+    /// Ближайший «люк» — кресло ровера (HUD: «Сесть» вместо «В капсулу»).
+    public var hatchIsSeat: Bool = false
 
     public init(memberID: String, name: String, body: BodyID, position: Vec3, velocity: Vec3 = .zero,
                 attitude: Quat = .identity, onGround: Bool = false, health: CosmonautHealth = .ok,

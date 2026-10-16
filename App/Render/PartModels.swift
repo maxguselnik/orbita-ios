@@ -317,6 +317,11 @@ enum PartModels {
             var fin = MeshBuilder()
             fin.prism(poly, halfThickness: 0.025)
             return [(fin, mats.orange)]
+        case .wheel, .roverFrame, .battery, .solar, .seat:
+            // TODO(B 6.3): модели деталей ровера. Пока — серый блок по габаритам.
+            var block = MeshBuilder()
+            block.box(center: F3(0, h / 2, 0), x: F3(r, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, r))
+            return [(block, mats.darkGray)]
         case .instrument:
             // Прибор сбоку: корпус у борта (x = −d/2…0), снаружи — датчик своего вида; низ по Y — 0.
             var housing = MeshBuilder()

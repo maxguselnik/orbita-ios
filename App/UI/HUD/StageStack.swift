@@ -16,11 +16,11 @@ enum PartGlyph {
         case .decoupler: return .decoupler
         case .chute: return .chute
         case .pod, .probe: return .pod
-        case .legs: return .legs
+        case .legs, .wheel, .roverFrame: return .legs // TODO(C 6.3): свои значки ровера
         case .rcs: return .rcs
         case .monoTank: return .mono
         case .fairing: return .fairing
-        case .fin, .instrument: return .fin
+        case .fin, .instrument, .battery, .solar, .seat: return .fin
         case .heatShield: return .shield
         }
     }
