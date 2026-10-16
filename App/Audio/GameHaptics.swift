@@ -28,6 +28,7 @@ final class GameHaptics: FlightHaptics {
     private var watchdog: Task<Void, Never>?
 
     private lazy var patterns = HapticPatterns()
+    private var gripTracker = GripTracker()
 
     init() {}
 
@@ -64,6 +65,12 @@ final class GameHaptics: FlightHaptics {
             default:
                 break
             }
+        }
+
+        switch gripTracker.update(snapshot.controlled) {
+        case .grabbed: play(patterns.evaGrip)
+        case .released: play(patterns.evaTap)
+        default: break
         }
 
         updateRumble(snapshot.telemetry)
@@ -277,6 +284,9 @@ struct HapticPatterns {
     ])
     let evaTap = HapticPatterns.make([
         .transient(0, intensity: 0.3, sharpness: 0.4),
+    ])
+    let evaGrip = HapticPatterns.make([
+        .transient(0, intensity: 0.5, sharpness: 0.7),
     ])
     let evaHatch = HapticPatterns.make([
         .transient(0, intensity: 0.6, sharpness: 0.6),
