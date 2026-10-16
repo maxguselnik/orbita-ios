@@ -91,6 +91,9 @@ extension VesselDesign {
             for i in 0..<cab.part.spec.crew {
                 if let row = explicit[cab.id] {
                     result.append(CrewSeat(partID: cab.id, index: i, memberID: row[i]))
+                } else if cab.part.spec.kind == .seat {
+                    // Кресло ровера (6.3) само не заполняется: водитель садится на EVA (или явно в ангаре).
+                    result.append(CrewSeat(partID: cab.id, index: i, memberID: nil))
                 } else {
                     result.append(CrewSeat(partID: cab.id, index: i, memberID: queue.popFirst()))
                 }

@@ -28,6 +28,10 @@ struct Vessel {
     var rcsRotation: Vec3 = .zero
     /// Поток в последнем шаге встречал теплозащитный экран.
     var shieldFacing = false
+    /// Имя проекта («Луна») или ровера («Тропа») — для переключателя HUD.
+    var name = ""
+    /// Ровер (6.3): состояние отделённого ровера; nil — не ровер.
+    var rover: RoverRuntime?
 
     var isOnSurface: Bool { situation == .prelaunch || situation == .landed || situation == .splashed }
     /// Неподвижен относительно грунта: на поверхности или разбит (обломки вращаются вместе с телом).
@@ -43,6 +47,10 @@ struct Vessel {
         st.partHeat = ship.partHeat
         st.hatches = ship.hatches.map(\.point)
         st.ladders = ship.ladders
+        if let rv = rover {
+            st.wheels = rv.wheels.map { WheelState(part: $0.part, steer: $0.steer, spin: $0.spin,
+                                                   compression: $0.compression, onGround: $0.onGround) }
+        }
         return st
     }
 }
@@ -79,7 +87,7 @@ public final class FlightSim: FlightSimulation {
     static let heatingOnsetSpeed = 900.0
 
     public internal(set) var snapshot = WorldSnapshot.empty
-    public private(set) var time: Double
+    public internal(set) var time: Double
     public internal(set) var warpIndex = 0
     public private(set) var sas: SASMode = .hold
     /// РСУ включено (`.setRCS`); по умолчанию выкл.
@@ -104,7 +112,7 @@ public final class FlightSim: FlightSimulation {
 
     var vessels: [Vessel] = []
     var activeID: VesselID
-    private var nextID: VesselID = 1
+    var nextID: VesselID = 1
     var input = ControlInput.neutral
     var hold: Quat = .identity
     private var launchTime: Double?
@@ -118,6 +126,8 @@ public final class FlightSim: FlightSimulation {
     var nextFlagID = 1
     /// Погибшие в этом полёте (6.2).
     var deadCrew: [String] = []
+    /// Ввод активного ровера (6.3).
+    var roverInput = RoverInput.neutral
 
     // Телеметрия последнего шага.
     var lastThrust = 0.0
@@ -171,7 +181,7 @@ public final class FlightSim: FlightSimulation {
                       lastProperAccel: lastProperAccel, qPeak: qPeak, qPeakReported: qPeakReported,
                       mission: mission, railsBacklog: railsBacklog,
                       cosmonauts: cosmonauts, controlledCosmonaut: controlledCosmonaut, evaInput: evaInput,
-                      flags: flags, nextFlagID: nextFlagID, deadCrew: deadCrew)
+                      flags: flags, nextFlagID: nextFlagID, deadCrew: deadCrew, roverInput: roverInput)
     }
 
     /// Вернуть мир в контрольную точку; накопленные события сбрасываются, снимок пересчитывается.
@@ -205,6 +215,7 @@ public final class FlightSim: FlightSimulation {
         flags = c.flags
         nextFlagID = c.nextFlagID
         deadCrew = c.deadCrew
+        roverInput = c.roverInput
         events.removeAll()
         rebuildSnapshot()
     }
@@ -237,6 +248,7 @@ public final class FlightSim: FlightSimulation {
                                          zHint: position)
         var v = Vessel(id: nextID, body: body, r: position, v: velocity, q: q, ship: ship,
                        situation: .flying, chute: ship.hasChute ? .stowed : .none, isActive: true)
+        v.name = design.name
         nextID += 1
         v.situation = .flying
         vessels = [v]
@@ -300,8 +312,10 @@ public final class FlightSim: FlightSimulation {
         case .collectScience(let e): collectScience(e)
         case .discardScience(let id): discardScience(id)
         case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport,
-             .evaGrab, .evaRelease, .evaSelect, .setHandbrake, .setRoverStabilizer, .deployRover, .selectVessel:
+             .evaGrab, .evaRelease, .evaSelect:
             sendEVA(command)
+        case .setHandbrake, .setRoverStabilizer, .deployRover, .selectVessel:
+            sendRover(command)
         }
         rebuildSnapshot()
     }
@@ -360,6 +374,8 @@ public final class FlightSim: FlightSimulation {
         if !cosmonauts.isEmpty { return .eva }
         let v = active
         if v.situation == .crashed { return nil }
+        // 6.3: едущий (не закреплённый на грунте) ровер — как при тяге.
+        if v.rover != nil && v.isOnSurface && v.fixedPos == nil { return .thrust }
         // Тяга проверяется раньше «на поверхности»: с работающим двигателем рельсы нельзя и на грунте.
         if v.ship.isThrusting(throttle: v.throttle) { return .thrust }
         if v.isActive && rcsTranslationCommand(v.ship) != nil { return .thrust }
@@ -474,6 +490,7 @@ public final class FlightSim: FlightSimulation {
         var d = Vessel(id: nextID, body: v.body, r: offset == .zero ? v.r : v.r + v.q.rotate(offset),
                        v: v.v - nose * 2.5, q: v.q, w: v.w + v.q.rotate(Vec3(0.04, 0, 0.03)), ship: cut.debris,
                        situation: .flying, chute: .none, isActive: false)
+        d.name = v.name
         if let u = push {
             d.v = v.v + v.q.rotate(u) * 2
             // Нос обломка уходит наружу: ось Y × u.
@@ -512,7 +529,9 @@ public final class FlightSim: FlightSimulation {
 
     private func step(_ h: Double) {
         let ai = activeIndex
-        if vessels[ai].situation != .crashed { stepActive(ai, h) }
+        if vessels[ai].situation != .crashed {
+            if vessels[ai].rover != nil && vessels[ai].isOnSurface { stepRover(ai, h) } else { stepActive(ai, h) }
+        }
         if vessels[ai].situation == .crashed {
             vessels[ai].rcsTranslation = .zero
             vessels[ai].rcsRotation = .zero
@@ -520,6 +539,7 @@ public final class FlightSim: FlightSimulation {
         for k in vessels.indices where k != ai && !vessels[k].isOnSurface && vessels[k].situation != .crashed {
             stepDebris(k, h)
         }
+        settleLooseRovers()
         stepCosmonauts(h)
         time += h
         for k in vessels.indices where vessels[k].isGrounded { updateLanded(k) }
@@ -530,7 +550,7 @@ public final class FlightSim: FlightSimulation {
         trackPeaks()
     }
 
-    private func updateLanded(_ k: Int) {
+    func updateLanded(_ k: Int) {
         guard let fp = vessels[k].fixedPos, let fa = vessels[k].fixedAtt else { return }
         let b = vessels[k].body
         let r = World.fromBodyFixed(fp, body: b, time: time)
@@ -540,7 +560,7 @@ public final class FlightSim: FlightSimulation {
         vessels[k].w = World.spin(b)
     }
 
-    private func landVessel(_ k: Int, situation: VesselSituation) {
+    func landVessel(_ k: Int, situation: VesselSituation) {
         let b = vessels[k].body
         vessels[k].situation = situation
         vessels[k].fixedPos = World.toBodyFixed(vessels[k].r, body: b, time: time)
@@ -1327,6 +1347,7 @@ public final class FlightSim: FlightSimulation {
                                  lunaPosition: World.lunaPosition(at: time), lunaVelocity: World.lunaVelocity(at: time),
                                  terraRotation: World.terraRotation(at: time), telemetry: t)
         fillEVASnapshot()
+        fillRoverSnapshot()
     }
 
     // MARK: Наука
@@ -1501,4 +1522,5 @@ public struct SimCheckpoint: Sendable {
     let flags: [FlagState]
     let nextFlagID: Int
     let deadCrew: [String]
+    let roverInput: RoverInput
 }

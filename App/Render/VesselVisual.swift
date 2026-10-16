@@ -21,6 +21,12 @@ final class VesselVisual {
     private(set) var halfWidth: Double = 0.5
     /// Центр габарита в плоскости XZ (оси корабля), м.
     private(set) var centerXZ = SIMD2<Double>(0, 0)
+    /// Центр габарита по всем трём осям корабля, м (цель камеры ровера).
+    private(set) var boundsCenter = D3(0, 0, 0)
+    /// Колёса ровера по индексу детали: подвеска (сдвиг), руль, вращение; оси — в осях модели детали.
+    private var wheelNodes: [Int: (susp: Entity, steer: Entity, spin: Entity, base: F3, up: F3, right: F3)] = [:]
+    private var seatInner: Entity?
+    private var driver: CosmonautVisual?
     /// Срез сопел двигателей в осях корабля, м: индекс детали → точка (для дыма и пыли у сопел).
     private(set) var nozzlePositions: [Int: D3] = [:]
     /// Полупрозрачный внешний ореол факела поверх непрозрачных слоёв (отключается, если роняет рендер).
@@ -251,6 +257,9 @@ final class VesselVisual {
         plumes.removeAll()
         rcsPuffs.removeAll()
         nozzlePositions.removeAll()
+        wheelNodes.removeAll()
+        seatInner = nil
+        driver = nil
         originalMaterials.removeAll()
         rcsLit = false
         canopy = nil
@@ -266,6 +275,26 @@ final class VesselVisual {
             minX = min(minX, p.center.x - r); maxX = max(maxX, p.center.x + r)
             minZ = min(minZ, p.center.z - r); maxZ = max(maxZ, p.center.z + r)
             reach = max(reach, hypot(p.center.x, p.center.z) + r)
+        }
+        var lo = D3(repeating: Double.infinity), hi = D3(repeating: -Double.infinity)
+        for p in lay {
+            let q = quatf(p.orientation.quatd)
+            let ax = q.act(F3(1, 0, 0)), ay = q.act(F3(0, 1, 0)), az = q.act(F3(0, 0, 1))
+            let hd = Float(p.diameter / 2), hh = Float(p.height / 2)
+            let e = D3(Double(abs(ax.x) * hd + abs(ay.x) * hh + abs(az.x) * hd),
+                       Double(abs(ax.y) * hd + abs(ay.y) * hh + abs(az.y) * hd),
+                       Double(abs(ax.z) * hd + abs(ay.z) * hh + abs(az.z) * hd))
+            let c = D3(p.center.x, p.center.y, p.center.z)
+            lo = simd_min(lo, c - e)
+            hi = simd_max(hi, c + e)
+        }
+        boundsCenter = lay.isEmpty ? .zero : (lo + hi) / 2
+        // Оси ровера в осях корабля: ориентация рамы.
+        var roverUp: F3?, roverRight: F3?
+        if let fi = newParts.firstIndex(where: { $0.spec.kind == .roverFrame }) {
+            let rb = quatf(lay[fi].orientation.quatd)
+            roverUp = rb.act(F3(0, 0, 1))
+            roverRight = rb.act(F3(1, 0, 0))
         }
         centerXZ = lay.isEmpty ? .zero : SIMD2((minX + maxX) / 2, (minZ + maxZ) / 2)
         halfWidth = reach
@@ -289,7 +318,7 @@ final class VesselVisual {
             inner.position = F3(0, -half, 0)
             holder.addChild(inner)
             root.addChild(holder)
-            let pieces = spec.kind == .legs
+            let pieces = spec.kind == .wheel ? [] : spec.kind == .legs
                 ? PartModels.pieces(id) + PartModels.legs(diameter: spec.diameter, height: spec.height,
                                                           drop: max(0, pl.bottom))
                 : PartModels.pieces(id)
@@ -305,6 +334,28 @@ final class VesselVisual {
                 inner.addChild(m)
                 models.append(m)
             }
+            if spec.kind == .wheel {
+                let wp = PartModels.wheelPieces(id)
+                for p in wp.fixed {
+                    let m = ModelEntity(mesh: p.mesh, materials: [p.material])
+                    inner.addChild(m)
+                    models.append(m)
+                }
+                let susp = Entity(), steer = Entity(), spin = Entity()
+                susp.position = F3(0, half, 0)
+                inner.addChild(susp)
+                susp.addChild(steer)
+                steer.addChild(spin)
+                for p in wp.spin {
+                    let m = ModelEntity(mesh: p.mesh, materials: [p.material])
+                    spin.addChild(m)
+                    models.append(m)
+                }
+                if let ru = roverUp, let rr = roverRight {
+                    wheelNodes[i] = (susp, steer, spin, F3(0, half, 0), q.inverse.act(ru), q.inverse.act(rr))
+                }
+            }
+            if spec.kind == .seat, seatInner == nil { seatInner = inner }
             holders.append(models)
             if spec.kind == .engine {
                 nozzlePositions[i] = D3(Double(bottomPoint.x), Double(bottomPoint.y), Double(bottomPoint.z))
@@ -319,6 +370,29 @@ final class VesselVisual {
         }
         ghostApplied.removeAll()
         boundingRadius = stackHeight / 2 + maxDiameter
+    }
+
+    /// Водитель в кресле ровера (скафандр в сидячей позе); создаётся при первой необходимости.
+    func setDriver(_ on: Bool) {
+        if on, driver == nil, let inner = seatInner {
+            let c = CosmonautVisual()
+            c.root.orientation = simd_quatf(simd_float3x3(columns: (F3(0, 0, -1), F3(1, 0, 0), F3(0, -1, 0))))
+            c.root.position = PartModels.seatHip - F3(1, 0, 0) * CosmonautVisual.hipHeight
+            c.updateSeated()
+            inner.addChild(c.root)
+            driver = c
+        }
+        if let d = driver, d.root.isEnabled != on { d.root.isEnabled = on }
+    }
+
+    private func updateWheels(_ wheels: [WheelState]) {
+        for w in wheels {
+            guard let n = wheelNodes[w.part] else { continue }
+            n.susp.position = n.base + n.up * Float(clampd(w.compression, 0, 0.4))
+            n.steer.orientation = simd_quatf(angle: -Float(clampd(w.steer, -1.5, 1.5)), axis: n.up)
+            let spin = w.spin.truncatingRemainder(dividingBy: 2 * .pi)
+            n.spin.orientation = simd_quatf(angle: -Float(spin), axis: n.right)
+        }
     }
 
     private static var plumeMesh: MeshResource?
@@ -500,6 +574,7 @@ final class VesselVisual {
         if Self.softPlume != plumesSoft, !plumes.isEmpty, Self.softPlumeKit() != nil || plumesSoft {
             rebuild(parts: parts, layout: sourceLayoutCount == parts.count ? layout : [])
         }
+        if !wheelNodes.isEmpty, !v.wheels.isEmpty { updateWheels(v.wheels) }
         updateHeat(v.partHeat)
         updateFlashes(time: time)
         if v.ladders != ladderBuilt { buildLadders(v.ladders) }

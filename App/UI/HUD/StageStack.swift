@@ -4,6 +4,8 @@ import SwiftUI
 /// Вид детали на значке ступени.
 enum StageGlyphKind: Hashable {
     case tank, engine, solid, decoupler, chute, pod, legs, rcs, mono, fairing, fin, shield
+    // Ровер (6.3)
+    case wheel, roverFrame, battery, solar, seat
 }
 
 /// Значок для детали (каталог, редактор ступеней, исследования, HUD).
@@ -16,11 +18,16 @@ enum PartGlyph {
         case .decoupler: return .decoupler
         case .chute: return .chute
         case .pod, .probe: return .pod
-        case .legs, .wheel, .roverFrame: return .legs // TODO(C 6.3): свои значки ровера
+        case .legs: return .legs
+        case .wheel: return .wheel
+        case .roverFrame: return .roverFrame
+        case .battery: return .battery
+        case .solar: return .solar
+        case .seat: return .seat
         case .rcs: return .rcs
         case .monoTank: return .mono
         case .fairing: return .fairing
-        case .fin, .instrument, .battery, .solar, .seat: return .fin
+        case .fin, .instrument: return .fin
         case .heatShield: return .shield
         }
     }
@@ -77,7 +84,7 @@ struct StageGroup: Equatable, Identifiable {
     /// Не больше `maxItems` значков: сначала отбрасываются опоры и капсула.
     private static func fit(_ items: [Item]) -> [Item] {
         var out = items
-        for dropped in [StageGlyphKind.legs, .rcs, .mono, .pod, .fin] where out.count > maxItems {
+        for dropped in [StageGlyphKind.legs, .rcs, .mono, .pod, .fin, .seat, .battery, .solar, .roverFrame] where out.count > maxItems {
             out.removeAll { $0.kind == dropped }
         }
         return Array(out.prefix(maxItems))
@@ -283,6 +290,32 @@ struct StageGlyph: Shape {
             // Стабилизатор: крыло-трапеция у стенки.
             p.move(to: pt(2, 1)); p.addLine(to: pt(2, 11))
             p.move(to: pt(2, 3)); p.addLine(to: pt(10, 8)); p.addLine(to: pt(10, 11)); p.addLine(to: pt(2, 11))
+        case .wheel:
+            // Колесо: обод со ступицей.
+            p.addEllipse(in: CGRect(x: ox + 1.5 * s, y: oy + 1.5 * s, width: 9 * s, height: 9 * s))
+            p.addEllipse(in: CGRect(x: ox + 5 * s, y: oy + 5 * s, width: 2 * s, height: 2 * s))
+        case .roverFrame:
+            // Рама: платформа на двух осях.
+            p.addRect(CGRect(x: ox + 1 * s, y: oy + 4 * s, width: 10 * s, height: 3 * s))
+            p.move(to: pt(3, 7)); p.addLine(to: pt(3, 10))
+            p.move(to: pt(9, 7)); p.addLine(to: pt(9, 10))
+        case .battery:
+            // Батарея: корпус с контактом и молнией.
+            p.addRect(CGRect(x: ox + 2 * s, y: oy + 3 * s, width: 8 * s, height: 7 * s))
+            p.addRect(CGRect(x: ox + 4.5 * s, y: oy + 1.5 * s, width: 3 * s, height: 1.5 * s))
+            p.move(to: pt(6.5, 4.5)); p.addLine(to: pt(5, 7)); p.addLine(to: pt(7, 7)); p.addLine(to: pt(5.5, 9.5))
+        case .solar:
+            // Панель: наклонный параллелограмм с сеткой.
+            p.move(to: pt(3, 2)); p.addLine(to: pt(11, 2)); p.addLine(to: pt(9, 9)); p.addLine(to: pt(1, 9))
+            p.closeSubpath()
+            p.move(to: pt(6, 2)); p.addLine(to: pt(4.5, 9))
+            p.move(to: pt(2, 5.5)); p.addLine(to: pt(10, 5.5))
+            p.move(to: pt(5, 9)); p.addLine(to: pt(5, 11))
+        case .seat:
+            // Кресло: спинка и сиденье.
+            p.move(to: pt(3, 1)); p.addLine(to: pt(3, 8)); p.addLine(to: pt(10, 8))
+            p.move(to: pt(3, 8)); p.addLine(to: pt(3, 11))
+            p.move(to: pt(10, 8)); p.addLine(to: pt(10, 11))
         case .mono:
             // Бак монотоплива: маленькая капсула со шпангоутом.
             p.addRoundedRect(in: CGRect(x: ox + 4 * s, y: oy + 2 * s, width: 4 * s, height: 8 * s),

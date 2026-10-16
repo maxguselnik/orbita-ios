@@ -18,6 +18,8 @@ struct EVAHUDState: Equatable {
     var onGround: Bool
     var injured: Bool
     var canBoard: Bool
+    /// Ближайший «люк» — кресло ровера: кнопка «Сесть».
+    var hatchIsSeat: Bool
     /// Держится за лестницу/поручни (6.2).
     var gripped: Bool
     /// Держится именно за лестницу (`along != nil`).
@@ -62,6 +64,7 @@ struct EVAHUDState: Equatable {
         onGround = c.onGround
         injured = c.health == .injured
         canBoard = c.canBoard
+        hatchIsSeat = c.hatchIsSeat
         if c.grip != nil {
             warning = nil
         } else if !c.onGround, c.verticalSpeed < Self.dangerFall, c.heightAboveTerrain < Self.dangerHeight {
@@ -80,6 +83,9 @@ struct EVAHUDState: Equatable {
     static func near(_ meters: Double) -> String {
         meters.isFinite && meters < 100 ? HUDFormat.fixed(max(meters, 0), digits: 1) + " м" : HUDFormat.distance(meters)
     }
+
+    /// Радиус посадки: у кресла ровера свой.
+    var boardRadius: Double { hatchIsSeat ? RoverBalance.seatRadius : EVABalance.boardRadius }
 
     /// Подпись под джойстиком.
     var stickLabel: String {
@@ -130,9 +136,41 @@ extension FlightHUDModel {
         send(.evaSelect(memberID: nil))
     }
 
+    /// К кораблю (не ровер, не космонавт): из HUD ровера — `selectVessel`, из HUD космонавта — как раньше.
+    func switchToShip() {
+        if let ship = controllable.first(where: { !$0.isRover }), rover != nil {
+            send(.selectVessel(ship.id))
+        } else if eva != nil {
+            evaSelectShip()
+        }
+    }
+
+    /// К роверу: `selectVessel` ближайшего ровера из списка управляемых (из HUD ровера — уже он).
+    func switchToRover() {
+        if rover != nil {
+            // Ровер уже активный корабль: из режима космонавта вернуть управление ему.
+            if eva != nil { evaSelectShip() }
+        } else if let target = controllable.first(where: { $0.isRover }) {
+            send(.selectVessel(target.id))
+        }
+    }
+
+    /// К космонавту в переключателе с ровером: снаружи кто-то есть — к нему (`evaSelect`), иначе водитель встаёт.
+    func switchToCosmonaut() {
+        if let id = evaOutsideIDs.first {
+            send(.evaSelect(memberID: id))
+        } else {
+            evaSelectCosmonaut()
+        }
+    }
+
+    /// «Отделить ровер» в HUD корабля: есть что отделять; не в уроках и не на карте.
+    var showsDeployRover: Bool { tutorial == nil && !map.isOpen && roverDeployable }
+
     /// Переключатель в режиме корабля: есть экипаж или кто-то снаружи; не в уроках и не на карте.
     var showsEVASwitch: Bool {
-        tutorial == nil && !map.isOpen && (!crew.isEmpty || telemetry.science.crewAboard || evaOutside > 0)
+        tutorial == nil && !map.isOpen
+            && (!crew.isEmpty || telemetry.science.crewAboard || evaOutside > 0 || controllable.contains { $0.isRover })
     }
 
     nonisolated static func evaName(_ id: String) -> String {
@@ -156,7 +194,7 @@ struct EVAFrameKey: PreferenceKey {
 }
 
 extension View {
-    fileprivate func evaFrame(_ name: String) -> some View {
+    func evaFrame(_ name: String) -> some View {
         background(GeometryReader { geo in
             Color.clear.preference(key: EVAFrameKey.self, value: [name: geo.frame(in: .global)])
         })
@@ -240,13 +278,14 @@ struct EVALayer: View {
             }
             .evaFrame("stick")
             Spacer(minLength: 8)
-            EVABoardButton(canBoard: s.canBoard, hint: s.gripped ? "наверху" : "ближе \(Int(EVABalance.boardRadius)) м") {
+            EVABoardButton(canBoard: s.canBoard, title: s.hatchIsSeat ? "Сесть" : "В капсулу",
+                           hint: s.gripped ? "наверху" : "ближе \(Int(s.boardRadius)) м") {
                 if s.canBoard {
                     model.send(.evaBoard)
                 } else if s.gripped {
                     model.notify("Поднимитесь к люку")
                 } else {
-                    model.notify("Подойдите к люку ближе \(Int(EVABalance.boardRadius)) м")
+                    model.notify((s.hatchIsSeat ? "Подойдите к креслу ближе " : "Подойдите к люку ближе ") + "\(Int(s.boardRadius)) м")
                 }
             }
             .evaFrame("board")
@@ -320,22 +359,40 @@ struct EVALayer: View {
 
 // MARK: - Элементы
 
-/// Переключатель «Корабль | Космонавт» (148 × 32, касание 44 pt по высоте).
+/// Переключатель «Корабль | Космонавт» (148 × 32, касание 44 pt по высоте). Когда среди управляемых есть ровер (6.3) —
+/// три сегмента «Корабль | имя | Ровер» (160 × 32).
 struct EVAModeSwitch: View {
     let model: FlightHUDModel
     let cosmonautSelected: Bool
+    var roverSelected = false
 
     static let width: CGFloat = 148
+    static let roverWidth: CGFloat = 160
     static let height: CGFloat = 32
 
     private static let selectedText = Color(red: 0x06 / 255, green: 0x20 / 255, blue: 0x2A / 255)
 
+    private var hasRover: Bool { model.controllable.contains { $0.isRover } || roverSelected }
+
+    /// Имя космонавта в среднем сегменте: управляемый, иначе первый снаружи, иначе «Космонавт».
+    private var cosmonautTitle: String {
+        if let name = model.eva?.name { return name }
+        if let id = model.rover?.driverID { return FlightHUDModel.evaName(id) }
+        if let id = model.evaOutsideIDs.first { return FlightHUDModel.evaName(id) }
+        return "Космонавт"
+    }
+
     var body: some View {
         HStack(spacing: 0) {
-            segment("Корабль", selected: !cosmonautSelected) { if cosmonautSelected { model.evaSelectShip() } }
-            segment("Космонавт", selected: cosmonautSelected) { if !cosmonautSelected { model.evaSelectCosmonaut() } }
+            segment("Корабль", selected: !cosmonautSelected && !roverSelected) { model.switchToShip() }
+            segment(hasRover ? cosmonautTitle : "Космонавт", selected: cosmonautSelected) {
+                if !cosmonautSelected { hasRover ? model.switchToCosmonaut() : model.evaSelectCosmonaut() }
+            }
+            if hasRover {
+                segment("Ровер", selected: roverSelected) { model.switchToRover() }
+            }
         }
-        .frame(width: Self.width, height: Self.height)
+        .frame(width: hasRover ? Self.roverWidth : Self.width, height: Self.height)
         .background(HUDPalette.panel, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(HUDPalette.sas, lineWidth: 1))
@@ -347,7 +404,8 @@ struct EVAModeSwitch: View {
             Text(title)
                 .font(.system(size: HUDFont.small, weight: .bold))
                 .lineLimit(1)
-                .minimumScaleFactor(0.8)
+                .minimumScaleFactor(0.7)
+                .padding(.horizontal, 2)
                 .foregroundStyle(selected ? Self.selectedText : HUDPalette.text)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(selected ? HUDPalette.sas : Color.clear)
@@ -359,17 +417,22 @@ struct EVAModeSwitch: View {
     }
 }
 
-/// Режим корабля: переключатель под кнопками «Карта/Камера», не перекрывает полосу экипажа.
+/// Режим корабля: переключатель под кнопками «Карта/Камера», не перекрывает полосу экипажа; под ним — «Отделить ровер».
 struct EVAShipSwitch: View {
     let model: FlightHUDModel
 
     var body: some View {
-        if model.showsEVASwitch {
-            EVAModeSwitch(model: model, cosmonautSelected: false)
-                .padding(.top, 52)
-                .padding(.trailing, 6)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        VStack(alignment: .trailing, spacing: 2) {
+            if model.showsEVASwitch {
+                EVAModeSwitch(model: model, cosmonautSelected: false)
+            }
+            if model.showsDeployRover {
+                EVAButton(title: "Отделить ровер", tint: HUDPalette.sas, width: 120) { model.send(.deployRover); model.notify("Ровер отделён") }
+            }
         }
+        .padding(.top, 52)
+        .padding(.trailing, 6)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 }
 
@@ -473,6 +536,7 @@ struct EVAButton: View {
     let title: String
     var muted = false
     var tint: Color? = nil
+    var width: CGFloat = EVAButton.width
     let action: () -> Void
 
     static let width: CGFloat = 86
@@ -483,7 +547,7 @@ struct EVAButton: View {
             Text(title)
                 .font(.system(size: HUDFont.body, weight: .bold))
                 .foregroundStyle(muted ? HUDPalette.muted : (tint ?? HUDPalette.text))
-                .frame(width: Self.width, height: Self.height)
+                .frame(width: width, height: Self.height)
                 .classicPanel(corner: 8, stroke: tint ?? HUDPalette.stroke)
                 .opacity(muted ? 0.7 : 1)
                 .contentShape(Rectangle())
@@ -521,6 +585,7 @@ struct EVAHoldButton: View {
 /// «В капсулу» 120 × 44: оранжевая, когда можно войти; иначе тёмная с подписью «ближе 2 м».
 struct EVABoardButton: View {
     let canBoard: Bool
+    var title = "В капсулу"
     var hint = "ближе \(Int(EVABalance.boardRadius)) м"
     let action: () -> Void
 
@@ -528,12 +593,12 @@ struct EVABoardButton: View {
         Button(action: action) {
             Group {
                 if canBoard {
-                    Text("В капсулу")
+                    Text(title)
                         .font(.system(size: HUDFont.body, weight: .heavy))
                         .foregroundStyle(HUDPalette.accentText)
                 } else {
                     VStack(spacing: 0) {
-                        Text("В капсулу")
+                        Text(title)
                             .font(.system(size: HUDFont.body, weight: .bold))
                         Text(hint)
                             .font(.system(size: HUDFont.caption))
@@ -548,7 +613,7 @@ struct EVABoardButton: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(HUDPressStyle())
-        .accessibilityLabel("В капсулу")
+        .accessibilityLabel(title)
         .accessibilityValue(canBoard ? "доступно" : hint)
     }
 }

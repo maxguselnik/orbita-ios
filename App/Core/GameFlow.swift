@@ -50,6 +50,7 @@ final class GameFlow {
         case .hangar: design = .orbit
         case .hangarEmpty: design = VesselAssembly.empty
         case .hangarBoosters: design = .boosters
+        case .hangarRover: design = .lunaRover
         case .spaceCenter: progress = GameProgress(mode: .science, science: 12, milestones: [.launch, .above10km])
         case .research:
             progress = GameProgress(mode: .science, science: 37, researched: [.basics, .rocketry, .stability],

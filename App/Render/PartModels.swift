@@ -27,6 +27,8 @@ final class RenderMaterials {
     let yellow = SimpleMaterial(color: UIColor(red: 0.95, green: 0.76, blue: 0.14, alpha: 1), roughness: 0.55, isMetallic: false)
     /// Поручни и лестницы EVA: оранжевые трубки #F2A03D.
     let handrail = SimpleMaterial(color: UIColor(red: 0.949, green: 0.627, blue: 0.239, alpha: 1), roughness: 0.45, isMetallic: true)
+    let rubber = SimpleMaterial(color: UIColor(white: 0.07, alpha: 1), roughness: 0.95, isMetallic: false)
+    let solarBlue = SimpleMaterial(color: UIColor(red: 0.10, green: 0.22, blue: 0.55, alpha: 1), roughness: 0.25, isMetallic: true)
     let towerSteel = SimpleMaterial(color: UIColor(red: 0.60, green: 0.17, blue: 0.10, alpha: 1), roughness: 0.7, isMetallic: false)
 
     let plumeOuter: UnlitMaterial
@@ -317,11 +319,17 @@ enum PartModels {
             var fin = MeshBuilder()
             fin.prism(poly, halfThickness: 0.025)
             return [(fin, mats.orange)]
-        case .wheel, .roverFrame, .battery, .solar, .seat:
-            // TODO(B 6.3): модели деталей ровера. Пока — серый блок по габаритам.
-            var block = MeshBuilder()
-            block.box(center: F3(0, h / 2, 0), x: F3(r, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, r))
-            return [(block, mats.darkGray)]
+        case .wheel:
+            let w = wheelBuilders(id)
+            return w.fixed + w.spin.map { ($0.0.translated(F3(0, h / 2, 0)), $0.1) }
+        case .roverFrame:
+            return roverFrameModel(h: h, d: d)
+        case .battery:
+            return batteryModel(h: h, d: d)
+        case .solar:
+            return solarModel(h: h, d: d)
+        case .seat:
+            return seatModel(h: h, d: d)
         case .instrument:
             // Прибор сбоку: корпус у борта (x = −d/2…0), снаружи — датчик своего вида; низ по Y — 0.
             var housing = MeshBuilder()
@@ -355,6 +363,168 @@ enum PartModels {
             return [(body, mats.monoBody), (stripe, mats.yellow), (fittings, mats.darkGray)]
         }
     }
+
+    // MARK: - Ровер (6.3)
+
+    private static var wheelCache: [PartID: (fixed: [Piece], spin: [Piece])] = [:]
+
+    /// Колесо раздельно: неподвижные части и вращающиеся (в осях колеса: начало — центр колеса, ось — X).
+    static func wheelPieces(_ id: PartID) -> (fixed: [Piece], spin: [Piece]) {
+        if let c = wheelCache[id] { return c }
+        let w = wheelBuilders(id)
+        func conv(_ l: [(MeshBuilder, any Material)]) -> [Piece] {
+            l.compactMap { item in item.0.makeMesh(name: id.rawValue).map { ($0, item.1) } }
+        }
+        let r = (fixed: conv(w.fixed), spin: conv(w.spin))
+        wheelCache[id] = r
+        return r
+    }
+
+    /// Колесо: ось по X (наружу), шина с протектором, диск, ступица, спицы; вращающаяся часть центрирована в нуле.
+    private static func wheelBuilders(_ id: PartID) -> (fixed: [(MeshBuilder, any Material)], spin: [(MeshBuilder, any Material)]) {
+        let mats = RenderMaterials.shared
+        let spec = id.spec
+        let R = Float(spec.height / 2), W = Float(spec.diameter)
+        let toX = simd_quatf(from: F3(0, 1, 0), to: F3(1, 0, 0))
+        func axial(_ b: MeshBuilder) -> MeshBuilder { placed(b, q: toX, at: .zero) }
+        let hw = W / 2
+        var tire = MeshBuilder()
+        tire.lathe([SIMD2(R * 0.66, -hw), SIMD2(R * 0.93, -hw), SIMD2(R, -hw * 0.72), SIMD2(R, hw * 0.72),
+                    SIMD2(R * 0.93, hw), SIMD2(R * 0.66, hw), SIMD2(R * 0.66, -hw)], segments: 28)
+        var lugs = MeshBuilder()
+        let n = 16
+        for k in 0..<n {
+            let a = Float(k) / Float(n) * 2 * .pi
+            let r = F3(0, cos(a), sin(a)), t = F3(0, -sin(a), cos(a))
+            lugs.box(center: r * (R * 0.99), x: F3(hw * 0.88, 0, 0), y: t * (R * 0.07), z: r * (R * 0.03))
+        }
+        var rim = MeshBuilder()
+        rim.lathe([SIMD2(0, -hw * 0.72), SIMD2(R * 0.66, -hw * 0.72), SIMD2(R * 0.66, hw * 0.72), SIMD2(0, hw * 0.72)],
+                  segments: 24)
+        var hub = MeshBuilder()
+        hub.lathe([SIMD2(0, -hw * 0.84), SIMD2(R * 0.2, -hw * 0.84), SIMD2(R * 0.2, hw * 0.88), SIMD2(0, hw * 0.88)],
+                  segments: 16)
+        var spokes = MeshBuilder()
+        for sx: Float in [-1, 1] {
+            for k in 0..<5 {
+                let a = Float(k) / 5 * 2 * .pi + 0.3
+                let r = F3(0, cos(a), sin(a))
+                spokes.beam(F3(sx * hw * 0.74, 0, 0) + r * (R * 0.18), F3(sx * hw * 0.74, 0, 0) + r * (R * 0.62),
+                            thickness: R * 0.11)
+            }
+        }
+        return ([], [(axial(tire), mats.rubber), (lugs, mats.darkGray), (axial(rim), mats.lightGray),
+                     (axial(hub), mats.darkMetal), (spokes, mats.metal)])
+    }
+
+    /// Рама: платформа 0.2 м (ось Y — вперёд, Z — верх), решётка снизу, бортики, фонари спереди.
+    private static func roverFrameModel(h: Float, d: Float) -> [(MeshBuilder, any Material)] {
+        let mats = RenderMaterials.shared
+        let hx = d / 2
+        var deck = MeshBuilder()
+        deck.box(center: F3(0, h / 2, 0.08), x: F3(hx, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, 0.02))
+        var rails = MeshBuilder()
+        for sx: Float in [-1, 1] {
+            rails.box(center: F3(sx * (hx - 0.015), h / 2, 0.11), x: F3(0.015, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, 0.05))
+        }
+        for y: Float in [0.015, h - 0.015] {
+            rails.box(center: F3(0, y, 0.11), x: F3(hx, 0, 0), y: F3(0, 0.015, 0), z: F3(0, 0, 0.05))
+        }
+        var lattice = MeshBuilder()
+        let bars = 10
+        for sx: Float in [-1, 1] {
+            let x = sx * (hx - 0.05)
+            lattice.box(center: F3(x, h / 2, -0.085), x: F3(0.02, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, 0.015))
+            for i in 0..<bars {
+                let y0 = Float(i) / Float(bars) * h, y1 = Float(i + 1) / Float(bars) * h
+                let up = i % 2 == 0
+                lattice.beam(F3(x, y0, up ? -0.085 : 0.065), F3(x, y1, up ? 0.065 : -0.085), thickness: 0.025)
+            }
+        }
+        var y: Float = 0.05
+        while y < h {
+            lattice.beam(F3(-hx + 0.05, y, -0.085), F3(hx - 0.05, y, -0.085), thickness: 0.03)
+            y += 0.5
+        }
+        var lights = MeshBuilder()
+        for sx: Float in [-1, 1] {
+            lights.box(center: F3(sx * 0.2, h - 0.005, 0.12), x: F3(0.04, 0, 0), y: F3(0, 0.012, 0), z: F3(0, 0, 0.025))
+        }
+        return [(deck, mats.lightGray), (rails, mats.orange), (lattice, mats.darkMetal), (lights, mats.yellow)]
+    }
+
+    /// Батарея: тёмный блок с жёлтой полосой и клеммами; «верх» — +X (наружу), стойки вниз к раме.
+    private static func batteryModel(h: Float, d: Float) -> [(MeshBuilder, any Material)] {
+        let mats = RenderMaterials.shared
+        let r = d / 2
+        var body = MeshBuilder()
+        body.box(center: F3(-0.03, h / 2, 0), x: F3(r - 0.035, 0, 0), y: F3(0, h / 2 - 0.005, 0), z: F3(0, 0, r - 0.005))
+        var stripe = MeshBuilder()
+        stripe.box(center: F3(-0.03, h / 2, 0), x: F3(r - 0.033, 0, 0), y: F3(0, 0.03, 0), z: F3(0, 0, r + 0.004))
+        var terminals = MeshBuilder()
+        for y: Float in [h * 0.3, h * 0.7] {
+            terminals.box(center: F3(r - 0.05, y, 0.06), x: F3(0.02, 0, 0), y: F3(0, 0.02, 0), z: F3(0, 0, 0.02))
+        }
+        var legs = MeshBuilder()
+        for sz: Float in [-1, 1] {
+            legs.beam(F3(-r, h / 2, sz * 0.12), F3(-r - 0.2, h / 2, sz * 0.12), thickness: 0.04)
+        }
+        return [(body, mats.darkGray), (stripe, mats.yellow), (terminals, mats.red), (legs, mats.darkMetal)]
+    }
+
+    /// Панель: синяя плоскость на стойке; «верх» — +X.
+    private static func solarModel(h: Float, d: Float) -> [(MeshBuilder, any Material)] {
+        let mats = RenderMaterials.shared
+        let r = d / 2
+        let px: Float = -0.18
+        var panel = MeshBuilder()
+        panel.box(center: F3(px, h / 2, 0), x: F3(0.012, 0, 0), y: F3(0, h / 2 - 0.02, 0), z: F3(0, 0, r - 0.03))
+        var frame = MeshBuilder()
+        for sz: Float in [-1, 1] {
+            frame.box(center: F3(px, h / 2, sz * (r - 0.02)), x: F3(0.02, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, 0.02))
+        }
+        for y: Float in [0.01, h - 0.01] {
+            frame.box(center: F3(px, y, 0), x: F3(0.02, 0, 0), y: F3(0, 0.01, 0), z: F3(0, 0, r))
+        }
+        for z: Float in [-r / 2, 0, r / 2] {
+            frame.box(center: F3(px + 0.012, h / 2, z), x: F3(0.005, 0, 0), y: F3(0, h / 2, 0), z: F3(0, 0, 0.005))
+        }
+        for y: Float in [h * 0.33, h * 0.66] {
+            frame.box(center: F3(px + 0.012, y, 0), x: F3(0.005, 0, 0), y: F3(0, 0.005, 0), z: F3(0, 0, r))
+        }
+        var stand = MeshBuilder()
+        stand.beam(F3(-r - 0.2, h / 2, 0), F3(px, h / 2, 0), thickness: 0.05)
+        stand.box(center: F3(-r - 0.19, h / 2, 0), x: F3(0.02, 0, 0), y: F3(0, 0.12, 0), z: F3(0, 0, 0.12))
+        return [(panel, mats.solarBlue), (frame, mats.lightGray), (stand, mats.darkMetal)]
+    }
+
+    /// Кресло: каркас на стойках, подушка, спинка, подлокотники; «верх» — +X, лицо — +Y.
+    private static func seatModel(h: Float, d: Float) -> [(MeshBuilder, any Material)] {
+        let mats = RenderMaterials.shared
+        var frame = MeshBuilder()
+        for y: Float in [0.08, h - 0.05] {
+            for sz: Float in [-1, 1] {
+                frame.beam(F3(-0.45, y, sz * 0.2), F3(-0.09, y, sz * 0.2), thickness: 0.035)
+            }
+            frame.beam(F3(-0.3, y, -0.2), F3(-0.3, y, 0.2), thickness: 0.03)
+        }
+        for sz: Float in [-1, 1] {
+            frame.beam(F3(-0.3, 0.08, sz * 0.2), F3(-0.3, h - 0.05, sz * 0.2), thickness: 0.03)
+            frame.beam(F3(-0.05, 0.06, sz * 0.2), F3(0.28, 0.06, sz * 0.2), thickness: 0.03)
+        }
+        var cushion = MeshBuilder()
+        cushion.box(center: F3(-0.065, h / 2 + 0.01, 0), x: F3(0.025, 0, 0), y: F3(0, h / 2 - 0.02, 0), z: F3(0, 0, 0.22))
+        cushion.box(center: F3(0.13, 0.06, 0), x: F3(0.18, 0, 0), y: F3(0, 0.02, 0), z: F3(0, 0, 0.2))
+        var arms = MeshBuilder()
+        for sz: Float in [-1, 1] {
+            arms.box(center: F3(0.04, 0.3, sz * 0.24), x: F3(0.015, 0, 0), y: F3(0, 0.22, 0), z: F3(0, 0, 0.02))
+            arms.beam(F3(-0.065, 0.5, sz * 0.24), F3(0.04, 0.5, sz * 0.24), thickness: 0.025)
+        }
+        return [(frame, mats.metal), (cushion, mats.orange), (arms, mats.darkGray)]
+    }
+
+    /// Бёдра сидящего космонавта в осях модели кресла (внутри `inner`, низ детали — y = 0).
+    static let seatHip = F3(0.0, 0.38, 0)
 
     // MARK: - Блок РСУ: геометрия сопел (общая для модели и струек)
 
