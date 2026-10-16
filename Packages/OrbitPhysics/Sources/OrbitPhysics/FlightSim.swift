@@ -42,6 +42,7 @@ struct Vessel {
                     layout: ship.parts.map(\.placement))
         st.partHeat = ship.partHeat
         st.hatches = ship.hatches.map(\.point)
+        st.ladders = ship.ladders
         return st
     }
 }
@@ -115,6 +116,8 @@ public final class FlightSim: FlightSimulation {
     var evaInput = EVAInput.neutral
     var flags: [FlagState] = []
     var nextFlagID = 1
+    /// Погибшие в этом полёте (6.2).
+    var deadCrew: [String] = []
 
     // Телеметрия последнего шага.
     var lastThrust = 0.0
@@ -168,7 +171,7 @@ public final class FlightSim: FlightSimulation {
                       lastProperAccel: lastProperAccel, qPeak: qPeak, qPeakReported: qPeakReported,
                       mission: mission, railsBacklog: railsBacklog,
                       cosmonauts: cosmonauts, controlledCosmonaut: controlledCosmonaut, evaInput: evaInput,
-                      flags: flags, nextFlagID: nextFlagID)
+                      flags: flags, nextFlagID: nextFlagID, deadCrew: deadCrew)
     }
 
     /// Вернуть мир в контрольную точку; накопленные события сбрасываются, снимок пересчитывается.
@@ -201,6 +204,7 @@ public final class FlightSim: FlightSimulation {
         evaInput = c.evaInput
         flags = c.flags
         nextFlagID = c.nextFlagID
+        deadCrew = c.deadCrew
         events.removeAll()
         rebuildSnapshot()
     }
@@ -522,6 +526,7 @@ public final class FlightSim: FlightSimulation {
         // Удалить разбившиеся отделённые ступени.
         vessels.removeAll { !$0.isActive && $0.situation == .crashed }
         for k in vessels.indices { checkSOI(k) }
+        syncGripped()
         trackPeaks()
     }
 
@@ -1495,4 +1500,5 @@ public struct SimCheckpoint: Sendable {
     let evaInput: EVAInput
     let flags: [FlagState]
     let nextFlagID: Int
+    let deadCrew: [String]
 }

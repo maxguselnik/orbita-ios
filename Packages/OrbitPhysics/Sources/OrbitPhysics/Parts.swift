@@ -144,6 +144,10 @@ extension VesselDesign {
     public static let luna = VesselDesign(name: "Луна", parts: [.chute, .podK1, .heatShield, .decoupler, .t800, .legs,
                                                                .shtil, .decoupler, .t800, .t800, .vikhr,
                                                                .decouplerXL, .j64, .titan])
+    /// «Луна-2» (6.2): как «Луна», но с посадочной кабиной ЛК-2 (2 места, люк у пола) вместо К-1.
+    public static let luna2 = VesselDesign(name: "Луна-2", parts: [.chute, .lk2, .heatShield, .decoupler, .t800, .legs,
+                                                                  .shtil, .decoupler, .t800, .t800, .vikhr,
+                                                                  .decouplerXL, .j64, .titan])
     /// «Ускорители»: ядро как у «Орбиты» без средней ступени, два РДТТ «Молот» на боковых разделителях
     /// с обтекателями сверху, четыре стабилизатора у низа ядра.
     public static let boosters: VesselDesign = {
@@ -171,7 +175,7 @@ extension VesselDesign {
         d.normalizeOrder()
         return d.autoStaged()
     }()
-    public static let presets: [VesselDesign] = [jump, orbit, luna, boosters]
+    public static let presets: [VesselDesign] = [jump, orbit, luna, luna2, boosters]
 
     /// Полная масса, кг.
     public var mass: Double { parts.reduce(0) { $0 + $1.spec.wetMass } }
