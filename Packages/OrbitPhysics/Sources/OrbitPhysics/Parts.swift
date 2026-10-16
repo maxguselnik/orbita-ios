@@ -88,6 +88,26 @@ public struct PartSpec: Sendable, Hashable {
     public func thrust(pressure p: Double) -> Double { massFlow * isp(pressure: p) * standardGravity }
 }
 
+// MARK: - Детали ровера (6.3)
+
+extension PartSpec {
+    /// Ёмкость батареи, ед. (`RoverBalance.batteryCapacity` у Б-1); 0 — не батарея.
+    public var chargeCapacity: Double { kind == .battery ? RoverBalance.batteryCapacity : 0 }
+    /// Заряд от панели на солнце, ед./с; 0 — не панель.
+    public var solarRate: Double { kind == .solar ? RoverBalance.solarCharge : 0 }
+    /// Колесо: радиус (половина `height`), м; 0 — не колесо.
+    public var wheelRadius: Double { kind == .wheel ? height / 2 : 0 }
+    /// Колесо: наибольшая сила мотора и тормоза на грунте, Н (до предела сцепления μ·нагрузка).
+    public var wheelMotorForce: Double {
+        switch id {
+        case .wheelK1: 150
+        case .wheelK2: 300
+        default: 0
+        }
+    }
+    public var wheelBrakeForce: Double { 2 * wheelMotorForce }
+}
+
 public enum PartCatalog {
     private static func make(_ id: PartID, _ name: String, _ kind: PartKind, dry: Double, fuel: Double = 0,
                              thrust: Double = 0, isp: (Double, Double) = (0, 0), solid: Bool = false,
@@ -189,7 +209,35 @@ extension VesselDesign {
         d.normalizeOrder()
         return d.autoStaged()
     }()
-    public static let presets: [VesselDesign] = [jump, orbit, luna, luna2, boosters]
+    /// «Луна-Р» (6.3): «Луна» с ровером «Тропа» на боковом разделителе посадочного бака Т-800.
+    public static let lunaRover: VesselDesign = {
+        var d = VesselDesign(name: "Луна-Р", parts: luna.parts)
+        d.addRover(on: 4)
+        return d
+    }()
+
+    /// Ровер «Тропа» на боковом разделителе детали `parentID` (сторона −Z, напротив люка и лестницы).
+    /// Рама повёрнута на 180° вокруг своей оси: верх ровера (+Z рамы) — наружу; колёса К-1 по бортам
+    /// (азимуты рамы 0°/180°), батарея, кресло и панель — сверху (90°), опущены на 0.2 м к платформе.
+    /// Разделитель ровера не в ступенях — его отделяет `deployRover`.
+    mutating func addRover(on parentID: Int) {
+        let base = nextID
+        let dec = base, frame = base + 1
+        nodes.append(DesignPart(id: dec, part: .decouplerRadial, parent: parentID, node: .radial, angle: 270, height: 0.5))
+        nodes.append(DesignPart(id: frame, part: .roverFrame, parent: dec, node: .radial, angle: 270, height: 0.5,
+                                rotation: Vec3(0, 180, 0)))
+        for (k, (a, h)) in [(0.0, 0.15), (180.0, 0.15), (0.0, 0.85), (180.0, 0.85)].enumerated() {
+            nodes.append(DesignPart(id: base + 2 + k, part: .wheelK1, parent: frame, node: .radial, angle: a, height: h))
+        }
+        let down = Vec3(0, 0, 0.2) // оси корабля: верх ровера — −Z
+        for (k, (p, h)) in [(PartID.batteryB1, 0.15), (.roverSeat, 0.5), (.solarS1, 0.85)].enumerated() {
+            nodes.append(DesignPart(id: base + 6 + k, part: p, parent: frame, node: .radial, angle: 90, height: h,
+                                    offset: down))
+        }
+        normalizeOrder()
+        self = autoStaged()
+    }
+    public static let presets: [VesselDesign] = [jump, orbit, luna, luna2, boosters, lunaRover]
 
     /// Полная масса, кг.
     public var mass: Double { parts.reduce(0) { $0 + $1.spec.wetMass } }
