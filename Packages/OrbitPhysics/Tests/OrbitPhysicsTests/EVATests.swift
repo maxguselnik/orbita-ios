@@ -10,13 +10,24 @@ struct EVATests {
     static let lunaUp = Vec3(0.3, 0.9, 0.1).normalized
 
     /// Посадочный корабль на грунте Луны (Луна не вращается: система тела = инерциальная).
-    private func landedOnLuna() -> FlightSim {
+    func landedOnLuna(_ design: VesselDesign = lander) -> FlightSim {
         let up = Self.lunaUp
         let ground = Bodies.luna.radius + Terrain.surfaceHeight(body: .luna, direction: up)
-        let sim = FlightSim(design: Self.lander, body: .luna, position: up * (ground + 2), velocity: up * -0.5,
+        let sim = FlightSim(design: design, body: .luna, position: up * (ground + 2), velocity: up * -0.5,
                             attitude: Quat.looking(nose: up, zHint: .unitZ))
         for _ in 0..<600 where sim.activeSituation != .landed { _ = sim.advance(realDelta: 1.0 / 60) }
         return sim
+    }
+
+    /// Посадочный корабль без опор (без лестницы): правила выхода/входа части 1.
+    static let noLegs = VesselDesign(name: "Без опор", parts: [.podK1, .t800, .shtil])
+
+    /// Выйти на лестницу и спуститься на грунт (6.2).
+    private func exitToGround(_ sim: FlightSim) {
+        exit(sim)
+        sim.setEVAInput(EVAInput(vertical: -1))
+        _ = run(sim, limit: 20) { s, _ in s.snapshot.controlled?.onGround ?? true }
+        sim.setEVAInput(.neutral)
     }
 
     private func lunaOrbit() -> FlightSim {
@@ -50,8 +61,10 @@ struct EVATests {
         #expect(abs(h.x) < 1e-9)
     }
 
-    @Test func exitOnLunaStandsNearHatch() throws {
-        let sim = landedOnLuna()
+    /// Корабль без опор — лестницы нет, выход на грунт под люком (правило части 1).
+    @Test func exitWithoutLadderStandsNearHatch() throws {
+        let sim = landedOnLuna(Self.noLegs)
+        #expect(sim.snapshot.vessels[0].ladders.isEmpty)
         #expect(sim.activeSituation == .landed)
         #expect(sim.snapshot.evaExitBlocker == nil)
         #expect(sim.snapshot.telemetry.science.crewAboard)
@@ -88,7 +101,7 @@ struct EVATests {
 
     @Test func walkOnLunaKeepsToGround() throws {
         let sim = landedOnLuna()
-        exit(sim)
+        exitToGround(sim)
         let east = Self.lunaUp.cross(.unitZ).normalized
         sim.setEVAInput(EVAInput(move: east))
         let start = try controlled(sim).position
@@ -110,7 +123,7 @@ struct EVATests {
 
     @Test func jumpOnLunaLandsSafely() throws {
         let sim = landedOnLuna()
-        exit(sim)
+        exitToGround(sim)
         sim.send(.evaJump)
         var peak = 0.0
         var all: [SimEvent] = []
@@ -160,7 +173,8 @@ struct EVATests {
         sim.send(.evaJump)
         #expect(try controlled(sim).onGround)
         let up = c.position.normalized
-        sim.setEVAInput(EVAInput(move: Cosmonaut.horizontal(.unitZ, up: up)))
+        // От корабля (корпус не пускает внутрь — 6.2).
+        sim.setEVAInput(EVAInput(move: Cosmonaut.horizontal(c.position - sim.snapshot.vessels[0].position, up: up)))
         _ = run(sim, limit: 3)
         #expect(abs(try controlled(sim).surfaceSpeed - EVABalance.injuredWalkSpeed) < 0.02)
     }
@@ -168,7 +182,10 @@ struct EVATests {
     @Test func jetpackBurnsFuelUntilEmpty() throws {
         let sim = lunaOrbit()
         exit(sim)
+        #expect(try controlled(sim).grip != nil)
+        sim.send(.evaRelease)
         var c = try controlled(sim)
+        #expect(c.grip == nil)
         #expect(c.jetpackOn && !c.onGround && c.fuel == EVABalance.jetpackFuel)
         let v0 = c.velocity - sim.snapshot.vessels[0].velocity
         sim.setEVAInput(EVAInput(move: Vec3(1, 0, 0)))
@@ -188,22 +205,25 @@ struct EVATests {
         #expect(abs(gained - EVABalance.jetpackAccel * EVABalance.jetpackFuel) < 1.5)
     }
 
+    /// Отпустил поручни на орбите — дрейфует рядом с кораблём (скорость — скорость корабля).
     @Test func orbitCosmonautStaysNearShip() throws {
         let sim = lunaOrbit()
         exit(sim)
+        sim.send(.evaRelease)
         // Расстояние от центра космонавта до люка.
         func gap() throws -> Double { try #require(try controlled(sim).hatchDistance) }
         let d0 = try gap()
         _ = run(sim, limit: 60)
         let d1 = try gap()
-        #expect(abs(d0 - EVABalance.exitOffset) < 1e-6)
+        #expect(d0 < 1.5)
         #expect(abs(d1 - d0) < 1)
         #expect(try controlled(sim).orbit != nil)
         #expect(try controlled(sim).situation == .nearSpace)
     }
 
+    /// Без лестницы — вход с грунта по горизонтали (часть 1).
     @Test func boardWithinRadiusDeliversData() throws {
-        let sim = landedOnLuna()
+        let sim = landedOnLuna(Self.noLegs)
         exit(sim)
         sim.send(.evaReport)
         sim.send(.evaCollectSample)
@@ -226,7 +246,7 @@ struct EVATests {
 
     @Test func boardTooFarIsRefused() throws {
         let sim = landedOnLuna()
-        exit(sim)
+        exitToGround(sim)
         let c0 = try controlled(sim)
         let up = c0.position.normalized
         let away = Cosmonaut.horizontal(c0.position - sim.snapshot.vessels[0].position, up: up)
@@ -256,7 +276,7 @@ struct EVATests {
         #expect(c.reportBlocker == .duplicate)
 
         let ground = landedOnLuna()
-        exit(ground)
+        exitToGround(ground)
         #expect(try controlled(ground).sampleBlocker == nil)
         ground.send(.evaCollectSample)
         ground.send(.evaCollectSample)
@@ -267,7 +287,7 @@ struct EVATests {
 
     @Test func flagPlantedOnce() throws {
         let sim = landedOnLuna()
-        exit(sim)
+        exitToGround(sim)
         sim.send(.evaPlantFlag)
         let ev = sim.advance(realDelta: 1.0 / 60)
         #expect(ev.contains(.flagPlanted(body: .luna)))
@@ -298,7 +318,7 @@ struct EVATests {
 
     @Test func switchCyclesShipAndCosmonaut() throws {
         let sim = landedOnLuna()
-        exit(sim)
+        exitToGround(sim)
         sim.send(.evaSwitch)
         #expect(sim.snapshot.controlledCosmonaut == nil && sim.snapshot.cosmonauts.count == 1)
         // Ввод без управляемого космонавта игнорируется.
@@ -311,7 +331,7 @@ struct EVATests {
 
     @Test func checkpointKeepsCosmonaut() throws {
         let sim = landedOnLuna()
-        exit(sim)
+        exitToGround(sim)
         sim.send(.evaPlantFlag)
         let cp = sim.checkpoint()
         let before = try controlled(sim)
