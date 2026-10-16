@@ -263,4 +263,25 @@ struct FuelTypesTests {
         let share = jets.rcsJets(.gas).thrust / (jets.rcsJets(.gas).thrust + jets.rcsJets(.mono).thrust)
         #expect(abs(cmd.y - share) < 1e-6, "команда \(cmd.y), доля \(share)")
     }
+
+    @Test func rcsFuelsListsOnlyFiringTypes() {
+        // В снимке — только типы, чьи сопла реально работали: «Рой» без монотоплива молчит.
+        let d = VesselDesign(name: "", parts: [.probe, .n50, .gasJet, .m100, .rcsBlock])
+        let s = sim(d)
+        s.send(.setRCS(true))
+        func fuels(translation: Vec3 = .zero, pitch: Double = 0) -> Set<FuelType> {
+            s.setInput(ControlInput(pitch: pitch, translation: translation))
+            _ = run(s, limit: 0.2, frame: 0.05)
+            return s.snapshot.vessels[s.activeIndex].rcsFuels
+        }
+        #expect(fuels(translation: Vec3(0, 1, 0)) == [.mono, .gas])
+        #expect(fuels(pitch: 1) == [.mono, .gas])
+        let ai = s.activeIndex
+        s.vessels[ai].ship.drawRCS(.mono, s.vessels[ai].ship.rcsMass(.mono))
+        #expect(fuels(translation: Vec3(0, 1, 0)) == [.gas])
+        #expect(fuels(pitch: 1) == [.gas])
+        s.send(.setRCS(false))
+        #expect(fuels(translation: Vec3(0, 1, 0)).isEmpty)
+        #expect(fuels().isEmpty)
+    }
 }

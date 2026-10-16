@@ -26,6 +26,9 @@ struct Vessel {
     /// Команда на сопла РСУ в последнем шаге (оси корабля, −1…1); нули — молчат.
     var rcsTranslation: Vec3 = .zero
     var rcsRotation: Vec3 = .zero
+    /// Типы топлива, чьи сопла реально работали в последнем шаге (поступательно / на поворот).
+    var rcsFuelsTranslation: Set<FuelType> = []
+    var rcsFuelsRotation: Set<FuelType> = []
     /// Поток в последнем шаге встречал теплозащитный экран.
     var shieldFacing = false
 
@@ -41,6 +44,7 @@ struct Vessel {
                     rcsTranslation: rcsTranslation, rcsRotation: rcsRotation,
                     layout: ship.parts.map(\.placement))
         st.partHeat = ship.partHeat
+        st.rcsFuels = rcsFuelsTranslation.union(rcsFuelsRotation)
         return st
     }
 }
@@ -492,6 +496,8 @@ public final class FlightSim: FlightSimulation {
         if vessels[ai].situation == .crashed {
             vessels[ai].rcsTranslation = .zero
             vessels[ai].rcsRotation = .zero
+            vessels[ai].rcsFuelsTranslation = []
+            vessels[ai].rcsFuelsRotation = []
         }
         for k in vessels.indices where k != ai && !vessels[k].isOnSurface && vessels[k].situation != .crashed {
             stepDebris(k, h)
@@ -545,6 +551,8 @@ public final class FlightSim: FlightSimulation {
         // РСУ: поступательная тяга по `input.translation` в осях корабля.
         s.rcsTranslation = .zero
         s.rcsRotation = .zero
+        s.rcsFuelsTranslation = []
+        s.rcsFuelsRotation = []
         var rcsUse: [FuelType: Double] = [:]
         var rcsAcc = Vec3.zero
         if let cmd = rcsTranslationCommand(s.ship) {
@@ -578,6 +586,7 @@ public final class FlightSim: FlightSimulation {
                 // Не оторвались: сопла впустую топливо не жгут.
                 s.rcsTranslation = .zero
                 rcsUse = [:]
+                s.rcsFuelsTranslation = []
                 lastProperAccel = g
                 s.ship.cool(dt: h, environment: World.thermalEnvironment(body: s.body, position: s.r, time: time))
                 vessels[ai] = s
@@ -585,6 +594,7 @@ public final class FlightSim: FlightSimulation {
             }
         }
         for (t, use) in rcsUse { s.ship.drawRCS(t, use) }
+        s.rcsFuelsTranslation = Set(rcsUse.filter { $0.value > 0 }.keys)
 
         let spin = World.spin(s.body)
         let vAir = s.v - spin.cross(s.r)
@@ -849,6 +859,7 @@ public final class FlightSim: FlightSimulation {
             alpha = rateControl(s, desired: (err.axis, err.angle), ctrl: ctrl)
         }
         s.rcsRotation = .zero
+        s.rcsFuelsRotation = []
         if rcsOn {
             let level = min(1, alpha.length / ctrl)
             let share = rcsCtrl / ctrl
@@ -860,6 +871,7 @@ public final class FlightSim: FlightSimulation {
                     let want = level * (c.ctrl / ctrl) * c.flow * h
                     let frac = want > have ? have / want : 1
                     s.ship.drawRCS(c.type, want * frac)
+                    if want * frac > 0 { s.rcsFuelsRotation.insert(c.type) }
                     given += c.ctrl / ctrl * frac
                 }
                 let frac = share > 0 ? given / share : 0
@@ -1011,6 +1023,8 @@ public final class FlightSim: FlightSimulation {
         for k in vessels.indices {
             vessels[k].rcsTranslation = .zero
             vessels[k].rcsRotation = .zero
+            vessels[k].rcsFuelsTranslation = []
+            vessels[k].rcsFuelsRotation = []
         }
         lastRailsKeplerCalls = 0
         // На рельсах — только остывание.

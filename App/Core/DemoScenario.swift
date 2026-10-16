@@ -33,6 +33,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// На орбите 80×74 км с блоком РСУ: РСУ включено, держится команда «вперёд и вправо» — HUD с поступательным
     /// джойстиком и струйки сопел в рендере.
     case rcs
+    /// То же с газовыми соплами «Бриз» и баллоном азота вместо «Роя»: струи и звук азота.
+    case rcsGas
     /// Перелёт к Луне, вход в её сферу влияния.
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
@@ -151,6 +153,9 @@ enum DemoScenario: String, CaseIterable, Sendable {
         case .rcs:
             return ScenarioFlight(design: Self.rcsDesign, goal: .orbit, keepAutopilot: false,
                                   rcsOn: true, heldTranslation: Vec3(0.6, 1, 0)) { _, ap in ap.isFinished }
+        case .rcsGas:
+            return ScenarioFlight(design: Self.rcsGasDesign, goal: .orbit, keepAutopilot: false,
+                                  rcsOn: true, heldTranslation: Vec3(0.6, 1, 0)) { _, ap in ap.isFinished }
         case .lunaApproach, .mapLuna:
             return ScenarioFlight(design: .luna, goal: .lunaEncounter, keepAutopilot: false) { sim, _ in
                 sim.activeBody == .luna
@@ -187,6 +192,11 @@ enum DemoScenario: String, CaseIterable, Sendable {
     private static let rcsDesign = VesselDesign(
         name: "РСУ",
         parts: [.chute, .podK1, .rcsBlock, .m100, .decoupler, .t400, .shtil, .decoupler, .t800, .t800, .vikhr])
+
+    /// «Орбита» с газовыми соплами «Бриз» и баллоном азота А-50 под капсулой.
+    private static let rcsGasDesign = VesselDesign(
+        name: "РСУ азот",
+        parts: [.chute, .podK1, .gasJet, .n50, .decoupler, .t400, .shtil, .decoupler, .t800, .t800, .vikhr])
 
     /// Капсула К-1 (с парашютом или без) над площадкой (≈ 1 км к северу), падает со скоростью `speed`.
     private static func descent(chute: Bool, height: Double, speed: Double) -> FlightSim {

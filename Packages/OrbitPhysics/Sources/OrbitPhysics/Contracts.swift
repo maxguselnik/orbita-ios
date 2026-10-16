@@ -96,6 +96,9 @@ public struct VesselState: Sendable, Hashable {
     /// Нули — РСУ молчит (выключено, нет топлива или нет команды). Только у активного корабля.
     public var rcsTranslation: Vec3
     public var rcsRotation: Vec3
+    /// Типы топлива РСУ, чьи сопла реально работали в этом кадре (`.mono` — «Рой», `.gas` — «Бриз»).
+    /// Блок без своего топлива молчит, даже если команда ненулевая. Пусто — РСУ молчит.
+    public var rcsFuels: Set<FuelType> = []
     /// Нагрев деталей 0…1 (температура / предел детали), те же индексы, что `parts`; пусто — холодные (5.2).
     public var partHeat: [Double] = []
 
