@@ -66,7 +66,6 @@ struct FlightHUDView: View {
                 RoverLayer(model: model)
             } else {
                 FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
-                if inLesson { EVAShipSwitch(model: model) }
             }
         }
         .overlay(alignment: .top) {
@@ -165,7 +164,7 @@ struct FlightHUDView: View {
     /// Панель ступеней выезжает слева поверх стопки ступеней: правая колонка (крен, РСУ, узел манёвра на карте)
     /// остаётся доступной. Сверху — под строкой времени и паузы, снизу — над кнопкой «Пуск».
     @ViewBuilder private var stagePanel: some View {
-        if model.isPanelOpen, model.eva == nil, model.map.isOpen || model.tutorial?.isActive == true {
+        if model.isPanelOpen, model.eva == nil, model.map.isOpen {
             StagePanel(model: model)
                 .padding(.top, MissionTimeBar.height + 12)
                 .padding(.leading, 6)
@@ -175,128 +174,24 @@ struct FlightHUDView: View {
     }
 }
 
-/// Раскладка полёта: все элементы привязаны к краям и углам, центр экрана свободен для жестов камеры.
+/// Раскладка полёта: компактный HUD; в уроке — он же, с якорями подсветки шагов.
 struct FlightLayer: View {
     let model: FlightHUDModel
     let guide: HUDAction?
     let hintsEnabled: Bool
-    /// Идёт урок: помощник подъёма в строке состояния выключен, маркер цели и карточка миссии остаются.
+    /// Идёт урок: помощник подъёма выключен, маркер цели на навболе и карточка миссии остаются.
     var inLesson = false
 
     var body: some View {
-        if !inLesson {
-            CompactFlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled)
-        } else {
-            ZStack {
-                topLeft
-                topCenter
-                topRight
-                bottomRight
-                bottomCenter
-                bottomLeft
-                leftColumn
-            }
-            // В уроке сохраняются прежние элементы и их якоря подсветки.
-            .ignoresSafeArea(.container, edges: .bottom)
-        }
-    }
-
-    private var topLeft: some View {
-        MissionTimeBar(model: model)
-            .tutorialAnchor(.timeBar)
-            .padding(.top, 6)
-            .padding(.leading, 6)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-
-    private var topCenter: some View {
-        VStack(spacing: 3) {
-            AltimeterPanel(model: model)
-                .tutorialAnchor(.altimeter)
-            FlightStatusView(model: model, ascentEnabled: hintsEnabled && !inLesson)
-            ThermalGauge(model: model)
-        }
-        .padding(.top, AltimeterPanel.topInset)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-    }
-
-    private var topRight: some View {
-        HStack(alignment: .top, spacing: 2) {
-            if !model.crew.isEmpty {
-                CrewStrip(crew: model.crew, outside: model.evaOutsideIDs, dead: model.evaDeadIDs) { model.send(.evaSelect(memberID: $0)) }
-                    .tutorialAnchor(.crew)
-                    .padding(.top, 2)
-                    .padding(.trailing, 2)
-            }
-            FlightCornerButtons(model: model)
-                .tutorialAnchor(.corner)
-        }
-        .padding(.trailing, 2)
-        .padding(.top, 4)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+        CompactFlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
     }
 
     /// Центр капсулы «Пуск» и круга крестовины по высоте — 120 pt от низа; отступы от физических краёв зеркальны:
-    /// левый край капсулы и внешний край круга — по 66 pt.
+    /// левый край капсулы и внешний край круга — по 66 pt. Общие для HUD EVA и ровера.
     static let controlCenterFromBottom: CGFloat = 120
     static let stageLeading: CGFloat = 66
-    /// Стопка ступеней — под строкой времени и паузы (44 pt) с зазором 6 pt.
-    static let stackTop: CGFloat = 6 + MissionTimeBar.height + 6
-
-    /// Стопка ступеней под строкой времени и карточка миссии под ней. Карточка выше остальных слоёв: развёрнутая (по тапу)
-    /// перекрывает их и перехватывает касания. По умолчанию развёрнута, только если помещается над капсулой «Пуск».
-    private var leftColumn: some View {
-        GeometryReader { geo in
-            let capsuleTop = geo.size.height - Self.controlCenterFromBottom - StageButton.height / 2
-            let rows = CGFloat(StageStackView.rowCount(model: model))
-            let stackHeight = rows > 0 ? rows * StageGroupRow.height + (rows - 1) * 3 : 0
-            let fits = MissionCard.fitsExpanded(stackHeight: stackHeight + Self.stackTop - 36, blockTop: capsuleTop)
-            VStack(alignment: .leading, spacing: MissionCard.gap) {
-                StageStackView(model: model)
-                    .tutorialAnchor(.stageStack)
-                MissionCard(model: model, enabled: hintsEnabled || inLesson, autoExpand: fits)
-                    .tutorialAnchor(.mission)
-            }
-            .padding(.top, Self.stackTop)
-            .padding(.leading, 6)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        }
-    }
-
-    /// Левый нижний угол: капсула «Пуск» от физического края (66 pt), над ней плашка узла манёвра.
-    private var bottomLeft: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            ManeuverBadgeHost(model: model)
-            StageButton(model: model, highlighted: guide == .stage)
-                .tutorialAnchor(.stageButton)
-        }
-        .padding(.leading, Self.stageLeading)
-        .padding(.bottom, Self.controlCenterFromBottom - StageButton.height / 2)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-        .ignoresSafeArea(.container, edges: .horizontal)
-    }
-
-    private var bottomCenter: some View {
-        NavballCluster(model: model, ascentEnabled: hintsEnabled || inLesson, guide: guide)
-            .padding(.bottom, NavballCluster.lift)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-    }
-
-    /// Правый нижний угол: круглая крестовина, крен и «ТОЧНО» от физического края; над кнопкой крена — джойстик РСУ.
+    /// Джойстик РСУ классической раскладки: отступ от правого края.
     static let rcsTrailing: CGFloat = 50
-
-    private var bottomRight: some View {
-        ZStack(alignment: .bottomTrailing) {
-            AttitudeControls(model: model)
-                .padding(.trailing, AttitudeControls.trailingInset)
-                .padding(.bottom, AttitudeControls.bottomInset)
-            RCSControlsHost(model: model)
-                .padding(.trailing, Self.rcsTrailing)
-                .padding(.bottom, AttitudeControls.bottomInset + AttitudeControls.frameSize.height + 6)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-        .ignoresSafeArea(.container, edges: .horizontal)
-    }
 }
 
 /// Поступательное управление РСУ появляется, пока РСУ включено и на корабле есть блоки.

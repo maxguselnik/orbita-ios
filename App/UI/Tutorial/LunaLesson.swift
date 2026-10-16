@@ -177,7 +177,7 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
                                 why: "Корабль сам долетит до узла, развернётся, сделает прожиг и поправит курс.")
         case .coast:
             let way = Self.timeToEncounter(i).map { "До Луны \(HUDFormat.countdown($0))." } ?? "До Луны несколько часов."
-            return LessonBubble(title: "Ускорение времени", text: way + " Нажмите «+» вверху слева.", button: nil,
+            return LessonBubble(title: "Ускорение времени", text: way + " Увеличьте ускорение вверху слева: «+» на карте или «×1 ▾» в полёте.", button: nil,
                                 why: "Лететь долго. На ускорении время идёт быстрее; у Луны игра сама вернёт обычную скорость.")
         case .captureNode:
             return LessonBubble(title: "Захват", text: "Вы у Луны. Откройте карту и нажмите «Скруглить орбиту».",
@@ -187,7 +187,7 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
             return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа внизу.",
                                 button: nil, why: "Корабль сам затормозит у Пе — и Луна его «поймает».")
         case .retro:
-            return LessonBubble(title: "Ретро", text: "Выберите SAS «Ретро» — нос развернётся против движения.",
+            return LessonBubble(title: "Ретро", text: "Нажмите «SAS ▾» и выберите «Против вектора скорости» — нос развернётся против движения.",
                                 button: nil,
                                 why: "Двигатель тормозит, только если смотрит против полёта. Чтобы сесть, нужно погасить скорость.")
         case .finish:

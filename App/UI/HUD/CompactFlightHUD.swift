@@ -17,12 +17,16 @@ struct CompactFlightLayer: View {
     let model: FlightHUDModel
     var guide: HUDAction?
     var hintsEnabled: Bool
+    /// Идёт урок: карточка миссии в верхней строке, «Обзор» скрыт, помощник подъёма выключен.
+    var inLesson = false
     @State private var page: CompactFlightPage
 
-    init(model: FlightHUDModel, guide: HUDAction? = nil, hintsEnabled: Bool = true, initialPage: CompactFlightPage = .summary) {
+    init(model: FlightHUDModel, guide: HUDAction? = nil, hintsEnabled: Bool = true, inLesson: Bool = false,
+         initialPage: CompactFlightPage = .summary) {
         self.model = model
         self.guide = guide
         self.hintsEnabled = hintsEnabled
+        self.inLesson = inLesson
         _page = State(initialValue: initialPage)
     }
 
@@ -36,7 +40,7 @@ struct CompactFlightLayer: View {
                         .padding(.trailing, CompactFlightLayout.side)
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 } else {
-                    CompactFlightHeader(model: model, wide: geo.size.width >= 800, showCrew: {
+                    CompactFlightHeader(model: model, wide: geo.size.width >= 800, inLesson: inLesson, showCrew: {
                         page = .crew
                         model.isPanelOpen = true
                     }, showMore: {
@@ -52,7 +56,7 @@ struct CompactFlightLayer: View {
                         .padding(.leading, CompactFlightLayout.side + 6)
                         .padding(.top, 66)
                     HStack(alignment: .bottom) {
-                        CompactFlightInstruments(model: model, guide: guide, ascentEnabled: hintsEnabled)
+                        CompactFlightInstruments(model: model, guide: guide, ascentEnabled: hintsEnabled || inLesson)
                         Spacer(minLength: 24)
                         if !model.isPanelOpen {
                             CompactFlightControls(model: model, guide: guide)
@@ -101,6 +105,8 @@ struct CompactFlightButtonStyle: ButtonStyle {
 struct CompactFlightHeader: View {
     let model: FlightHUDModel
     var wide = true
+    /// В уроке на месте «Терра · полёт» — карточка миссии; «Обзор» скрыт, чтобы не спрятать приборы урока.
+    var inLesson = false
     var showCrew: () -> Void = {}
     var showMore: () -> Void = {}
 
@@ -109,6 +115,7 @@ struct CompactFlightHeader: View {
             Button { model.pause() } label: { Image(systemName: "pause.fill").frame(width: 44, height: 44) }
                 .accessibilityLabel("Пауза")
             MissionClock(model: model)
+                .tutorialAnchor(.timeBar)
             Menu {
                 if let reason = model.warp.blocked { Text(FlightHUDModel.warpReasonText(reason)) }
                 if model.hasManeuver { Button("До узла манёвра") { model.warpToManeuver() }.disabled(!model.canWarpToManeuver) }
@@ -120,7 +127,14 @@ struct CompactFlightHeader: View {
                 Text(HUDFormat.warp(model.warp.factor) + " ▾").frame(minWidth: 48, minHeight: 44)
             }
             .accessibilityLabel("Ускорение времени")
-            if wide {
+            .tutorialAnchor(.warp)
+            if inLesson {
+                MissionCard(model: model, dropDown: true)
+                    // Новый шаг урока сворачивает список: он не закрывает следующую подсветку.
+                    .id(model.tutorial?.display.stepIndex ?? 0)
+                    .tutorialAnchor(.mission)
+                    .padding(.leading, 8)
+            } else if wide {
                 Text(Bodies.body(model.telemetry.body).name + " · полёт")
                     .foregroundStyle(HUDPalette.muted).padding(.leading, 10).lineLimit(1)
             }
@@ -138,9 +152,14 @@ struct CompactFlightHeader: View {
                     Button("+\(model.crew.states.count - 3)", action: showCrew).frame(width: 44, height: 44)
                 }
             }
+            .tutorialAnchor(.crew)
             Button("Карта") { model.toggleMap() }.frame(width: 52, height: 44)
-            Button("Обзор") { model.setFlightOverview(true) }.frame(width: 56, height: 44)
+                .tutorialAnchor(.mapButton)
+            if !inLesson {
+                Button("Обзор") { model.setFlightOverview(true) }.frame(width: 56, height: 44)
+            }
             Button("Ещё ⋯", action: showMore).frame(width: 60, height: 44)
+                .tutorialAnchor(.corner)
                 .accessibilityLabel(model.isPanelOpen ? "Закрыть панель корабля" : "Открыть панель корабля")
         }
         .font(.system(size: 12, weight: .semibold))
@@ -160,12 +179,14 @@ struct CompactFlightReadings: View {
         let landing = t.verticalSpeed < -5 && t.heightAboveTerrain < 10_000
         VStack(alignment: .leading, spacing: 4) {
             reading(HUDFormat.distance(model.altimeterOverTerrain ? t.heightAboveTerrain : t.altitude), label: "высота")
+                .tutorialAnchor(.altimeter)
             Button { model.toggleSpeedFrame() } label: {
                 reading(landing ? HUDFormat.signedSpeed(t.verticalSpeed) : HUDFormat.speed(model.speedFrame(for: t) == .orbit ? t.speed : t.surfaceSpeed),
                         label: landing ? "вертикально" : (model.speedFrame(for: t) == .orbit ? "орбитальная" : "поверхность"))
             }
             .buttonStyle(.plain)
             .frame(minHeight: 44)
+            .tutorialAnchor(.speed)
             .accessibilityHint("Переключить орбитальную скорость и скорость относительно поверхности")
             if let stage = t.stages.first, stage.fuelCapacity > 0 {
                 Text("Топливо · " + HUDFormat.percent(stage.fuelFraction))
@@ -173,6 +194,7 @@ struct CompactFlightReadings: View {
             }
             if let apo = AltimeterPanel.apoapsisToShow(t) {
                 ApoapsisRow(altitude: apo)
+                    .tutorialAnchor(.apoapsis)
             }
             if t.maneuver != nil {
                 ManeuverBadgeHost(model: model)
@@ -200,11 +222,13 @@ struct CompactFlightInstruments: View {
     var body: some View {
         HStack(alignment: .bottom, spacing: 10) {
             CompactThrottle(model: model, guide: guide)
+                .tutorialAnchor(.throttle)
             NavballSphere(telemetry: model.telemetry, frame: model.speedFrame(for: model.telemetry),
                           targetPitch: ascentEnabled ? AscentGuide.advice(model.telemetry)?.targetPitch : nil)
                 .frame(width: 90, height: 90)
                 .background(Circle().fill(HUDPalette.panel))
                 .overlay(Circle().strokeBorder(HUDPalette.strokeBright, lineWidth: 3))
+                .tutorialAnchor(.navball)
             VStack(spacing: 0) {
                 Menu {
                     Button(model.sas == .off ? "Включить SAS" : "Выключить SAS") { model.toggleSAS() }
@@ -217,6 +241,7 @@ struct CompactFlightInstruments: View {
                         .frame(width: 48, height: 44)
                 }
                 .accessibilityLabel("SAS: " + SASGrid.fullName(model.sas))
+                .tutorialAnchor(.sas)
                 Button { model.toggleRCS() } label: {
                     VStack(spacing: 3) {
                         Text("РСУ")
@@ -225,6 +250,7 @@ struct CompactFlightInstruments: View {
                 }
                 .foregroundStyle(model.rcs.enabled ? HUDPalette.sas : HUDPalette.muted)
                 .accessibilityLabel(model.rcs.enabled ? "Выключить РСУ" : "Включить РСУ")
+                .tutorialAnchor(.rcs)
             }
             .font(.system(size: 11, weight: .bold)).buttonStyle(.plain)
         }
@@ -299,8 +325,11 @@ struct CompactFlightControls: View {
         HStack(alignment: .bottom, spacing: 10) {
             StageButton(model: model, compact: true, narrow: true, highlighted: guide == .stage)
                 .frame(width: 120)
+                .tutorialAnchor(.stageButton)
             VStack(spacing: 0) {
                 AttitudeStick(model: model)
+                    .tutorialAnchor(.dpad)
+                    .tutorialAnchor(.dpadRight)
                 HStack(spacing: 0) {
                     roll("arrow.counterclockwise", "Крен влево", .rollLeft)
                     roll("arrow.clockwise", "Крен вправо", .rollRight)
