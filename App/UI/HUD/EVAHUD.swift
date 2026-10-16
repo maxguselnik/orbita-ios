@@ -427,7 +427,7 @@ struct EVAShipSwitch: View {
                 EVAModeSwitch(model: model, cosmonautSelected: false)
             }
             if model.showsDeployRover {
-                EVAButton(title: "Отделить ровер", tint: HUDPalette.sas, width: 120) { model.send(.deployRover); model.notify("Ровер отделён") }
+                EVAButton(title: "Отделить ровер", tint: HUDPalette.sas, width: 120) { model.roverJustDeployed = true; model.send(.deployRover); model.notify("Ровер отделён") }
             }
         }
         .padding(.top, 52)

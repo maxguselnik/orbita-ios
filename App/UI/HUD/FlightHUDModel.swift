@@ -86,6 +86,8 @@ final class FlightHUDModel {
     @ObservationIgnored var roverStick = SIMD2<Double>.zero
     @ObservationIgnored private var wasRover = false
     @ObservationIgnored private var roverLastDriver: (VesselID?, String?)?
+    /// Только что нажато «Отделить ровер»: событие разделения этого кадра без тоста ступени.
+    @ObservationIgnored var roverJustDeployed = false
     /// Панель итогов полёта: авария или посадка.
     private(set) var result: FlightResult?
     /// Подсказка первого полёта (показывает вьюха, если подсказки включены).
@@ -366,7 +368,12 @@ final class FlightHUDModel {
         map.update(sim: sim, now: now)
         advise(events: events, now: now)
         // Сел в кресло ровера — тост «за рулём» даёт смена водителя, «в капсуле» не нужен.
-        let shown = snapshot.rover == nil ? events : events.filter { if case .evaBoarded = $0 { false } else { true } }
+        var shown = snapshot.rover == nil ? events : events.filter { if case .evaBoarded = $0 { false } else { true } }
+        // «Отделить ровер» — тост свой, не «нижняя ступень отделена».
+        if roverJustDeployed {
+            roverJustDeployed = false
+            shown = shown.filter { if case .separation = $0 { false } else { true } }
+        }
         if let message = shown.compactMap(Self.message(for:)).last {
             show(message, now: now)
         }
@@ -1026,10 +1033,13 @@ final class FlightHUDModel {
     /// Ровер (6.3): состояние HUD и тосты «за рулём» / «встала» по смене водителя того же ровера.
     private func refreshRover(_ snapshot: WorldSnapshot) {
         if let status = snapshot.rover {
-            if let last = roverLastDriver, last.0 == snapshot.activeVessel, last.1 != status.driverID {
-                if let id = status.driverID {
+            let sameRover = roverLastDriver?.0 == snapshot.activeVessel
+            let lastDriver = sameRover ? roverLastDriver?.1 : nil
+            // Сел с EVA: до посадки активен был корабль — «за рулём» и в этом случае.
+            if roverLastDriver == nil || !sameRover || lastDriver != status.driverID {
+                if let id = status.driverID, lastDriver != id, roverLastDriver != nil || !sameRover {
                     notify(Self.evaName(id) + " за рулём")
-                } else if let old = last.1 {
+                } else if status.driverID == nil, let old = lastDriver {
                     notify(Self.evaName(old) + " " + Self.evaVerb(old, "встал", "встала"))
                 }
             }
