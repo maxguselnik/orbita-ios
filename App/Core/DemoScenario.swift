@@ -37,7 +37,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case lunaSurface
     /// EVA (этап 6): космонавт спустился по лестнице на Луну рядом с посадочным кораблём.
     case evaSurface
-    /// EVA 6.2: космонавт на середине лестницы посадочного корабля на Луне.
+    /// EVA 6.2: космонавт на середине лестницы посадочного корабля «Луна-2» (кабина ЛК-2) на Луне.
     case evaLadder
     /// EVA на круговой орбите Луны 30 км: ранец включён, топлива ~18 %.
     case evaOrbit
@@ -162,7 +162,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
         case .evaSurface, .evaLadder:
-            let flight = ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+            let flight = ScenarioFlight(design: self == .evaLadder ? .luna2 : .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
             flight.send(.evaExit)
             // С лестницы вниз: до грунта (сцена «поверхность») или ~2 с (сцена «лестница»).
             flight.setEVAInput(EVAInput(vertical: -1))
@@ -287,7 +287,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
                             attitude: Quat(basisX: Vec3.unitY, y: Vec3.unitX, z: Vec3.unitY.cross(Vec3.unitX)))
         sim.send(.evaExit)
         sim.send(.evaRelease)
-        let side = Vec3.unitZ
+        let side = Vec3.unitX // вдоль корпуса: импульсы не упираются в борт
         for k in 0..<40 {
             sim.setEVAInput(EVAInput(move: side * [1.0, -1, -1, 1][k % 4]))
             for _ in 0..<30 { _ = sim.advance(realDelta: 1.0 / 60) }
