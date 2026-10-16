@@ -179,6 +179,10 @@ final class FlightHUDModel {
     @ObservationIgnored private var attitudeHeld: [AttitudeButton: TimeInterval] = [:]
     /// Режим «ТОЧНО»: ввод кнопок ориентации ×0.3.
     var fineControl = false
+    /// Джойстик «Направление» компактного HUD: x — вправо, y — вниз, −1…1. Пишется жестом, читается в `tick`.
+    @ObservationIgnored var attitudeStick = SIMD2<Double>.zero
+    /// Отклонение джойстика, с которого урок считает ось нажатой.
+    static let stickHeldThreshold = 0.3
 
     /// Нажатие/отпускание кнопки ориентации; повторное нажатие уже удерживаемой не сбрасывает разгон.
     func setAttitude(_ button: AttitudeButton, pressed: Bool, now: TimeInterval = CACurrentMediaTime()) {
@@ -199,12 +203,20 @@ final class FlightHUDModel {
             if hasPlus && hasMinus { return 0 }
             return value(plus) - value(minus)
         }
-        return (axis(.pitchUp, .pitchDown), axis(.yawRight, .yawLeft), axis(.rollRight, .rollLeft))
+        // Джойстик: квадратичная кривая — малое отклонение даёт точную коррекцию; перекрывает кнопки своей оси.
+        func stick(_ v: Double) -> Double {
+            let c = min(max(v, -1), 1)
+            return c * abs(c) * (fineControl ? AttitudeInputCurve.fineScale : 1)
+        }
+        let pitch = attitudeStick.y != 0 ? stick(-attitudeStick.y) : axis(.pitchUp, .pitchDown)
+        let yaw = attitudeStick.x != 0 ? stick(attitudeStick.x) : axis(.yawRight, .yawLeft)
+        return (pitch, yaw, axis(.rollRight, .rollLeft))
     }
 
     /// Кнопки исчезают из иерархии вместе с жестами (карта, перезапуск): сбрасываем ввод вручную.
     private func resetAttitudeInput() {
         attitudeHeld.removeAll()
+        attitudeStick = .zero
     }
 
     /// Поступательный джойстик РСУ: вправо (x) и вверх (z), −1…1.
@@ -414,9 +426,10 @@ final class FlightHUDModel {
     /// Что урок видит в игре сейчас: телеметрия, ввод, карта, отсутствующие элементы.
     func lessonInput() -> LessonInput {
         var input = LessonInput(telemetry: telemetry, throttle: throttle,
-                                yawRightHeld: attitudeHeld[.yawRight] != nil)
+                                yawRightHeld: attitudeHeld[.yawRight] != nil || attitudeStick.x > Self.stickHeldThreshold)
         let dpad: [AttitudeButton] = [.pitchUp, .pitchDown, .yawLeft, .yawRight]
         input.dpadHeld = dpad.contains { attitudeHeld[$0] != nil }
+            || max(abs(attitudeStick.x), abs(attitudeStick.y)) > Self.stickHeldThreshold
         input.mapOpen = map.isOpen
         input.autoBurn = executor != nil
         input.warpMenuCount = warpMenuCount
@@ -926,7 +939,7 @@ final class FlightHUDModel {
     /// Шаг автопрожига перед `setInput`: рука игрока отменяет, иначе выполняем вывод.
     private func stepExecutor() {
         guard var current = executor else { return }
-        if !attitudeHeld.isEmpty || abs(throttle - autoThrottle) > 1e-6 {
+        if !attitudeHeld.isEmpty || attitudeStick != .zero || abs(throttle - autoThrottle) > 1e-6 {
             // Игрок взял управление: тяга и ориентация теперь его.
             executor = nil
             autoBurnText = nil

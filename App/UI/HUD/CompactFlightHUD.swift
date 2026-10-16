@@ -300,7 +300,7 @@ struct CompactFlightControls: View {
             StageButton(model: model, compact: true, narrow: true, highlighted: guide == .stage)
                 .frame(width: 120)
             VStack(spacing: 0) {
-                DPadCircle(model: model, radius: 44).frame(width: 88, height: 88)
+                AttitudeStick(model: model)
                 HStack(spacing: 0) {
                     roll("arrow.counterclockwise", "Крен влево", .rollLeft)
                     roll("arrow.clockwise", "Крен вправо", .rollRight)

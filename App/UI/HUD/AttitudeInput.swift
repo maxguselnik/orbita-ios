@@ -203,6 +203,77 @@ struct DPadCircle: View {
     }
 }
 
+/// Аналоговый джойстик «Направление»: вверх/вниз — тангаж, влево/вправо — рыскание.
+/// Отсчёт от точки касания: первое касание не дёргает корабль; отпускание возвращает ручку в центр.
+struct AttitudeStick: View {
+    let model: FlightHUDModel
+    var diameter: CGFloat = 88
+
+    static let knobDiameter: CGFloat = 25
+    /// Доля хода в центре, где ввод ещё 0.
+    static let deadZone = 0.12
+
+    @State private var knob: CGSize = .zero
+    @GestureState private var dragging = false
+
+    /// Ход ручки от центра, pt.
+    private var travel: CGFloat { diameter / 2 - Self.knobDiameter / 2 - 4 }
+
+    /// Смещение пальца → положение ручки (в круге хода) и ввод −1…1 с мёртвой зоной.
+    static func value(for translation: CGSize, travel: CGFloat) -> (knob: CGSize, input: SIMD2<Double>) {
+        let length = (translation.width * translation.width + translation.height * translation.height).squareRoot()
+        let scale = length > travel ? travel / length : 1
+        let k = CGSize(width: translation.width * scale, height: translation.height * scale)
+        let r = Double(min(length, travel) / max(travel, 1))
+        guard r > deadZone, length > 0 else { return (k, .zero) }
+        let m = (r - deadZone) / (1 - deadZone)
+        return (k, SIMD2(Double(k.width) / Double(travel) / r * m, Double(k.height) / Double(travel) / r * m))
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            Text("Направление")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(HUDPalette.muted)
+            ZStack {
+                Circle().fill(Color.black.opacity(0.4))
+                Circle().fill(Color.white.opacity(0.08)).frame(width: diameter * 0.54, height: diameter * 0.54)
+                Path { p in
+                    let c = diameter / 2, arm = diameter / 2 - 12
+                    p.move(to: CGPoint(x: c, y: c - arm)); p.addLine(to: CGPoint(x: c, y: c + arm))
+                    p.move(to: CGPoint(x: c - arm, y: c)); p.addLine(to: CGPoint(x: c + arm, y: c))
+                }
+                .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                Circle().strokeBorder(Color.white.opacity(0.35), lineWidth: 1)
+                Circle()
+                    .fill(Color.white.opacity(dragging ? 0.55 : 0.3))
+                    .overlay(Circle().strokeBorder(Color.white.opacity(0.6), lineWidth: 1))
+                    .frame(width: Self.knobDiameter, height: Self.knobDiameter)
+                    .offset(knob)
+            }
+            .frame(width: diameter, height: diameter)
+            .contentShape(Circle())
+            .gesture(DragGesture(minimumDistance: 0)
+                .updating($dragging) { _, state, _ in state = true }
+                .onChanged { drag in
+                    let v = Self.value(for: drag.translation, travel: travel)
+                    knob = v.knob
+                    model.attitudeStick = v.input
+                }
+                .onEnded { _ in release() })
+            .onChange(of: dragging) { _, active in if !active { release() } }
+            .onDisappear { release() }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Джойстик направления: тангаж и рыскание")
+    }
+
+    private func release() {
+        withAnimation(.spring(duration: 0.15)) { knob = .zero }
+        model.attitudeStick = .zero
+    }
+}
+
 /// Сектор круга 90° вокруг направления сектора.
 struct DPadWedge: Shape {
     let sector: DPadSector

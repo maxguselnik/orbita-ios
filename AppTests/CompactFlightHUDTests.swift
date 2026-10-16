@@ -75,4 +75,29 @@ struct CompactFlightHUDTests {
         print("COMPACT_HUD_QA \(path.path)")
         window.isHidden = true
     }
+
+    @Test func stickDeadZoneAndTravelLimit() {
+        let small = AttitudeStick.value(for: CGSize(width: 2, height: 0), travel: 27)
+        #expect(small.input == .zero)
+        let far = AttitudeStick.value(for: CGSize(width: 100, height: 0), travel: 27)
+        #expect(abs(far.knob.width - 27) < 1e-9 && far.knob.height == 0)
+        #expect(abs(far.input.x - 1) < 1e-9 && far.input.y == 0)
+        let diagonal = AttitudeStick.value(for: CGSize(width: 50, height: 50), travel: 27)
+        #expect(abs((diagonal.input.x * diagonal.input.x + diagonal.input.y * diagonal.input.y).squareRoot() - 1) < 1e-9)
+    }
+
+    @Test func stickDrivesPitchYawAndResets() {
+        let model = FlightHUDModel(makeSimulation: { FlightSim(design: .orbit) })
+        model.setAttitude(.pitchDown, pressed: true, now: 0)
+        model.attitudeStick = SIMD2(0.5, -1)
+        var axes = model.attitudeAxes(now: 2)
+        #expect(abs(axes.pitch - 1) < 1e-9, "вверх — нос вверх, перекрывает кнопку своей оси")
+        #expect(abs(axes.yaw - 0.25) < 1e-9, "квадратичная кривая")
+        model.fineControl = true
+        axes = model.attitudeAxes(now: 2)
+        #expect(abs(axes.pitch - AttitudeInputCurve.fineScale) < 1e-9)
+        #expect(model.lessonInput().dpadHeld && model.lessonInput().yawRightHeld)
+        model.setFlightOverview(true)
+        #expect(model.attitudeStick == .zero)
+    }
 }
