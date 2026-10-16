@@ -16,6 +16,7 @@ struct EVAHUDState: Equatable {
     var fuelLow: Bool
     var jetpackOn: Bool
     var onGround: Bool
+    var injured: Bool
     var canBoard: Bool
     /// Красная плашка под статусом (nil — нет).
     var warning: String?
@@ -47,6 +48,7 @@ struct EVAHUDState: Equatable {
         fuelLow = fraction < Self.lowFuel
         jetpackOn = c.jetpackOn
         onGround = c.onGround
+        injured = c.health == .injured
         canBoard = c.canBoard
         if !c.onGround, c.verticalSpeed < Self.dangerFall, c.heightAboveTerrain < Self.dangerHeight {
             warning = "Скорость падения \(Int(abs(c.verticalSpeed).rounded())) м/с — опасно"
@@ -104,8 +106,11 @@ extension FlightHUDModel {
         }
     }
 
+    /// К кораблю: переключение идёт по кругу через всех космонавтов снаружи, поэтому — до возврата к кораблю.
     func evaSelectShip() {
-        send(.evaSwitch)
+        for _ in 0...snapshot.cosmonauts.count where snapshot.controlledCosmonaut != nil {
+            send(.evaSwitch)
+        }
     }
 
     /// Переключатель в режиме корабля: есть экипаж или кто-то снаружи; не в уроках и не на карте.
@@ -176,15 +181,22 @@ struct EVALayer: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
+    /// Левый край статуса не ближе этого к краю: на узком экране (740 pt) центр сдвигается вправо от панели времени.
+    static let statusMinX: CGFloat = 280
+
     private func topCenter(_ s: EVAHUDState) -> some View {
-        VStack(spacing: 4) {
-            EVAStatusPanel(state: s).evaFrame("status")
-            if let warning = s.warning {
-                EVAWarning(text: warning).evaFrame("warning")
+        GeometryReader { geo in
+            let shift = max(0, Self.statusMinX - (geo.size.width - EVAStatusPanel.width) / 2)
+            VStack(spacing: 4) {
+                EVAStatusPanel(state: s).evaFrame("status")
+                if let warning = s.warning {
+                    EVAWarning(text: warning).evaFrame("warning")
+                }
             }
+            .padding(.top, 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .padding(.leading, 2 * shift)
         }
-        .padding(.top, 6)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var topRight: some View {
@@ -252,8 +264,12 @@ struct EVALayer: View {
                     EVAHoldButton(title: "Вверх", muted: false) { model.evaVertical = $0 ? 1 : 0 }
                         .evaFrame("up")
                 } else {
-                    EVAButton(title: "Прыжок", muted: !s.onGround) {
-                        if s.onGround { model.send(.evaJump) }
+                    EVAButton(title: "Прыжок", muted: !s.onGround || s.injured) {
+                        if s.injured {
+                            model.notify("Травма: прыгать нельзя")
+                        } else if s.onGround {
+                            model.send(.evaJump)
+                        }
                     }
                     .evaFrame("jump")
                 }
@@ -454,6 +470,8 @@ struct EVAHoldButton: View {
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0).updating($pressed) { _, state, _ in state = true })
             .onChange(of: pressed) { _, value in onPress(value && !muted) }
+            // Кнопка исчезла под пальцем (выключили ранец) — команда не залипает.
+            .onDisappear { onPress(false) }
             .accessibilityLabel(title)
             .accessibilityAddTraits(.isButton)
     }

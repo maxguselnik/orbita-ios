@@ -269,7 +269,6 @@ enum DemoScenario: String, CaseIterable, Sendable {
                                     time: world.time) ?? ManeuverNode(time: world.time + 600)
     }
 
-    /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
     /// Капсула К-1 на круговой орбите Луны 30 км; космонавт снаружи, ранец выработан импульсами туда-обратно до ~18 %.
     private static func evaOrbit() -> FlightSim {
         let r = Vec3(Bodies.luna.radius + 30_000, 0, 0)
@@ -294,6 +293,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
         for _ in 0..<Int(seconds * 60) { _ = sim.advance(realDelta: 1.0 / 60) }
     }
 
+    /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
     private static func roll(_ sim: FlightSim, until done: (FlightSim) -> Bool) {
         var t = 0.0
         while !done(sim) && t < 600 {

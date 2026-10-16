@@ -358,19 +358,21 @@ extension FlightSim {
     func nearestHatch(_ c: Cosmonaut) -> HatchHit? {
         let up = c.r.normalized
         let center = c.r + up * EVABalance.centerHeight
+        // Ближайший люк со свободным местом; если свободных нет — просто ближайший.
         var best: HatchHit?
+        var bestFree: HatchHit?
         for (vi, v) in vessels.enumerated() where v.body == c.body && v.situation != .crashed {
             for h in v.ship.hatches {
                 var d = v.r + v.q.rotate(h.point) - center
                 if c.onGround { d -= up * d.dot(up) }
                 let dist = d.length
-                if best.map({ dist < $0.distance }) ?? true {
-                    let p = v.ship.parts[h.part]
-                    best = HatchHit(vessel: vi, part: h.part, distance: dist, free: p.crew.count < p.spec.crew)
-                }
+                let p = v.ship.parts[h.part]
+                let hit = HatchHit(vessel: vi, part: h.part, distance: dist, free: p.crew.count < p.spec.crew)
+                if best.map({ dist < $0.distance }) ?? true { best = hit }
+                if hit.free, bestFree.map({ dist < $0.distance }) ?? true { bestFree = hit }
             }
         }
-        return best
+        return bestFree ?? best
     }
 
     /// Научная ситуация космонавта (на грунте — как `landed`/`launchPad`/`splashed`).
@@ -412,6 +414,7 @@ extension FlightSim {
     func flagBlocker(_ c: Cosmonaut) -> ScienceBlocker? {
         guard c.onGround else { return .notOnGround }
         let base = flagBase(c)
+        if Terrain.isOcean(body: c.body, direction: base.normalized) { return .notHere }
         if flags.contains(where: { $0.body == c.body && ($0.fixedPosition - base).length < Self.flagSpacing }) {
             return .duplicate
         }

@@ -527,7 +527,7 @@ final class SceneRenderer: FlightRenderer {
             if vis.root.isEnabled != on { vis.root.isEnabled = on }
             if on { vis.update(c, rel: rel, dt: dt) }
         }
-        if cosmonauts.count != seenC.count {
+        if cosmonauts.keys.contains(where: { !seenC.contains($0) }) {
             for id in cosmonauts.keys where !seenC.contains(id) {
                 cosmonauts[id]?.root.removeFromParent()
                 cosmonauts[id] = nil
@@ -551,7 +551,7 @@ final class SceneRenderer: FlightRenderer {
             if vis.root.isEnabled != on { vis.root.isEnabled = on }
             if on { vis.update(rel: rel, up: rot.act(simd_normalize(fixed))) }
         }
-        if flags.count != seenF.count {
+        if flags.keys.contains(where: { !seenF.contains($0) }) {
             for id in flags.keys where !seenF.contains(id) {
                 flags[id]?.root.removeFromParent()
                 flags[id] = nil

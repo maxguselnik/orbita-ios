@@ -293,6 +293,12 @@ final class FlightHUDModel {
             if !wasEVA {
                 wasEVA = true
                 throttle = 0
+                // Автопрожиг не продолжается без пилота: иначе отделит ступень, пока экипаж снаружи.
+                if executor != nil {
+                    executor = nil
+                    autoBurnText = nil
+                    notify("Автопрожиг отменён")
+                }
             }
             sim.setInput(.neutral)
             sim.setEVAInput(evaInput())
