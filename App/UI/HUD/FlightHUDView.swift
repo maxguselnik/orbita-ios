@@ -58,8 +58,12 @@ struct FlightHUDView: View {
                         .ignoresSafeArea(.container, edges: .bottom)
                 }
 
+            } else if model.eva != nil {
+                // Управляем космонавтом: HUD корабля скрыт целиком.
+                EVALayer(model: model)
             } else {
                 FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
+                EVAShipSwitch(model: model)
             }
         }
         .overlay(alignment: .top) {
@@ -158,7 +162,7 @@ struct FlightHUDView: View {
     /// Панель ступеней выезжает слева поверх стопки ступеней: правая колонка (крен, РСУ, узел манёвра на карте)
     /// остаётся доступной. Сверху — под строкой времени и паузы, снизу — над кнопкой «Пуск».
     @ViewBuilder private var stagePanel: some View {
-        if model.isPanelOpen {
+        if model.isPanelOpen, model.eva == nil {
             StagePanel(model: model)
                 .padding(.top, MissionTimeBar.height + 12)
                 .padding(.leading, 6)

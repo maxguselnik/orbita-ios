@@ -64,6 +64,15 @@ final class FlightHUDModel {
     /// Детали активного корабля сверху вниз: стек ступеней и экипаж в HUD. Меняется при отделении.
     private(set) var parts: [PartID]
     private(set) var toast: HUDToast?
+    /// EVA: данные HUD управляемого космонавта (nil — управляем кораблём). Меняется только при смене отображаемого.
+    private(set) var eva: EVAHUDState?
+    /// Космонавтов снаружи и почему нельзя выйти — для переключателя «Корабль | Космонавт».
+    private(set) var evaOutside = 0
+    private(set) var evaExitBlocker: EVABlocker?
+    /// Джойстик космонавта (x вправо, y вперёд) и «Вниз/Вверх» (−1…1): пишут вьюхи, читает `tick`.
+    @ObservationIgnored var evaStick = SIMD2<Double>.zero
+    @ObservationIgnored var evaVertical = 0.0
+    @ObservationIgnored private var wasEVA = false
     /// Панель итогов полёта: авария или посадка.
     private(set) var result: FlightResult?
     /// Подсказка первого полёта (показывает вьюха, если подсказки включены).
@@ -255,6 +264,7 @@ final class FlightHUDModel {
         if scenario == .mapManeuver, maneuverNode != nil { maneuverGoal = .toLuna }
         refreshGoals(now: 0)
         saveTutorialCheckpoint()
+        refreshEVA(snapshot)
     }
 
     /// Один кадр игрового цикла; `now` — время кадра в секундах (CACurrentMediaTime).
@@ -278,13 +288,28 @@ final class FlightHUDModel {
         refreshGoals(now: now)
         let tilt = feedback?.tiltInput() ?? (pitch: 0, roll: 0)
         let axes = attitudeAxes(now: now)
-        sim.setInput(ControlInput(
-            throttle: throttle,
-            pitch: min(max(axes.pitch + tilt.pitch, -1), 1),
-            yaw: axes.yaw,
-            roll: min(max(axes.roll + tilt.roll, -1), 1),
-            translation: rcs.enabled ? translationInput : .zero
-        ))
+        if snapshot.controlledCosmonaut != nil {
+            // Управляем космонавтом: кораблю нейтральный ввод, космонавту — джойстик в осях камеры.
+            if !wasEVA {
+                wasEVA = true
+                throttle = 0
+            }
+            sim.setInput(.neutral)
+            sim.setEVAInput(evaInput())
+        } else {
+            if wasEVA {
+                wasEVA = false
+                evaStick = .zero
+                evaVertical = 0
+            }
+            sim.setInput(ControlInput(
+                throttle: throttle,
+                pitch: min(max(axes.pitch + tilt.pitch, -1), 1),
+                yaw: axes.yaw,
+                roll: min(max(axes.roll + tilt.roll, -1), 1),
+                translation: rcs.enabled ? translationInput : .zero
+            ))
+        }
         applyManeuverDrag(now: now, delta: delta)
         if let tutorial, tutorial.holdsPhysics {
             // Пауза урока: мир стоит, но сцена рисуется (камера), карта считает прогноз узла,
@@ -939,8 +964,16 @@ final class FlightHUDModel {
     /// Шаги миссии для карточки (с учётом монотонного прогресса).
     var missionSteps: [MissionStep] { MissionChecklist.steps(telemetry, reached: missionProgress) }
 
+    private func refreshEVA(_ snapshot: WorldSnapshot) {
+        let next = snapshot.controlled.map(EVAHUDState.init)
+        if eva != next { eva = next }
+        if evaOutside != snapshot.cosmonauts.count { evaOutside = snapshot.cosmonauts.count }
+        if evaExitBlocker != snapshot.evaExitBlocker { evaExitBlocker = snapshot.evaExitBlocker }
+    }
+
     private func publish(_ snapshot: WorldSnapshot) {
         self.snapshot = snapshot
+        refreshEVA(snapshot)
         let currentThrottle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? throttle
         if throttle != currentThrottle { throttle = currentThrottle }
         let t = snapshot.telemetry
@@ -1092,8 +1125,22 @@ final class FlightHUDModel {
             return "Сгорела деталь: \(part.spec.name)"
         case .warpReset(let reason):
             return "Ускорение сброшено: \(warpReasonText(reason))"
-        case .evaExited, .evaBoarded, .evaLanded, .evaInjured, .evaDied, .flagPlanted, .evaScienceCollected, .jetpackEmpty:
-            return nil // TODO(C): тексты EVA
+        case .evaExited(let id):
+            return "\(evaName(id)) \(evaVerb(id, "вышел", "вышла"))"
+        case .evaBoarded(let id):
+            return "\(evaName(id)) в капсуле"
+        case .evaInjured(let id, let speed):
+            return "\(evaName(id)) \(evaVerb(id, "травмирован", "травмирована")) · \(HUDFormat.speed(speed))"
+        case .evaDied(let id, let speed):
+            return "\(evaName(id)) \(evaVerb(id, "погиб", "погибла")) · \(HUDFormat.speed(speed))"
+        case .flagPlanted:
+            return "Флаг установлен"
+        case .evaScienceCollected(let subject):
+            return "Данные: \(subject.experiment.title) · \(subject.placeTitle)"
+        case .jetpackEmpty:
+            return "Ранец пуст"
+        case .evaLanded:
+            return nil
         }
     }
 
