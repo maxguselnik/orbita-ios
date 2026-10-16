@@ -977,7 +977,9 @@ final class FlightHUDModel {
     private func refreshEVA(_ snapshot: WorldSnapshot) {
         // Тосты захвата (6.2): по смене `grip` у того же космонавта (событий в контракте нет).
         let current = snapshot.controlled.map { ($0.memberID, $0.grip != nil) }
-        if let current, let last = evaLastGrip, last.0 == current.0, last.1 != current.1 {
+        // Сошёл с лестницы на грунт — не «отпустила».
+        let steppedOff = snapshot.controlled?.onGround == true
+        if let current, let last = evaLastGrip, last.0 == current.0, last.1 != current.1, current.1 || !steppedOff {
             let id = current.0
             notify(Self.evaName(id) + " " + (current.1 ? "держится" : Self.evaVerb(id, "отпустил", "отпустила")))
         }

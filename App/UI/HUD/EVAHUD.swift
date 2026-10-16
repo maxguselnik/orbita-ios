@@ -92,6 +92,10 @@ extension FlightHUDModel {
     /// Ввод космонавта кадра: джойстик в осях камеры, «Вверх/Вниз». Карта и пауза — нейтральный.
     func evaInput() -> EVAInput {
         guard !map.isOpen, !isPaused else { return .neutral }
+        // На лестнице джойстик «лезть»: вверх/вниз по ступеням (горизонтальный базис камеры вдоль лестницы не даёт хода).
+        if snapshot.controlled?.grip?.along != nil {
+            return EVAInput(vertical: min(max(evaVertical + evaStick.y, -1), 1))
+        }
         var move = Vec3.zero
         if let basis = feedback?.renderer?.evaCameraBasis {
             move = basis.right * evaStick.x + basis.forward * evaStick.y
