@@ -153,11 +153,12 @@ struct AttitudeControls: View {
 /// Крестовина: один жест на весь круг; сектор определяется по углу от центра.
 struct DPadCircle: View {
     let model: FlightHUDModel
+    var radius: CGFloat = AttitudeControls.radius
 
     @GestureState private var active: DPadSector?
 
     var body: some View {
-        let r = AttitudeControls.radius
+        let r = radius
         ZStack {
             Circle().fill(Color.black.opacity(0.4))
             if let sector = active {
@@ -226,6 +227,7 @@ struct DPadWedge: Shape {
 struct AttitudeHoldButton: View {
     let systemImage: String
     let label: String
+    var diameter: CGFloat = AttitudeControls.rollSize
     let onPress: (Bool) -> Void
 
     @GestureState private var pressed = false
@@ -234,7 +236,7 @@ struct AttitudeHoldButton: View {
         Image(systemName: systemImage)
             .font(.system(size: 20, weight: .bold))
             .foregroundStyle(Color.white)
-            .frame(width: AttitudeControls.rollSize, height: AttitudeControls.rollSize)
+            .frame(width: diameter, height: diameter)
             .glassCircle(highlight: pressed ? Color.white : nil)
             .contentShape(Circle())
             .gesture(

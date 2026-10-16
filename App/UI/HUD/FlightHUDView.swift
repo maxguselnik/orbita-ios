@@ -66,13 +66,13 @@ struct FlightHUDView: View {
                 RoverLayer(model: model)
             } else {
                 FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
-                EVAShipSwitch(model: model)
+                if inLesson { EVAShipSwitch(model: model) }
             }
         }
         .overlay(alignment: .top) {
             // Тосты и подсказки: по центру под высотомером и строкой совета, ключевых кнопок не закрывают.
             VStack(spacing: 6) {
-                if let toast = model.toast {
+                if let toast = model.toast, !model.isFlightOverview {
                     Text(toast.text)
                         .font(.system(size: HUDFont.body, weight: .semibold))
                         .foregroundStyle(.white)
@@ -84,18 +84,18 @@ struct FlightHUDView: View {
                         .transition(.opacity)
                         .allowsHitTesting(false)
                 }
-                if hintsEnabled, !inLesson, !hintsDone, !mapOpen, let hint = model.hint, !model.isPaused,
+                if hintsEnabled, !inLesson, !hintsDone, !mapOpen, model.eva != nil || model.rover != nil, let hint = model.hint, !model.isPaused,
                    hint != .stage, hint != .throttle {
                     HintBanner(hint: hint) { model.dismissHints() }
                         .frame(width: 300)
                         .transition(.opacity)
                 }
             }
-            .padding(.top, mapOpen ? (inLesson ? 100 : 54) : Self.messageTop + (inLesson ? Self.lessonCardExtra : 0))
+            .padding(.top, mapOpen ? (inLesson ? 100 : 54) : (inLesson ? Self.messageTop + Self.lessonCardExtra : 60))
         }
         .overlay(alignment: .top) {
             // Подсказка по долгому нажатию: в уроке — над плашкой шага (поверх высотомера), иначе под высотомером.
-            if let line = model.controlHint {
+            if let line = model.controlHint, !model.isFlightOverview {
                 ControlHintBanner(text: line.text)
                     .id(line.id)
                     .padding(.top, mapOpen ? 54 : (inLesson ? 6 : Self.messageTop + Self.hintOffset))
@@ -165,7 +165,7 @@ struct FlightHUDView: View {
     /// Панель ступеней выезжает слева поверх стопки ступеней: правая колонка (крен, РСУ, узел манёвра на карте)
     /// остаётся доступной. Сверху — под строкой времени и паузы, снизу — над кнопкой «Пуск».
     @ViewBuilder private var stagePanel: some View {
-        if model.isPanelOpen, model.eva == nil {
+        if model.isPanelOpen, model.eva == nil, model.map.isOpen || model.tutorial?.isActive == true {
             StagePanel(model: model)
                 .padding(.top, MissionTimeBar.height + 12)
                 .padding(.leading, 6)
@@ -184,17 +184,21 @@ struct FlightLayer: View {
     var inLesson = false
 
     var body: some View {
-        ZStack {
-            topLeft
-            topCenter
-            topRight
-            bottomRight
-            bottomCenter
-            bottomLeft
-            leftColumn
+        if !inLesson {
+            CompactFlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled)
+        } else {
+            ZStack {
+                topLeft
+                topCenter
+                topRight
+                bottomRight
+                bottomCenter
+                bottomLeft
+                leftColumn
+            }
+            // В уроке сохраняются прежние элементы и их якоря подсветки.
+            .ignoresSafeArea(.container, edges: .bottom)
         }
-        // Элементы нижнего ряда считаются от физического низа экрана.
-        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private var topLeft: some View {

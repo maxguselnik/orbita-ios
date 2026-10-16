@@ -98,6 +98,20 @@ final class FlightHUDModel {
     var throttle: Double = 0
     var isPaused = false
     var isPanelOpen = false
+    private(set) var isFlightOverview = false
+
+    func setFlightOverview(_ visible: Bool) {
+        isFlightOverview = visible
+        if visible {
+            isPanelOpen = false
+            releaseFlightControls()
+        }
+    }
+
+    func releaseFlightControls() {
+        resetAttitudeInput()
+        resetTranslationInput()
+    }
     /// Режим камеры (зеркало `feedback.cameraMode`).
     private(set) var cameraMode: CameraMode = .follow
     /// Скорость на навболе: nil — авто (у поверхности — относительно поверхности).
@@ -549,6 +563,7 @@ final class FlightHUDModel {
 
     /// Перезапуск полёта.
     func restart() {
+        isFlightOverview = false
         onRestart?(telemetry.mission)
         executor = nil
         autoBurnText = nil
@@ -668,6 +683,7 @@ final class FlightHUDModel {
 
     /// Кнопка «Карта»: полёт ↔ карта.
     func toggleMap() {
+        isFlightOverview = false
         maneuverDrag = nil
         // Кнопки ориентации исчезают из иерархии вместе с жестом: сбрасываем ввод вручную.
         resetAttitudeInput()

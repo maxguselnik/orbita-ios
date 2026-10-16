@@ -354,6 +354,7 @@ struct StageButton: View {
     let model: FlightHUDModel
     /// Кнопка карты (место под панель узла): тянется на всю ширину колонки.
     var compact = false
+    var narrow = false
     /// Помощник советует нажать её сейчас.
     var highlighted = false
 
@@ -397,7 +398,7 @@ struct StageButton: View {
         } label: {
             HStack(spacing: 6) {
                 if enabled {
-                    Image(systemName: icon).font(.system(size: 18, weight: .bold))
+                    if !narrow { Image(systemName: icon).font(.system(size: 18, weight: .bold)) }
                     Text(word).font(.system(size: 13, weight: .black)).lineLimit(1)
                     if compact { Spacer(minLength: 0) }
                     Text("\(t.number)")
