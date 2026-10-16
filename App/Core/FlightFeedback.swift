@@ -11,6 +11,8 @@ final class FlightFeedback {
     private var paused = false
     /// 3D-сцена; подключает RootView.
     var renderer: (any FlightRenderer)?
+    /// Музыка приложения; подключает RootView.
+    var music: MusicController?
 
     init(settings: GameSettings,
          audio: any FlightAudio = ProceduralAudio(),
@@ -31,6 +33,7 @@ final class FlightFeedback {
         renderer?.update(snapshot: snapshot, events: events, frameDelta: frameDelta)
         syncSettings()
         audio.update(snapshot: snapshot, events: events)
+        music?.flight(snapshot.telemetry)
         haptics.update(snapshot: snapshot, events: events)
     }
 

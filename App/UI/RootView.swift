@@ -10,6 +10,8 @@ struct RootView: View {
     @State private var hangarScene = HangarScene()
     @State private var spaceCenterScene = SpaceCenterScene()
     @State private var feedback: FlightFeedback?
+    /// Музыка по месту и ситуации; создаётся при первом показе (нужны настройки из окружения).
+    @State private var music: MusicController?
     /// Модель текущего полёта; создаётся при каждом старте (`flow.flightID`), вне полёта — nil.
     @State private var flight: FlightHUDModel?
 
@@ -49,8 +51,13 @@ struct RootView: View {
         .defersSystemGestures(on: .bottom)
         .onAppear {
             if flow.screen == .flight, flight == nil { startFlight() }
+            if flow.screen != .flight { musicController().menu() }
         }
         .onChange(of: flow.flightID) { startFlight() }
+        .onChange(of: flow.screen) { _, screen in
+            if screen != .flight { musicController().menu() }
+        }
+        .onChange(of: settings.soundEnabled) { musicController().syncSettings() }
     }
 
     /// Новый полёт: свежая модель HUD, чистая сцена, звук и вибрация включены.
@@ -63,6 +70,7 @@ struct RootView: View {
         model.onRestart = { [flow, weak model] _ in if let model { flow.restartFlight(model.telemetry) } }
         model.onTutorialExit = { [flow] in flow.leaveTutorial($0) }
         model.scienceArchive = flow.scienceArchive
+        musicController().beginFlight()
         feedback.recalibrate()
         feedback.setPaused(false)
         flight = model
@@ -71,7 +79,15 @@ struct RootView: View {
     private func makeFeedback() -> FlightFeedback {
         let created = FlightFeedback(settings: settings)
         created.renderer = renderer
+        created.music = musicController()
         feedback = created
+        return created
+    }
+
+    private func musicController() -> MusicController {
+        if let music { return music }
+        let created = MusicController(settings: settings)
+        music = created
         return created
     }
 
