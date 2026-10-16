@@ -28,6 +28,17 @@ public enum FuelType: String, Sendable, Hashable, Codable, CaseIterable {
         }
     }
 
+    /// Короткое имя для карточек и строк ангара.
+    public var shortTitle: String {
+        switch self {
+        case .kerolox: "Керосин"
+        case .solid: "Твёрдое"
+        case .methalox: "Метан"
+        case .mono: "Монотопливо"
+        case .gas: "Азот"
+        }
+    }
+
     /// Топливо РСУ (общий запас на корабль, в Δv ступеней не входит).
     public var isRCS: Bool { self == .mono || self == .gas }
 }
