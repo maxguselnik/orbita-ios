@@ -53,6 +53,14 @@ final class GameHaptics: FlightHaptics {
             case .crash(let speed):
                 stopRumble()
                 play(HapticPatterns.crash(speed: speed))
+            case .evaLanded(_, let speed):
+                play(HapticPatterns.evaLanded(speed: speed))
+            case .evaInjured, .evaDied:
+                play(patterns.evaHurt)
+            case .flagPlanted, .evaScienceCollected:
+                play(patterns.evaTap)
+            case .evaExited, .evaBoarded:
+                play(patterns.evaHatch)
             default:
                 break
             }
@@ -262,6 +270,18 @@ struct HapticPatterns {
     let crewSharp = HapticPatterns.make([
         .transient(0, intensity: 0.9, sharpness: 0.9),
     ])
+    let evaHurt = HapticPatterns.make([
+        .transient(0, intensity: 1, sharpness: 0.9),
+        .continuous(0, duration: 0.5, intensity: 0.8, sharpness: 0.3, fade: true),
+        .transient(0.12, intensity: 0.8, sharpness: 0.7),
+    ])
+    let evaTap = HapticPatterns.make([
+        .transient(0, intensity: 0.3, sharpness: 0.4),
+    ])
+    let evaHatch = HapticPatterns.make([
+        .transient(0, intensity: 0.6, sharpness: 0.6),
+        .transient(0.08, intensity: 0.45, sharpness: 0.3),
+    ])
     /// Гул двигателей: долгое непрерывное событие, зацикливается плеером.
     let rumble = HapticPatterns.make([
         .continuous(0, duration: 30, intensity: 1, sharpness: 0.2, fade: false),
@@ -270,6 +290,12 @@ struct HapticPatterns {
     static func touchdown(speed: Double) -> CHHapticPattern? {
         let k = Float(0.35 + min(max(speed, 0) / 10, 1) * 0.65)
         return make([.transient(0, intensity: k, sharpness: 0.4)])
+    }
+
+    /// Касание космонавта: лёгкая, растёт со скоростью.
+    static func evaLanded(speed: Double) -> CHHapticPattern? {
+        let k = Float(0.15 + min(max(speed, 0) / 8, 1) * 0.45)
+        return make([.transient(0, intensity: k, sharpness: 0.3)])
     }
 
     /// Авария: сила растёт со скоростью удара (от 0.6 до 1 на 30 м/с).

@@ -47,6 +47,16 @@ final class ProceduralAudio: FlightAudio {
         control.heat = crashed ? 0 : min(max(t.heating, 0), 1)
         control.chute = (t.chute == .open && !crashed) ? min(control.wind * 4, 1) : 0
         control.space = (p < 1e-5 && !crashed) ? 1 : 0
+        // Космонавт: шипение ранца по тяге сопел, шаги по скорости на грунте.
+        if let eva = snapshot.controlled, !crashed {
+            let f = eva.jetpackFiring
+            control.jet = min(max((f.x * f.x + f.y * f.y + f.z * f.z).squareRoot(), 0), 1)
+            control.stepRate = (eva.onGround && eva.surfaceSpeed > 0.3)
+                ? 1.2 + min(max((eva.surfaceSpeed - 0.3) / 1.5, 0), 1) : 0
+        } else {
+            control.jet = 0
+            control.stepRate = 0
+        }
         control.serial &+= 1
 
         for event in events {
@@ -70,6 +80,19 @@ final class ProceduralAudio: FlightAudio {
             case .crash(let speed):
                 control.impactSpeed = speed
                 control.shots.crash &+= 1
+            case .evaLanded(_, let speed):
+                control.impactSpeed = speed
+                control.shots.evaLanded &+= 1
+            case .evaInjured:
+                control.shots.evaInjured &+= 1
+            case .evaDied:
+                control.shots.evaDied &+= 1
+            case .evaExited, .evaBoarded:
+                control.shots.hatch &+= 1
+            case .flagPlanted, .evaScienceCollected:
+                control.shots.ping &+= 1
+            case .jetpackEmpty:
+                control.shots.jetEmpty &+= 1
             default:
                 break
             }
