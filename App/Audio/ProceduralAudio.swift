@@ -110,14 +110,14 @@ final class ProceduralAudio: FlightAudio {
         }
     }
 
-    /// Основной тон и сдвиг формант по члену экипажа; Гоша — писклявый, неизвестный id — средний тон.
+    /// Основной тон и сдвиг формант по члену экипажа; Гоша — повыше, неизвестный id — средний тон.
     private static func tone(for id: String) -> (pitch: Double, formants: Double) {
         switch id {
-        case "lera": (260, 1.05)
-        case "anton": (140, 0.9)
-        case "mira": (300, 1.1)
-        case "gosha": (190 * 1.4, 1.25)
-        default: (200, 1.0)
+        case "lera": (215, 1.04)
+        case "anton": (115, 0.92)
+        case "mira": (235, 1.08)
+        case "gosha": (225, 1.12)
+        default: (170, 1.0)
         }
     }
 

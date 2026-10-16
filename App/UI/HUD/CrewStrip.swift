@@ -1,12 +1,12 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Полоса экипажа в HUD (5.4): 3D-портреты 40 × 46 pt по `CrewModel.states`. Без экипажа не показывается.
+/// Полоса экипажа в HUD (5.4): 3D-портреты 72 × 83 pt (пропорции как в рендере 40 : 46) по `CrewModel.states`. Без экипажа не показывается.
 struct CrewStrip: View {
     let crew: CrewModel
 
-    static let cellWidth: CGFloat = 40
-    static let cellHeight: CGFloat = 46
+    static let cellWidth: CGFloat = 72
+    static let cellHeight: CGFloat = 83
 
     var body: some View {
         let states = crew.states

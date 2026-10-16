@@ -53,7 +53,7 @@ struct CrewVoiceCue: Sendable {
     var delay = 0.0
 }
 
-/// Голос экипажа: пила через две форманты гласной, огибающая и вибрато.
+/// Голос экипажа: пила через два ФНЧ (спад −12 дБ/окт, как у голосовой щели), три форманты гласной, «тело» из сглаженного источника, огибающая, вибрато и джиттер тона.
 private struct CrewVoice {
     var active = false
     var kind = CrewVoiceKind.none
@@ -67,11 +67,13 @@ private struct CrewVoice {
     var vibPhase = 0.0
     var phase = 0.0
     var increment = 0.0
-    var src = 0.0
+    var src = 0.0, src2 = 0.0
+    var jitter = 0.0
     var env = 0.0, envTarget = 0.0
     var breath = 0.0
     var f1 = SVF()
     var f2 = SVF()
+    var f3 = SVF()
 }
 
 /// Форма голоса по доле времени p (0…1): множитель тона, форманты, огибающая, доля «дыхания».
@@ -96,29 +98,29 @@ private struct CrewVoiceShape {
             s.breath = 0.05
         case .awe: // «ууух»: тон вверх-вниз, в конце выдох
             let b = smooth((p - 0.65) / 0.25)
-            s.pitch = 0.9 + 0.4 * sin(Double.pi * min(p / 0.9, 1))
+            s.pitch = 0.9 + 0.25 * sin(Double.pi * min(p / 0.9, 1))
             s.f1 = 320 + 280 * b; s.f2 = 700 + 800 * b
             s.env = 1 - 0.45 * b
             s.breath = 0.85 * b
         case .joy: // «у-ра!»: два слога, тон вверх
             if p < 0.4 {
-                s.pitch = 1.0 + 0.15 * (p / 0.4)
+                s.pitch = 1.0 + 0.1 * (p / 0.4)
                 s.f1 = 320; s.f2 = 760
                 s.env = p > 0.34 ? 0.8 - 0.65 * smooth((p - 0.34) / 0.06) : 0.8
             } else {
                 let q = (p - 0.4) / 0.6
-                s.pitch = 1.3 + 0.35 * q
+                s.pitch = 1.15 + 0.2 * q
                 s.f1 = 750; s.f2 = 1250
                 s.env = 0.15 + 0.85 * smooth((p - 0.4) / 0.06) - 0.35 * q
             }
         case .panic: // вскрик «аа!»: высоко
-            s.pitch = 1.55 + 0.5 * min(p / 0.3, 1) - 0.15 * max(p - 0.7, 0) / 0.3
+            s.pitch = 1.2 + 0.25 * min(p / 0.3, 1) - 0.12 * max(p - 0.7, 0) / 0.3
             s.f1 = 850; s.f2 = 1300
             s.env = 1 - 0.3 * p
             s.breath = 0.1
         case .crash: // «ой»: тон вниз, «о» переходит в «й»
             let g = smooth((p - 0.5) / 0.3)
-            s.pitch = 1.5 - 0.8 * p
+            s.pitch = 1.25 - 0.5 * p
             s.f1 = 500 + (330 - 500) * g; s.f2 = 900 + (2100 - 900) * g
             s.env = 1 - 0.5 * p
         }
@@ -222,6 +224,8 @@ final class SynthDSP: @unchecked Sendable {
     private var seenCrew: UInt32 = 0
     private var staleSamples = 0
     private var sampleRate = 48_000.0
+    /// Коэффициент однополюсного ФНЧ источника голоса (~1800 Гц).
+    private var crewLP = 0.2
 
     // Сглаженные значения.
     private var sMaster = 0.0, sThrust = 0.0, sSolid = 0.0, sAir = 1.0
@@ -307,6 +311,7 @@ final class SynthDSP: @unchecked Sendable {
 
     private func recompute(sampleRate rate: Double) {
         sampleRate = rate
+        crewLP = 1 - exp(-2 * Double.pi * 1800 / rate)
         smoothFast = 1 - exp(-1 / (0.06 * rate))
         smoothSlow = 1 - exp(-1 / (0.25 * rate))
         smoothPad = 1 - exp(-1 / (1.5 * rate))
@@ -360,9 +365,13 @@ final class SynthDSP: @unchecked Sendable {
             let vib = 1 + v.vibDepth * sin(2 * Double.pi * v.vibPhase)
             crewVoices[i].vibPhase = (v.vibPhase + v.vibRate * Double(SynthDSP.controlInterval) / sampleRate)
                 .truncatingRemainder(dividingBy: 1)
-            crewVoices[i].increment = min(max(v.base * shape.pitch * vib, 40), 2000) / sampleRate
-            crewVoices[i].f1.set(frequency: shape.f1 * v.scale, q: 6, sampleRate: sampleRate)
-            crewVoices[i].f2.set(frequency: shape.f2 * v.scale, q: 8, sampleRate: sampleRate)
+            // Медленный случайный дрейф тона ±1.5 % — голос «живее».
+            let jitter = v.jitter + (white() * 0.015 - v.jitter) * 0.3
+            crewVoices[i].jitter = jitter
+            crewVoices[i].increment = min(max(v.base * shape.pitch * vib * (1 + jitter), 40), 2000) / sampleRate
+            crewVoices[i].f1.set(frequency: shape.f1 * v.scale, q: 3.5, sampleRate: sampleRate)
+            crewVoices[i].f2.set(frequency: shape.f2 * v.scale, q: 5, sampleRate: sampleRate)
+            crewVoices[i].f3.set(frequency: 2600 * v.scale, q: 5, sampleRate: sampleRate)
             crewVoices[i].envTarget = shape.env
             crewVoices[i].breath = shape.breath
         }
@@ -511,12 +520,17 @@ final class SynthDSP: @unchecked Sendable {
             let v = crewVoices[i]
             crewVoices[i].phase += v.increment
             if crewVoices[i].phase >= 1 { crewVoices[i].phase -= 1 }
-            // Пила, смягчённая однополюсным ФНЧ (меньше алиасинга), плюс шум «дыхания».
+            // Пила через два однополюсных ФНЧ (−12 дБ/окт, меньше алиасинга) плюс постоянное лёгкое «дыхание».
             let saw = 2 * crewVoices[i].phase - 1
-            crewVoices[i].src += (saw - v.src) * 0.35
-            let b = v.breath
-            let x = crewVoices[i].src * (1 - b) + white() * b * 0.6
-            let voiced = crewVoices[i].f1.band(x) + 0.7 * crewVoices[i].f2.band(x)
+            let src1 = v.src + (saw - v.src) * crewLP
+            let src2 = v.src2 + (src1 - v.src2) * crewLP
+            crewVoices[i].src = src1
+            crewVoices[i].src2 = src2
+            let b = max(v.breath, 0.06)
+            let x = src2 * (1 - b) + white() * b * 0.6
+            // Три форманты плюс «тело» (сглаженный источник) — слышен основной тон, а не только узкие полосы.
+            let formants = crewVoices[i].f1.band(x) + 0.7 * crewVoices[i].f2.band(x) + 0.35 * crewVoices[i].f3.band(x)
+            let voiced = (formants + 0.25 * src2) * 0.75
 
             crewVoices[i].env += (v.envTarget - v.env) * 0.02
             // Атака 12 мс и спад 40 мс — без щелчков.
@@ -563,8 +577,9 @@ final class SynthDSP: @unchecked Sendable {
         let shape = CrewVoiceShape.make(cue.kind, 0)
         v.envTarget = shape.env
         v.increment = v.base * shape.pitch / sampleRate
-        v.f1.set(frequency: shape.f1 * v.scale, q: 6, sampleRate: sampleRate)
-        v.f2.set(frequency: shape.f2 * v.scale, q: 8, sampleRate: sampleRate)
+        v.f1.set(frequency: shape.f1 * v.scale, q: 3.5, sampleRate: sampleRate)
+        v.f2.set(frequency: shape.f2 * v.scale, q: 5, sampleRate: sampleRate)
+        v.f3.set(frequency: 2600 * v.scale, q: 5, sampleRate: sampleRate)
         crewVoices[slot] = v
     }
 
