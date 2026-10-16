@@ -25,6 +25,8 @@ final class ProceduralAudio: FlightAudio {
     private var sessionReady = false
     private var lastStartAttempt: ContinuousClock.Instant?
     private var pendingStop: Task<Void, Never>?
+    /// Щелчок клапана «Роя» — только на включении после паузы (не тикает при удержании SAS).
+    private var monoOnset = RCSOnset()
 
     init() {
         Self.observeSession(into: sessionObservers, flags: flags, didBecomeActive: UIApplication.didBecomeActiveNotification)
@@ -47,6 +49,10 @@ final class ProceduralAudio: FlightAudio {
         control.heat = crashed ? 0 : min(max(t.heating, 0), 1)
         control.chute = (t.chute == .open && !crashed) ? min(control.wind * 4, 1) : 0
         control.space = (p < 1e-5 && !crashed) ? 1 : 0
+        let rcs = RCSCue.levels(snapshot.vessels.first { $0.id == snapshot.activeVessel })
+        control.rcsMono = rcs.mono
+        control.rcsGas = rcs.gas
+        if monoOnset.update(level: rcs.mono, now: CACurrentMediaTime()) { control.shots.rcsClick &+= 1 }
         control.serial &+= 1
 
         for event in events {

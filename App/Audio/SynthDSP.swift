@@ -23,6 +23,9 @@ struct SynthControl: Sendable {
     var chute = 0.0
     /// Космический эмбиент 0…1.
     var space = 0.0
+    /// Сопла РСУ: уровень команды 0…1 по типу топлива («Рой» — mono, «Бриз» — gas).
+    var rcsMono = 0.0
+    var rcsGas = 0.0
     var sampleRate = 48_000.0
     /// Растёт с каждой отправкой; если долго не меняется (пауза, фон) — лупы затихают.
     var serial: UInt64 = 0
@@ -136,6 +139,8 @@ struct OneShotCounters: Sendable, Equatable {
     var touchdown: UInt32 = 0
     var splashdown: UInt32 = 0
     var crash: UInt32 = 0
+    /// Щелчок клапана «Роя» (включение сопел после паузы).
+    var rcsClick: UInt32 = 0
 }
 
 /// Фильтр с переменным состоянием (топология TPT): устойчив при любом изменении частоты.
@@ -229,6 +234,15 @@ final class SynthDSP: @unchecked Sendable {
     private var smoothFast = 0.0, smoothSlow = 0.0, smoothPad = 0.0
     private var counter = 0
 
+    // РСУ: огибающие, фильтры, щелчок клапана.
+    private var rcsMonoEnv = 0.0, rcsGasEnv = 0.0
+    private var rcsGasLP = 0.0
+    private var clickGain = 0.0, clickPhase = 0.0
+    private var monoBand = SVF(), monoHigh = SVF(), monoLow = SVF()
+    private var gasBand = SVF(), gasHigh = SVF()
+    private var monoAttack = 0.0, monoRelease = 0.0, gasAttack = 0.0, gasRelease = 0.0
+    private var clickDecay = 0.0, clickInc = 0.0
+
     // Генераторы.
     private var rng: UInt32 = 0x9E37_79B9
     private var brown = 0.0
@@ -311,8 +325,26 @@ final class SynthDSP: @unchecked Sendable {
         smoothSlow = 1 - exp(-1 / (0.25 * rate))
         smoothPad = 1 - exp(-1 / (1.5 * rate))
         engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
+        monoAttack = 1 - exp(-1 / (0.004 * rate))
+        monoRelease = 1 - exp(-1 / (0.07 * rate))
+        gasAttack = 1 - exp(-1 / (0.03 * rate))
+        gasRelease = 1 - exp(-1 / (0.16 * rate))
+        clickDecay = pow(0.001, 1 / (0.03 * rate))
+        clickInc = 1800 / rate
+        monoBand.set(frequency: 2600, q: 1.2, sampleRate: rate)
+        monoHigh.set(frequency: 900, q: 0.7, sampleRate: rate)
+        monoLow.set(frequency: 180, q: 0.7, sampleRate: rate)
+        gasBand.set(frequency: 6500, q: 0.8, sampleRate: rate)
+        gasHigh.set(frequency: 3200, q: 0.7, sampleRate: rate)
+        resetRCS()
         for i in voices.indices { voices[i].active = false }
         for i in crewVoices.indices { crewVoices[i].active = false }
+    }
+
+    private func resetRCS() {
+        rcsMonoEnv = 0; rcsGasEnv = 0; rcsGasLP = 0
+        clickGain = 0; clickPhase = 0
+        monoBand.reset(); monoHigh.reset(); monoLow.reset(); gasBand.reset(); gasHigh.reset()
     }
 
     /// Новый полёт: обнуляем непрерывные звуки, хвосты и фильтры. `sMaster` не трогаем — он сам плавно нарастёт.
@@ -321,6 +353,7 @@ final class SynthDSP: @unchecked Sendable {
         sWind = 0; sHeat = 0; sChute = 0; sSpace = 0
         crackleEnv = 0
         engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
+        resetRCS()
         for i in voices.indices { voices[i].active = false }
         for i in crewVoices.indices { crewVoices[i].active = false }
         seenCrew = c.crewSerial
@@ -451,11 +484,44 @@ final class SynthDSP: @unchecked Sendable {
             out += pad * sSpace * 0.05
         }
 
+        out += renderRCS(noise: n, loops: loops, through: through)
         out += renderVoices()
         out += renderCrew()
 
         // Мягкое ограничение: без жёсткого клиппинга на суммах.
         return tanh(out * 0.8 * sMaster)
+    }
+
+    // MARK: - РСУ
+
+    /// Два шумовых голоса сопел со своими огибающими. Общий множитель подобран так, чтобы
+    /// при уровне 1 РСУ было заметно тише рокота двигателя на полной тяге (пик ~0.27 до tanh).
+    private func renderRCS(noise n: Double, loops: Double, through: Double) -> Double {
+        let monoTarget = c.rcsMono * loops
+        let gasTarget = c.rcsGas * loops
+        rcsMonoEnv += (monoTarget - rcsMonoEnv) * (monoTarget > rcsMonoEnv ? monoAttack : monoRelease)
+        rcsGasEnv += (gasTarget - rcsGasEnv) * (gasTarget > rcsGasEnv ? gasAttack : gasRelease)
+
+        var out = 0.0
+        if rcsMonoEnv > 0.0005 || clickGain > 0.0005 {
+            let band = monoBand.band(n)
+            let high = monoHigh.process(n).hp
+            let low = monoLow.process(n).lp
+            var x = (band * 0.9 + high * 0.35 + low * 0.2) * rcsMonoEnv
+            if clickGain > 0.0005 {
+                clickPhase += clickInc
+                if clickPhase >= 1 { clickPhase -= 1 }
+                x += sin(2 * Double.pi * clickPhase) * clickGain
+                clickGain *= clickDecay
+            }
+            out += x * 0.3
+        }
+        if rcsGasEnv > 0.0005 {
+            let x = gasBand.band(n) * 0.5 + gasHigh.process(n).hp * 0.8
+            rcsGasLP += (x - rcsGasLP) * 0.6
+            out += rcsGasLP * rcsGasEnv * 0.3 * 0.6
+        }
+        return out * through
     }
 
     // MARK: - Одноразовые звуки
@@ -599,6 +665,10 @@ final class SynthDSP: @unchecked Sendable {
         let body = 0.6 + 0.4 * sAir
         let impact = min(max(c.impactSpeed, 0), 60)
 
+        if s.rcsClick != seenShots.rcsClick {
+            clickGain = 0.5
+            clickPhase = 0
+        }
         if s.ignition != seenShots.ignition {
             start(Shot(wave: .noise, mode: .low, f0: 180, f1: 1600, duration: 0.7, volume: 0.6), scale: body)
             start(Shot(wave: .triangle, f0: 90, f1: 45, duration: 0.35, volume: 0.35), scale: body)

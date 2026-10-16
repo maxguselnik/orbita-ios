@@ -205,6 +205,9 @@ struct HangarStatStrip: View {
             metric("Δv", HUDFormat.speed(r.totalDV))
             metric("TWR", r.twr.map(HUDFormat.twr) ?? HUDFormat.dash, warn: (r.twr ?? 1) < 1)
             metric("", HangarFormat.mass(r.mass))
+            if r.rcsDV > 0 {
+                metric("РСУ", HUDFormat.speed(r.rcsDV))
+            }
             metric("", "\(r.count)/\(VesselDesign.maxParts)", warn: r.count >= VesselDesign.maxParts)
             Menu {
                 ForEach(HangarEnvironment.allCases) { env in

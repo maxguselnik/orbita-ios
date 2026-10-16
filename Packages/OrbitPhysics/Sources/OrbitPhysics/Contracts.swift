@@ -25,7 +25,7 @@ public struct ControlInput: Sendable, Hashable, Codable {
     public var yaw: Double
     public var roll: Double
     /// Поступательное RCS −1…1 по осям корабля (x — правый борт, y — нос/вперёд, z — спина/вверх).
-    /// Действует, только когда RCS включено (`FlightCommand.setRCS`) и есть монотопливо.
+    /// Действует, только когда RCS включено (`FlightCommand.setRCS`) и у блоков есть своё топливо (монотопливо или азот).
     public var translation: Vec3
 
     public init(throttle: Double = 0, pitch: Double = 0, yaw: Double = 0, roll: Double = 0, translation: Vec3 = .zero) {
@@ -96,6 +96,9 @@ public struct VesselState: Sendable, Hashable {
     /// Нули — РСУ молчит (выключено, нет топлива или нет команды). Только у активного корабля.
     public var rcsTranslation: Vec3
     public var rcsRotation: Vec3
+    /// Типы топлива РСУ, чьи сопла реально работали в этом кадре (`.mono` — «Рой», `.gas` — «Бриз»).
+    /// Блок без своего топлива молчит, даже если команда ненулевая. Пусто — РСУ молчит.
+    public var rcsFuels: Set<FuelType> = []
     /// Нагрев деталей 0…1 (температура / предел детали), те же индексы, что `parts`; пусто — холодные (5.2).
     public var partHeat: [Double] = []
 
@@ -180,6 +183,8 @@ public struct StageInfo: Sendable, Hashable {
     /// Детали, которые срабатывают в этой ступени активации (двигатели, разделители, парашют, обтекатель) — для
     /// значков HUD и редактора ступеней; пусто — значки по флагам.
     public var parts: [PartID] = []
+    /// Δv ступени по топливам (доля массового расхода каждого топлива); сумма — `deltaV`.
+    public var deltaVByFuel: [FuelType: Double] = [:]
 
     public init(deltaV: Double, twr: Double, twrVacuum: Double, fuelFraction: Double, burnTime: Double, hasSolid: Bool, fuelMass: Double = 0, fuelCapacity: Double = 0, hasLiquidEngine: Bool = false) {
         self.deltaV = deltaV
@@ -309,17 +314,28 @@ public struct RCSStatus: Sendable, Hashable {
     /// Монотопливо на всём корабле, кг: остаток и ёмкость.
     public var monoMass: Double
     public var monoCapacity: Double
+    /// Сжатый азот газовых сопел на всём корабле, кг: остаток и ёмкость.
+    public var gasMass: Double
+    public var gasCapacity: Double
     /// Сопла работают в этом кадре.
     public var firing: Bool
 
     public var monoFraction: Double { monoCapacity > 0 ? monoMass / monoCapacity : 0 }
+    public var gasFraction: Double { gasCapacity > 0 ? gasMass / gasCapacity : 0 }
+    /// Общий остаток топлива РСУ 0…1 (монотопливо + азот).
+    public var fraction: Double {
+        let cap = monoCapacity + gasCapacity
+        return cap > 0 ? (monoMass + gasMass) / cap : 0
+    }
 
     public init(available: Bool = false, enabled: Bool = false, monoMass: Double = 0,
-                monoCapacity: Double = 0, firing: Bool = false) {
+                monoCapacity: Double = 0, gasMass: Double = 0, gasCapacity: Double = 0, firing: Bool = false) {
         self.available = available
         self.enabled = enabled
         self.monoMass = monoMass
         self.monoCapacity = monoCapacity
+        self.gasMass = gasMass
+        self.gasCapacity = gasCapacity
         self.firing = firing
     }
 }

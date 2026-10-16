@@ -103,15 +103,32 @@ private struct StageRowView: View {
 
     private func summary(_ info: StageInfo) -> some View {
         let lowTWR = info.twr > 0 && info.twr < 1
-        return HStack(spacing: 8) {
-            Text("Δv " + HUDFormat.speed(info.deltaV))
-            Text("TWR " + HUDFormat.twr(info.twr))
-                .foregroundStyle(lowTWR ? HUDStyle.accent : Color.white)
-            Text(StageEditing.burnText(info.burnTime))
+        let fuels = FuelType.allCases.filter { (info.deltaVByFuel[$0] ?? 0) >= 0.5 }
+        return VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text("Δv " + HUDFormat.speed(info.deltaV))
+                Text("TWR " + HUDFormat.twr(info.twr))
+                    .foregroundStyle(lowTWR ? HUDStyle.accent : Color.white)
+                Text(StageEditing.burnText(info.burnTime))
+            }
+            .font(.system(size: HUDFont.caption, weight: .semibold).monospacedDigit())
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            if fuels.count > 1 {
+                HStack(spacing: 4) {
+                    ForEach(Array(fuels.enumerated()), id: \.element) { index, fuel in
+                        if index > 0 { Text("·") }
+                        RoundedRectangle(cornerRadius: 2, style: .continuous)
+                            .fill(fuel.hudColor)
+                            .frame(width: 8, height: 8)
+                        Text("\(fuel.shortTitle.lowercased()) \(HUDFormat.grouped(info.deltaVByFuel[fuel] ?? 0))")
+                    }
+                }
+                .font(.system(size: HUDFont.caption, weight: .semibold).monospacedDigit())
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+            }
         }
-        .font(.system(size: HUDFont.caption, weight: .semibold).monospacedDigit())
-        .lineLimit(1)
-        .minimumScaleFactor(0.7)
         .foregroundStyle(.white)
     }
 }
@@ -132,5 +149,18 @@ private struct StageBadgeView: View {
                 }
             }
             .accessibilityLabel(badge.part.spec.name + (badge.count > 1 ? " ×\(badge.count)" : ""))
+    }
+}
+
+extension FuelType {
+    /// Цвет топлива в сводках ангара и на шкале РСУ.
+    var hudColor: Color {
+        switch self {
+        case .kerolox: HUDPalette.accent
+        case .methalox: HUDPalette.sas
+        case .solid: HUDPalette.muted
+        case .mono: HUDPalette.green
+        case .gas: Color(red: 0xB9 / 255, green: 0xC3 / 255, blue: 0xD3 / 255)
+        }
     }
 }
