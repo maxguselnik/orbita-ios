@@ -20,7 +20,7 @@ else
 fi
 
 # Типы-наборы тестов в файле: struct/class перед @Test или с суффиксом Tests.
-suites_in() { grep -hoE '^(final )?(struct|class) [A-Za-z0-9_]+Tests\b' "$@" 2>/dev/null | awk '{print $NF}'; }
+suites_in() { { grep -hoE '^(final )?(struct|class) [A-Za-z0-9_]+Tests\b' "$@" 2>/dev/null || true; } | awk '{print $NF}'; }
 
 phys_all=0 phys=() app=()
 add() { # add <файл теста>
