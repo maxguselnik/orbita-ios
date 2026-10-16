@@ -129,7 +129,12 @@ extension Ship {
             let axis = Vec3(pl.center.x, 0, pl.center.z)
             var nh = Vec3(n.x, 0, n.z)
             var h: ShipHatch
-            if nh.lengthSquared > 1e-9 {
+            if p.spec.kind == .seat {
+                // Кресло ровера (6.3): «люк» — над сиденьем (сторона +Z — верх ровера), без лестницы.
+                h = ShipHatch(part: k, point: point, outward: n, gripNormal: n,
+                              railFeet: point + n * (EVABalance.ladderStandoff + EVABalance.bodyRadius)
+                                  - Vec3(0, hand, 0), ladderBase: nil)
+            } else if nh.lengthSquared > 1e-9 {
                 nh = nh.normalized
                 let feetY = point.y - hand
                 let rho = max(hr + EVABalance.ladderStandoff, evaClearance(axis: axis, from: feetY, to: feetY + tall))
@@ -214,7 +219,16 @@ extension FlightSim {
         let out = s.q.rotate(h.outward)
         var c: Cosmonaut
         let ladder = s.ship.ladders.first { $0.hatch == hk }
-        if s.isOnSurface, let l = ladder {
+        if s.isOnSurface && s.ship.parts[h.part].spec.kind == .seat {
+            // 6.3: встать с кресла — на грунт сбоку от кресла (правый борт ровера), лицом к роверу.
+            let right = s.q.rotate(s.ship.roverBasis.rotate(.unitX))
+            let up = hatch.normalized
+            let side = Cosmonaut.horizontal(right, up: up)
+            let p = surfacePoint(body: s.body, near: hatch + side * RoverBalance.seatExitOffset, time: time)
+            c = Cosmonaut(memberID: member, name: name, body: s.body, r: p,
+                          v: World.surfaceVelocity(body: s.body, position: p), facing: -side,
+                          onGround: true, jetpackOn: false)
+        } else if s.isOnSurface, let l = ladder {
             // 6.2: держится за верх лестницы.
             c = Cosmonaut(memberID: member, name: name, body: s.body, r: hatch, v: s.v, facing: -out,
                           onGround: false, jetpackOn: false)
@@ -321,6 +335,11 @@ extension FlightSim {
     /// Сделать корабль `k` активным (космонавт вошёл в чужую кабину).
     func makeActive(_ k: Int) {
         let old = activeIndex
+        // 6.3: неактивный ровер на грунте неподвижен в системе тела.
+        if vessels[old].rover != nil && vessels[old].isOnSurface && vessels[old].fixedPos == nil {
+            settleRover(old)
+        }
+        roverInput = .neutral
         vessels[old].isActive = false
         vessels[old].throttle = 0
         vessels[old].rcsTranslation = .zero
@@ -600,6 +619,7 @@ extension FlightSim {
             sampleBlocker: evaScienceBlocker(.surfaceSample, c, situation: sit),
             reportBlocker: evaScienceBlocker(.evaReport, c, situation: sit))
         st.grip = c.grip
+        st.hatchIsSeat = hatch.map { vessels[$0.vessel].ship.parts[$0.part].spec.kind == .seat } ?? false
         st.canGrip = c.grip == nil && nearestGrip(c) != nil
         return st
     }
@@ -715,7 +735,9 @@ extension FlightSim {
             guard let h = hatchInfo(c), h.free else { return nil }
             return h
         }
-        guard let h = nearestHatch(c), h.distance < EVABalance.boardRadius, h.free else { return nil }
+        guard let h = nearestHatch(c), h.free else { return nil }
+        let seat = vessels[h.vessel].ship.parts[h.part].spec.kind == .seat
+        guard h.distance < (seat ? RoverBalance.seatRadius : EVABalance.boardRadius) else { return nil }
         return h
     }
 

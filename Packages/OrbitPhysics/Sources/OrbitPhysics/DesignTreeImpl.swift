@@ -8,12 +8,14 @@ extension PartSpec {
     /// Принимает ли боковых детей (кроме бокового разделителя — у него одна точка наружу).
     var acceptsRadial: Bool {
         switch kind {
-        case .pod, .probe, .tank, .engine, .rcs, .monoTank: true
+        case .pod, .probe, .tank, .engine, .rcs, .monoTank, .roverFrame: true
         default: false
         }
     }
     /// Принимает ли детей на узлы `.top`/`.bottom`.
-    var acceptsAxial: Bool { id != .fin && id != .decouplerRadial && kind != .instrument }
+    var acceptsAxial: Bool { id != .fin && id != .decouplerRadial && kind != .instrument && !isRoverSidePart }
+    /// Колесо, батарея, панель, кресло (6.3): только сбоку на раму ровера, детей не принимают.
+    var isRoverSidePart: Bool { kind == .wheel || kind == .battery || kind == .solar || kind == .seat }
 }
 
 /// Единичный вектор азимута в плоскости XZ: 0° — +X, 90° — +Z.
@@ -77,6 +79,11 @@ extension VesselDesign {
         nodes = out
     }
 
+    /// Боковой разделитель, на котором прямо висит рама ровера (6.3).
+    func isRoverMount(_ n: DesignPart) -> Bool {
+        n.part == .decouplerRadial && nodes.contains { $0.parent == n.id && $0.part == .roverFrame }
+    }
+
     /// Ступени без пропусков 0…n−1 (порядок сохраняется); у неактивируемых — nil.
     mutating func compressStages() {
         let used = Array(Set(nodes.compactMap { $0.part.spec.isActivatable ? $0.stage : nil })).sorted()
@@ -99,7 +106,7 @@ extension VesselDesign {
         let auto = autoStaged()
         for i in nodes.indices where nodes[i].part.spec.isActivatable
             && (newIDs.contains(nodes[i].id) || nodes[i].stage == nil) {
-            let s = auto.node(nodes[i].id)?.stage ?? 0
+            guard let s = auto.node(nodes[i].id)?.stage else { continue } // разделитель ровера — без ступени
             nodes[i].stage = min(s, count)
         }
         compressStages()
@@ -246,7 +253,8 @@ extension VesselDesign {
             let base = n.parent.flatMap { depth[$0] } ?? 0
             depth[n.id] = base + (n.part.spec.kind == .decoupler ? 1 : 0)
         }
-        let decouplers = nodes.filter { $0.part.spec.kind == .decoupler }
+        // Разделитель ровера (6.3) не в ступенях: его отделяет `deployRover`.
+        let decouplers = nodes.filter { $0.part.spec.kind == .decoupler && !isRoverMount($0) }
         let maxDepth = decouplers.compactMap { depth[$0.id] }.max() ?? 0
         var stage: [Int: Int] = [:]
         for n in decouplers { stage[n.id] = maxDepth - (depth[n.id] ?? 1) + 1 }
@@ -358,6 +366,8 @@ extension VesselEditing {
         switch target.node {
         case .radial:
             guard mount != .axial else { return false }
+            // Детали ровера — только на раму.
+            if part.spec.isRoverSidePart { return parent.part == .roverFrame }
             if parent.part == .decouplerRadial {
                 return !design.nodes.contains { $0.parent == parent.id }
             }

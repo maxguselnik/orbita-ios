@@ -698,6 +698,12 @@ public enum RoverBalance {
     public static let solarCharge = 0.3
     /// Сесть: расстояние по горизонтали до кресла, м (как люк).
     public static let seatRadius = 2.0
+    /// Встать: космонавт на грунте сбоку от кресла (правый борт), м по горизонтали от кресла.
+    public static let seatExitOffset = 1.3
+    /// Сцепление шины с грунтом μ: сила вдоль грунта ≤ μ·нагрузка (на Луне нагрузка мала — скользко).
+    public static let tireFriction = 0.8
+    /// Отделение: центр ровера ставится на столько дальше от оси корабля, чем был, м.
+    public static let deployDistance = 3.0
 }
 
 /// Колесо ровера для рендера.

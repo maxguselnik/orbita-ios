@@ -149,6 +149,12 @@ struct MeshBuilder: Sendable {
         }
     }
 
+    func translated(_ t: F3) -> MeshBuilder {
+        var out = self
+        out.positions = positions.map { $0 + t }
+        return out
+    }
+
     mutating func append(_ other: MeshBuilder) {
         let base = UInt32(positions.count)
         positions += other.positions

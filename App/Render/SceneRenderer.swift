@@ -50,6 +50,8 @@ final class SceneRenderer: FlightRenderer {
     private var flags: [Int: FlagVisual] = [:]
     private let hatchRing = HatchHighlight()
     private var lastEVA: String?
+    /// Камера ровера включена (активный корабль — ровер, не EVA).
+    private var lastRoverCam = false
     /// Опорное направление камеры EVA (горизонтальное, устойчивое в мире), «азимут 0» — камера за спиной.
     private var evaRef: D3?
     private var evaRecenter = false
@@ -196,6 +198,7 @@ final class SceneRenderer: FlightRenderer {
         flags.removeAll()
         hatchRing.hide()
         lastEVA = nil
+        lastRoverCam = false
         evaRef = nil
         evaRecenter = false
         evaCameraBasis = nil
@@ -228,6 +231,7 @@ final class SceneRenderer: FlightRenderer {
             if case .partDestroyed(let id) = e { vessels[active.id]?.flash(part: id) }
         }
         let activeVisual = visual(for: active)
+        if snapshot.rover != nil || !active.wheels.isEmpty { activeVisual.setDriver(snapshot.rover?.driverID != nil) }
 
         // Камера: цель — середина стека.
         let pos = active.position.d3
@@ -235,6 +239,7 @@ final class SceneRenderer: FlightRenderer {
         let nose = attitude.act(D3(0, 1, 0))
         let height = activeVisual.stackHeight
         var target = pos + nose * (height / 2)
+        let roverCam = snapshot.controlled == nil && snapshot.rover != nil
         let radial = simd_normalize(pos)
         let switched = lastActive != active.id
         lastActive = active.id
@@ -280,6 +285,33 @@ final class SceneRenderer: FlightRenderer {
             }
             rig.apply(orbit: .zero, zoom: 1, reset: true)
             rig.snap()
+        }
+        if roverCam != lastRoverCam || (roverCam && switched) {
+            lastRoverCam = roverCam
+            if roverCam {
+                rig.minDistance = 3
+                rig.setDefaultDistance(8, snap: true)
+                rig.defaultAzimuth = 0
+                rig.setDefaultElevation(0.3)
+                rig.apply(orbit: .zero, zoom: 1, reset: true)
+                rig.snap()
+            } else if eva == nil {
+                rig.minDistance = CameraRig.minDistance
+                rig.setDefaultDistance(vesselDistance, snap: true)
+                rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1
+                rig.apply(orbit: .zero, zoom: 1, reset: true)
+                rig.snap()
+            }
+        }
+        if roverCam, eva == nil {
+            // Камера ровера: цель — центр ровера, сзади по курсу (запаздывание даёт сглаживание форварда в `rig`).
+            target = pos + attitude.act(activeVisual.boundsCenter)
+            up = radial
+            forward = -attitude.act(D3(0, 1, 0))
+            rig.setDefaultDistance(8, snap: false)
+            rig.setDefaultElevation(0.3)
+            targetRadius = 2
+            lookDrop = 0.05
         }
         if let c = eva {
             let cUp = simd_normalize(c.position.d3)
