@@ -134,7 +134,7 @@ struct MapCenterColumn: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .scrollIndicators(.hidden)
-        .padding(.bottom, NavballCluster.height + NavballCluster.lift + HUDStyle.minTouch + 16)
+        .padding(.bottom, max(0, NavballCluster.height + NavballCluster.lift - 54))
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
@@ -481,14 +481,20 @@ struct MapSideColumn: View {
 
     var body: some View {
         VStack(spacing: 6) {
-            if model.deletedNode != nil, !model.hasManeuver {
-                DeletedNodeBar(model: model)
+            ScrollView {
+                VStack(spacing: 6) {
+                    if model.deletedNode != nil, !model.hasManeuver {
+                        DeletedNodeBar(model: model)
+                    }
+                    if model.mapExpert { expert } else { simple }
+                }
             }
-            if model.mapExpert {
-                expert
-            } else {
-                simple
+            .scrollIndicators(.visible)
+            if !model.mapExpert || model.isAutoBurning {
+                ManeuverExecuteButton(model: model)
             }
+            StageButton(model: model, compact: true)
+                .padding(.top, MapSideColumn.stageGap - 6)
         }
         .frame(width: Self.width)
     }
@@ -507,11 +513,6 @@ struct MapSideColumn: View {
                 "Эксперт"
             }
         }
-        Spacer(minLength: 0)
-        ManeuverExecuteButton(model: model)
-        // «Ступень» не рядом с «Выполнить»: промах по соседней кнопке дорого стоит.
-        StageButton(model: model, compact: true)
-            .padding(.top, MapSideColumn.stageGap - 6)
     }
 
     @ViewBuilder
@@ -525,8 +526,6 @@ struct MapSideColumn: View {
                 "Просто"
             }
         }
-        Spacer(minLength: 0)
-        StageButton(model: model, compact: true)
     }
 }
 
@@ -655,7 +654,7 @@ struct ManeuverResultCard: View {
         let busy = model.isAutoBurning
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 4) {
-                Text("РЕЗУЛЬТАТ")
+                Text("ИТОГ")
                     .font(.system(size: HUDFont.caption, weight: .heavy))
                     .foregroundStyle(HUDStyle.secondaryText)
                 Spacer(minLength: 0)

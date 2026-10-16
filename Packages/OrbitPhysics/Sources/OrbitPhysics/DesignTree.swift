@@ -176,6 +176,13 @@ public struct PartPlacement: Sendable, Hashable {
     /// Кожух — часть разделителя: при разделении улетает с ним, сопло открывается.
     public var shroud: InterstageShroud?
 
+    /// Ориентация геометрии с азимутом бокового крепления; общая для контакта и рендера.
+    public var geometryOrientation: Quat {
+        guard outward.x * outward.x + outward.z * outward.z > 1e-9 else { return orientation }
+        let local = orientation.conjugate.rotate(outward)
+        return orientation * Quat(axis: .unitY, angle: -atan2(local.z, local.x))
+    }
+
     public var bottom: Double { center.y - height / 2 }
     public var top: Double { center.y + height / 2 }
     /// Самая низкая точка детали (цилиндр с учётом `orientation`); без поворота — `bottom`.

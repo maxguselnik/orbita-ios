@@ -54,6 +54,9 @@ struct Ship: Sendable, Hashable {
     private(set) var dragArea: Double = 0
     private(set) var finCount = 0
 
+    private(set) var contactPoints: [Vec3] = []
+    private(set) var contactReach = 0.0
+
     init(design: VesselDesign) {
         let lay = design.layout()
         let groups = design.stageGroups
@@ -138,6 +141,8 @@ struct Ship: Sendable, Hashable {
         if area <= 0 { area = Double.pi / 4 * 0.5 }
         if finCount > 0 { area += Double(finCount) * 0.05 }
         dragArea = area
+        contactPoints = makeContactPoints()
+        contactReach = contactPoints.map(\.length).max() ?? 0
     }
 
     func index(of uid: Int) -> Int? { parts.firstIndex { $0.uid == uid } }

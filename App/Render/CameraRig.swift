@@ -61,7 +61,11 @@ struct CameraRig {
     /// `forward` — опорное направление «азимут 0» (камера там при az = 0), `up` — вертикаль режима.
     mutating func offset(forward f0: D3, up u0: D3, dt: Double) -> (offset: D3, up: D3) {
         let up = simd_normalize(u0)
-        let f = perpendicular(f0, to: up)
+        // Почти вертикальная скорость/нос не задаёт азимут. Сохраняем прежний
+        // горизонтальный базис вместо усиления численного шума проекции.
+        let horizontal = f0 - up * simd_dot(f0, up)
+        let hint = simd_length_squared(horizontal) > 0.0025 ? horizontal : (sForward ?? D3(0, 0, 1))
+        let f = perpendicular(hint, to: up)
         if !initialized || dt <= 0 && sForward == nil {
             sAz = azimuth
             sEl = elevation
