@@ -114,7 +114,7 @@ struct FlightHUDView: View {
             if !open { showLegend = false }
         }
         .overlay(alignment: .bottom) {
-            if let result = model.result, !model.isPaused {
+            if let result = model.result, !model.isPaused, model.eva == nil {
                 FlightResultPanel(result: result,
                                   lostData: result.outcome == .crashed ? model.telemetry.science.stored.count : 0,
                                   onHangar: onHangar, onSpaceCenter: onSpaceCenter, onFinish: onFinish,
