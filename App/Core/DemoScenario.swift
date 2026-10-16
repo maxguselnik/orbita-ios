@@ -35,6 +35,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
     case lunaSurface
+    /// Последние 25 м реальной посадки автопилота и неподвижный корабль после касания.
+    case lunaTouchdown
     /// Посадочный блок в 1.5 км над Луной (свободное падение, касание через ~40 с) при низком Солнце: видны кратеры у места посадки.
     case lunaDescent
     /// Капсула над площадкой, купол раскрывается в кадре.
@@ -153,6 +155,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
             }
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .lunaTouchdown:
+            return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: true) { sim, ap in
+                sim.activeBody == .luna && ap.phase == .descent && sim.snapshot.telemetry.heightAboveTerrain < 25
+            }
         case .lunaDescent:
             return Self.lunaDescent(height: 1_500, speed: 0)
         case .chute:

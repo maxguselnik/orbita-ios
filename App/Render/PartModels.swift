@@ -97,11 +97,7 @@ enum PartModels {
     /// Поворот модели детали: `orientation` из физики (оси детали → оси корабля) и, у боковых, азимут вокруг
     /// собственной оси, чтобы локальный +X модели смотрел по `outward`.
     static func placementRotation(_ p: PartPlacement) -> simd_quatf {
-        let o = p.orientation
-        let q = simd_quatf(ix: Float(o.x), iy: Float(o.y), iz: Float(o.z), r: Float(o.w))
-        guard p.outward.x * p.outward.x + p.outward.y * p.outward.y + p.outward.z * p.outward.z > 1e-9 else { return q }
-        let local = o.conjugate.rotate(p.outward)
-        return q * simd_quatf(angle: yaw(outward: local), axis: F3(0, 1, 0))
+        quatf(p.geometryOrientation.quatd)
     }
 
     /// Угол поворота вокруг +Y, переводящий +X в `outward` (в RealityKit поворот на θ уводит +X в (cosθ, 0, −sinθ)).
@@ -352,16 +348,17 @@ enum PartModels {
     static func legs(diameter d: Double, height h: Double, drop: Double) -> [Piece] {
         var b = MeshBuilder()
         let r = Float(d / 2), hf = Float(h)
-        let foot = -Float(drop) + 0.04
-        for k in 0..<4 {
-            let a = Float(k) * .pi / 2 + .pi / 4
-            let dir = F3(cos(a), 0, sin(a))
+        for foot in LandingLegGeometry.feet(diameter: d, drop: drop) {
+            let dir = simd_normalize(F3(Float(foot.x), 0, Float(foot.z)))
             let top = dir * (r * 0.9) + F3(0, hf * 0.85, 0)
-            let ft = dir * (r + 0.9) + F3(0, foot, 0)
+            let ft = f3(foot.d3)
             b.beam(top, ft, thickness: 0.11)
             let mid = top + (ft - top) * 0.55
             b.beam(dir * (r * 0.9) + F3(0, 0.02, 0), mid, thickness: 0.07)
-            b.box(center: ft + F3(0, -0.02, 0), x: F3(0.22, 0, 0), y: F3(0, 0.03, 0), z: F3(0, 0, 0.22))
+            b.box(center: ft + F3(0, Float(LandingLegGeometry.padCenterOffset), 0),
+                  x: F3(Float(LandingLegGeometry.padHalfWidth), 0, 0),
+                  y: F3(0, Float(LandingLegGeometry.padHalfHeight), 0),
+                  z: F3(0, 0, Float(LandingLegGeometry.padHalfWidth)))
         }
         guard let mesh = b.makeMesh(name: "legs") else { return [] }
         return [(mesh, RenderMaterials.shared.metal)]

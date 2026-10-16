@@ -16,6 +16,8 @@ struct Vessel {
     /// На грунте: положение и ориентация в системе, связанной с телом.
     var fixedPos: Vec3?
     var fixedAtt: Quat?
+    /// Последнее надёжное направление прогрейда/ретро: не переворачиваемся за шумом у нуля.
+    var sasDirection: Vec3?
     var chute: ChuteState
     var chuteDeploy = 0.0
     /// Рифление снято: купол наполняется до полного (вторая фаза раскрытия).
@@ -270,6 +272,7 @@ public final class FlightSim: FlightSimulation {
         case .setSAS(let m):
             sas = m
             hold = active.q
+            vessels[activeIndex].sasDirection = nil
         case .setWarp(let idx): setWarp(idx)
         case .deployChute: armChute()
         case .setManeuver(let node): setManeuver(node)
@@ -678,7 +681,10 @@ public final class FlightSim: FlightSimulation {
         let dir = s.r / rm2
         let fixedDir = World.toBodyFixed(dir, body: s.body, time: tNext)
         let surfR = b.radius + Terrain.surfaceHeight(body: s.body, direction: fixedDir)
-        if rm2 <= surfR {
+        // Вдали от грунта достаточно одной выборки; вблизи проверяем геометрию корабля.
+        let clearance = rm2 - surfR < s.ship.contactReach + 1
+            ? surfaceClearance(s, at: tNext) : rm2 - surfR
+        if clearance <= 0 {
             let vRel = s.v - spin.cross(s.r)
             let speed = vRel.length
             if !b.hasSolidSurface || speed > s.ship.crashTolerance {
@@ -694,7 +700,17 @@ public final class FlightSim: FlightSimulation {
                 time = saved
                 return
             }
-            s.r = dir * surfR
+            // Поднять весь корабль до касания самой низкой опоры/детали, не только ось.
+            for _ in 0..<3 {
+                let gap = surfaceClearance(s, at: tNext)
+                if gap >= 0.02 { break }
+                s.r += s.r.normalized * (0.02 - gap)
+            }
+            // Посадка завершает торможение жидкостным двигателем. Следующая команда
+            // игрока/автопилота может снова включить тягу для намеренного взлёта.
+            s.throttle = 0
+            input.throttle = 0
+            lastThrust = tr.solidThrust
             let ocean = Terrain.isOcean(body: s.body, direction: fixedDir)
             if s.chute == .deploying || s.chute == .open { s.chute = .cut }
             events.append(ocean ? .splashdown(speed: speed) : .touchdown(speed: speed))
@@ -709,6 +725,20 @@ public final class FlightSim: FlightSimulation {
         }
         s.situation = classify(s)
         vessels[ai] = s
+    }
+
+    /// Наименьший зазор геометрии до аналитической поверхности, м.
+    private func surfaceClearance(_ s: Vessel, at t: Double) -> Double {
+        let radius = Bodies.body(s.body).radius
+        let inverse = World.bodyRotation(s.body, time: t).conjugate
+        var clearance = Double.infinity
+        for local in s.ship.contactPoints {
+            let point = s.r + s.q.rotate(local)
+            let r = point.length
+            let fixed = inverse.rotate(point / r)
+            clearance = min(clearance, r - radius - Terrain.surfaceHeight(body: s.body, direction: fixed))
+        }
+        return clearance
     }
 
     /// Разрушить перегретые детали `uids`: событие, деталь исчезает, отрезанные поддеревья — обломки.
@@ -786,11 +816,11 @@ public final class FlightSim: FlightSimulation {
         if manual.lengthSquared > 1e-6 {
             alpha = s.q.rotate(Vec3(clamp(manual.x, -1, 1), clamp(manual.y, -1, 1), -clamp(manual.z, -1, 1))) * ctrl
             hold = s.q
-        } else if let target = autopilotDirection ?? sasTargetDirection(s) {
+        } else if let target = autopilotDirection ?? sasTargetDirection(&s) {
             alpha = rateControl(s, desired: rotationTo(s.q.nose, target.normalized), ctrl: ctrl)
-            // По узлу запоминается текущая ориентация: когда импульс выполнен, SAS держит её.
-            if autopilotDirection == nil && sas == .maneuver { hold = s.q }
-        } else if sas == .hold || sas == .maneuver {
+            // Последняя устойчивая ориентация нужна и при исчезновении маркера скорости.
+            if autopilotDirection == nil { hold = s.q }
+        } else if sas != .off {
             let err = (hold * s.q.conjugate).axisAngle
             alpha = rateControl(s, desired: (err.axis, err.angle), ctrl: ctrl)
         }
@@ -845,7 +875,7 @@ public final class FlightSim: FlightSimulation {
         return s.v
     }
 
-    private func sasTargetDirection(_ s: Vessel) -> Vec3? {
+    private func sasTargetDirection(_ s: inout Vessel) -> Vec3? {
         let v = navVelocity(s)
         let vo = s.v
         let n = s.r.cross(vo).normalized
@@ -855,8 +885,12 @@ public final class FlightSim: FlightSimulation {
             // Нет узла или прожиг выполнен — как `hold`.
             guard maneuverNode != nil, !maneuverDone, maneuverRemaining.lengthSquared > 0 else { return nil }
             return maneuverRemaining
-        case .prograde: return v.length > 0.5 ? v : nil
-        case .retrograde: return v.length > 0.5 ? -v : nil
+        case .prograde, .retrograde:
+            let target = sas == .retrograde ? -v : v
+            guard v.length > 0.5 else { return nil }
+            if v.length < 5, let last = s.sasDirection, target.dot(last) < 0 { return nil }
+            s.sasDirection = target.normalized
+            return target
         case .normal: return n.lengthSquared > 0 ? n : nil
         case .antiNormal: return n.lengthSquared > 0 ? -n : nil
         case .radialOut:

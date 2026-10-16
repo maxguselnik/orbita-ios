@@ -50,12 +50,22 @@ struct MapOverlayFrame: View {
         }
         if let node {
             obstacles.append(CGRect(x: node.center.x - 12, y: node.center.y - 12, width: 24, height: 24))
-            for item in model.mapExpert ? node.items : [] {
+            for item in model.mapExpert && !model.mapPanelsHidden && !model.isSystemMap ? node.items : [] {
                 let point = inside(item.point)
                 obstacles.append(CGRect(x: point.x - 22, y: point.y - 22, width: 44, height: 44))
             }
         }
         return obstacles
+    }
+
+    /// На масштабе системы экранная линия остаётся читаемой независимо от глубины 3D-сетки.
+    private static let systemOrbits: [[Vec3]] = [BodyID.vella, .terra, .arda, .taros].map { id in
+        let body = Bodies.body(id)
+        let rotation = Quat(axis: .unitX, angle: body.inclination)
+        return (0...128).map { i in
+            let angle = Double(i) * 2 * .pi / 128
+            return rotation.rotate(Vec3(cos(angle), sin(angle), 0) * body.orbitRadius)
+        }
     }
 
     var body: some View {
@@ -67,8 +77,24 @@ struct MapOverlayFrame: View {
         let labels = MapLabel.layout(snapshot.markers, map: map, obstacles: obstacles(node: node))
         ZStack(alignment: .topLeading) {
             Canvas { context, _ in
+                if map.focus == .sol {
+                    for orbit in Self.systemOrbits {
+                        var path = Path()
+                        var started = false
+                        for point in orbit {
+                            guard let p = map.project(point, body: .sol), p.x.isFinite, p.y.isFinite else {
+                                started = false
+                                continue
+                            }
+                            if started { path.addLine(to: p) } else { path.move(to: p); started = true }
+                        }
+                        context.stroke(path, with: .color(.white.opacity(0.28)), lineWidth: 1)
+                    }
+                }
                 var bodyPoints: [CGPoint] = []
-                for id in [BodyID.sol, .vella, .terra, .arda, .taros, .luna] {
+                let first = map.focus.bodyID ?? model.telemetry.body
+                let bodies: [BodyID] = [first] + [BodyID.sol, .vella, .terra, .arda, .taros, .luna].filter { $0 != first }
+                for id in bodies {
                     guard let p = map.project(.zero, body: id), p.x.isFinite, p.y.isFinite,
                           !bodyPoints.contains(where: { hypot($0.x - p.x, $0.y - p.y) < 32 }) else { continue }
                     bodyPoints.append(p)
@@ -96,7 +122,7 @@ struct MapOverlayFrame: View {
                     .position(node.center)
                     .allowsHitTesting(false)
                 // Ручки Δv — только в «Эксперт».
-                ForEach(model.mapExpert ? node.items : []) { item in
+                ForEach(model.mapExpert && !model.mapPanelsHidden && !model.isSystemMap ? node.items : []) { item in
                     ManeuverHandleKnob(handle: item.handle, direction: item.direction, model: model)
                         .tutorialAnchor(optional: item.handle == .prograde ? .mapHandle : nil)
                         .position(inside(item.point))

@@ -409,7 +409,7 @@ final class SceneRenderer: FlightRenderer {
             stackHeight: activeVisual.stackHeight, halfWidth: activeVisual.halfWidth,
             nozzlePositions: activeVisual.nozzlePositions,
             airVelocity: active.velocity.d3 - wind, windVelocity: wind, up: radial,
-            heightAboveGround: t.heightAboveTerrain, groundRel: radial * (body.radius + max(0, groundUnder)) - eye,
+            heightAboveGround: t.heightAboveTerrain, groundRel: radial * (body.radius + groundUnder) - eye,
             telemetry: t, daylight: clampd(simd_dot(radial, sunDirection) * 2.5 + 0.35, 0.03, 1),
             quality: quality))
 
