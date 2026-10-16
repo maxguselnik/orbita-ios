@@ -62,9 +62,9 @@ enum HangarFormat {
         case .chute, .decoupler, .legs, .fairing, .fin:
             return [mass(spec.wetMass)]
         case .wheel:
-            return ["Ø" + HUDFormat.fixed(spec.height, digits: 1) + " м · мотор, тормоз", mass(spec.wetMass)]
+            return ["Ø" + HUDFormat.fixed(spec.wheelRadius * 2, digits: 1) + " м · мотор, тормоз", mass(spec.wetMass)]
         case .battery:
-            return ["Ёмкость \(Int(RoverBalance.batteryCapacity.rounded())) ед.", mass(spec.wetMass)]
+            return ["Ёмкость \(Int(spec.chargeCapacity.rounded())) ед.", mass(spec.wetMass)]
         case .solar:
             return ["Заряд на солнце", mass(spec.wetMass)]
         case .seat:

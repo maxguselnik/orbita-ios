@@ -61,6 +61,9 @@ struct FlightHUDView: View {
             } else if model.eva != nil {
                 // Управляем космонавтом: HUD корабля скрыт целиком.
                 EVALayer(model: model)
+            } else if model.rover != nil {
+                // Активный корабль — ровер: HUD ровера вместо HUD корабля.
+                RoverLayer(model: model)
             } else {
                 FlightLayer(model: model, guide: guide, hintsEnabled: hintsEnabled, inLesson: inLesson)
                 EVAShipSwitch(model: model)
