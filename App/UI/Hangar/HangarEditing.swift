@@ -61,6 +61,16 @@ enum HangarFormat {
             return ["Покрытие \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
         case .chute, .decoupler, .legs, .fairing, .fin:
             return [mass(spec.wetMass)]
+        case .wheel:
+            return ["Ø" + HUDFormat.fixed(spec.wheelRadius * 2, digits: 1) + " м · мотор, тормоз", mass(spec.wetMass)]
+        case .battery:
+            return ["Ёмкость \(Int(spec.chargeCapacity.rounded())) ед.", mass(spec.wetMass)]
+        case .solar:
+            return ["Заряд на солнце", mass(spec.wetMass)]
+        case .seat:
+            return ["1 место", mass(spec.wetMass)]
+        case .roverFrame:
+            return ["Основа ровера", mass(spec.wetMass)]
         case .instrument:
             let e = ExperimentID.allCases.first { $0.instrument == spec.id }
             return [mass(spec.wetMass), e.map { "Работает \($0.whereItWorks)" } ?? ""]

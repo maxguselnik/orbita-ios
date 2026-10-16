@@ -56,6 +56,73 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     case collectScience(ExperimentID)
     /// Удалить результат с борта активного корабля.
     case discardScience(id: String)
+
+    // EVA (этап 6), docs/CONTRACTS.md «EVA». Нельзя — команда без изменений (причина — в снимке).
+    /// Первый член экипажа активного корабля выходит через люк; управление — на него.
+    case evaExit
+    /// Управляемый космонавт входит в люк ближе `EVABalance.boardRadius` (нужно свободное место).
+    case evaBoard
+    /// Переключить управление: корабль → космонавты снаружи по порядку → корабль.
+    case evaSwitch
+    /// Прыжок (на грунте, не травмирован).
+    case evaJump
+    /// Ранец вкл/выкл.
+    case evaToggleJetpack
+    /// Установить флаг рядом (на грунте).
+    case evaPlantFlag
+    /// Взять образец грунта (на грунте).
+    case evaCollectSample
+    /// Отчёт EVA здесь.
+    case evaReport
+    // EVA 6.2: лестница и поручни.
+    /// Ухватиться за ближайшую лестницу/поручни люка ближе `EVABalance.gripRadius` (`CosmonautState.canGrip`).
+    case evaGrab
+    /// Отпустить лестницу/поручни.
+    case evaRelease
+    /// Управлять космонавтом `memberID` (снаружи) или кораблём (nil).
+    case evaSelect(memberID: String?)
+    // Ровер (6.3), docs/CONTRACTS.md «Ровер».
+    /// Ручной тормоз активного ровера.
+    case setHandbrake(Bool)
+    /// Стабилизатор ровера (держит ровно, мешает опрокинуться).
+    case setRoverStabilizer(Bool)
+    /// Отделить ровер с активного корабля на грунте (`WorldSnapshot.roverDeployable`): ставится колёсами вниз рядом.
+    case deployRover
+    /// Сделать активным корабль/ровер из `WorldSnapshot.controllable`.
+    case selectVessel(VesselID)
+}
+
+/// Ввод ровера: джойстик (макет «B», 2026-10-16). Действует, когда активный корабль — ровер с водителем
+/// (космонавт в кресле) или модулем управления.
+public struct RoverInput: Sendable, Hashable, Codable {
+    /// Газ −1 (назад) … 1 (вперёд).
+    public var drive: Double
+    /// Руль −1 (влево) … 1 (вправо).
+    public var steer: Double
+
+    public init(drive: Double = 0, steer: Double = 0) {
+        self.drive = drive
+        self.steer = steer
+    }
+
+    public static let neutral = RoverInput()
+}
+
+/// Непрерывный ввод космонавта (EVA); UI выставляет каждый кадр, пока управляет космонавтом.
+public struct EVAInput: Sendable, Hashable, Codable {
+    /// Направление джойстика в инерциальной системе тела космонавта, |move| ≤ 1
+    /// (UI: `правоКамеры × x + впередКамеры × y`). На грунте — направление шага (берётся проекция на горизонт),
+    /// в полёте с ранцем — тяга.
+    public var move: Vec3
+    /// «Вверх/Вниз» −1…1: тяга ранца по местной вертикали (радиально от центра тела). Без ранца не действует.
+    public var vertical: Double
+
+    public init(move: Vec3 = .zero, vertical: Double = 0) {
+        self.move = move
+        self.vertical = vertical
+    }
+
+    public static let neutral = EVAInput()
 }
 
 // MARK: - Состояние
@@ -98,6 +165,12 @@ public struct VesselState: Sendable, Hashable {
     public var rcsRotation: Vec3
     /// Нагрев деталей 0…1 (температура / предел детали), те же индексы, что `parts`; пусто — холодные (5.2).
     public var partHeat: [Double] = []
+    /// Люки кабин (EVA): точки в осях корабля относительно `position` (у кабины, на её стороне +Z — «спина»).
+    public var hatches: [Vec3] = []
+    /// Лестницы (6.2) в осях корабля относительно `position`: по одной на люк кабины, если на корабле есть опоры.
+    public var ladders: [EVALadder] = []
+    /// Колёса ровера (6.3) для рендера; пусто — не ровер.
+    public var wheels: [WheelState] = []
 
     public init(id: VesselID, body: BodyID, position: Vec3, velocity: Vec3,
                 attitude: Quat = .identity, angularVelocity: Vec3 = .zero,
@@ -508,6 +581,25 @@ public struct WorldSnapshot: Sendable {
     /// Угол поворота Терры вокруг оси +Z, рад.
     public var terraRotation: Double
     public var telemetry: FlightTelemetry
+    /// EVA: космонавты снаружи (по порядку выхода), кем управляет игрок (nil — кораблём), флаги этого полёта.
+    public var cosmonauts: [CosmonautState] = []
+    public var controlledCosmonaut: String? = nil
+    public var flags: [FlagState] = []
+    /// Почему `evaExit` сейчас нельзя; nil — можно.
+    public var evaExitBlocker: EVABlocker? = nil
+    /// Ровер (6.3): состояние активного ровера; nil — активный корабль не ровер.
+    public var rover: RoverStatus? = nil
+    /// Погибшие в этом полёте (id отряда), по порядку.
+    public var deadCrew: [String] = []
+    /// Ровер (6.3): у активного корабля на грунте есть неотделённый ровер.
+    public var roverDeployable: Bool = false
+    /// Корабли и роверы, которыми можно управлять (экипаж или модуль управления), по порядку появления.
+    public var controllable: [ControllableVessel] = []
+
+    /// Управляемый космонавт.
+    public var controlled: CosmonautState? {
+        controlledCosmonaut.flatMap { id in cosmonauts.first { $0.memberID == id } }
+    }
 
     public init(time: Double = 0, activeVessel: VesselID? = nil, vessels: [VesselState] = [],
                 lunaPosition: Vec3 = Vec3(Bodies.luna.orbitRadius, 0, 0), lunaVelocity: Vec3 = .zero, terraRotation: Double = 0,
@@ -530,6 +622,8 @@ public enum WarpResetReason: String, Sendable, Hashable, Codable {
     case atmosphere, terrain, thrust, soiChange
     /// `warpToManeuver`: до начала прожига осталось `ManeuverStatus.warpLead` с.
     case maneuver
+    /// Космонавт снаружи: рельсы запрещены (физическое ×1–4 можно).
+    case eva
 }
 
 /// Одноразовые события шага; звук, вибрация, эффекты и подсказки реагируют на них.
@@ -548,6 +642,19 @@ public enum SimEvent: Sendable, Hashable {
     case warpReset(WarpResetReason)
     /// Деталь разрушилась от перегрева (5.2).
     case partDestroyed(PartID)
+    // EVA (этап 6).
+    case evaExited(memberID: String)
+    case evaBoarded(memberID: String)
+    /// Касание грунта после прыжка/падения/ранца без травмы (скорость по нормали, м/с, ≥ 1).
+    case evaLanded(memberID: String, speed: Double)
+    case evaInjured(memberID: String, speed: Double)
+    /// Гибель: космонавт убран из снимка, данные при нём потеряны.
+    case evaDied(memberID: String, speed: Double)
+    case flagPlanted(body: BodyID)
+    /// Образец или отчёт EVA сохранён при космонавте.
+    case evaScienceCollected(ScienceSubjectID)
+    /// Топливо ранца кончилось.
+    case jetpackEmpty(memberID: String)
 }
 
 // MARK: - Симуляция
@@ -564,6 +671,309 @@ public protocol FlightSimulation: AnyObject {
     func predictTrajectory(maxPatches: Int) -> Trajectory
     /// Прогноз после узла манёвра; nil — узел невозможен (например, корабль на грунте).
     func predictManeuver(_ node: ManeuverNode, maxPatches: Int) -> ManeuverPrediction?
+    /// Ввод управляемого космонавта (EVA); без космонавта — игнорируется.
+    func setEVAInput(_ input: EVAInput)
+    /// Ввод ровера (6.3); активный корабль не ровер — игнорируется.
+    func setRoverInput(_ input: RoverInput)
+}
+
+extension FlightSimulation {
+    /// Симуляции без EVA (заглушки UI) ввод космонавта игнорируют.
+    public func setEVAInput(_ input: EVAInput) {}
+    /// Симуляции без роверов ввод ровера игнорируют.
+    public func setRoverInput(_ input: RoverInput) {}
+}
+
+// MARK: - Ровер (этап 6.3)
+
+/// Числа ровера (docs/CONTRACTS.md «Ровер»); A уточняет по тестам и сообщает.
+public enum RoverBalance {
+    /// Предельная скорость по грунту, м/с.
+    public static let maxSpeed = 8.0
+    /// Предельный угол поворота передних колёс, рад.
+    public static let maxSteer = 0.5
+    /// Батарея Б-1: ёмкость, ед.; расход мотора на полном газу, ед./с на колесо; панель С-1 на солнце, ед./с.
+    public static let batteryCapacity = 100.0
+    public static let motorDrain = 0.15
+    public static let solarCharge = 0.3
+    /// Сесть: расстояние по горизонтали до кресла, м (как люк).
+    public static let seatRadius = 2.0
+    /// Встать: космонавт на грунте сбоку от кресла (правый борт), м по горизонтали от кресла.
+    public static let seatExitOffset = 1.3
+    /// Сцепление шины с грунтом μ: сила вдоль грунта ≤ μ·нагрузка (на Луне нагрузка мала — скользко).
+    public static let tireFriction = 0.8
+    /// Отделение: центр ровера ставится на столько дальше от оси корабля, чем был, м.
+    public static let deployDistance = 3.0
+}
+
+/// Колесо ровера для рендера.
+public struct WheelState: Sendable, Hashable {
+    /// Индекс детали в `VesselState.parts`.
+    public var part: Int
+    /// Поворот руля, рад (+ — вправо); вращение колеса, рад (растёт при езде вперёд); сжатие подвески, м.
+    public var steer: Double
+    public var spin: Double
+    public var compression: Double
+    public var onGround: Bool
+
+    public init(part: Int, steer: Double = 0, spin: Double = 0, compression: Double = 0, onGround: Bool = false) {
+        self.part = part
+        self.steer = steer
+        self.spin = spin
+        self.compression = compression
+        self.onGround = onGround
+    }
+}
+
+/// Состояние активного ровера для HUD и звука.
+public struct RoverStatus: Sendable, Hashable {
+    /// Скорость по грунту со знаком (+ вперёд), м/с.
+    public var speed: Double
+    public var charge: Double
+    public var chargeCapacity: Double
+    public var chargeFraction: Double { chargeCapacity > 0 ? charge / chargeCapacity : 0 }
+    /// Панели заряжают сейчас.
+    public var charging: Bool
+    public var handbrake: Bool
+    public var stabilizer: Bool
+    public var wheelsOnGround: Int
+    public var wheelCount: Int
+    /// Лежит на боку/на крыше (не едет).
+    public var tipped: Bool
+    /// Кто ведёт: id космонавта в кресле; nil — с модулем управления или некому.
+    public var driverID: String?
+    /// Можно ехать (водитель или модуль управления, есть заряд).
+    public var canDrive: Bool
+    /// До ближайшего другого корабля с экипажем/люком на этом теле, м; nil — нет.
+    public var distanceToShip: Double?
+    /// Мотор крутит (|газ| > 0 и есть заряд) — для звука.
+    public var motorLoad: Double
+
+    public init(speed: Double = 0, charge: Double = 0, chargeCapacity: Double = 0, charging: Bool = false,
+                handbrake: Bool = false, stabilizer: Bool = false, wheelsOnGround: Int = 0, wheelCount: Int = 0,
+                tipped: Bool = false, driverID: String? = nil, canDrive: Bool = false, distanceToShip: Double? = nil,
+                motorLoad: Double = 0) {
+        self.speed = speed
+        self.charge = charge
+        self.chargeCapacity = chargeCapacity
+        self.charging = charging
+        self.handbrake = handbrake
+        self.stabilizer = stabilizer
+        self.wheelsOnGround = wheelsOnGround
+        self.wheelCount = wheelCount
+        self.tipped = tipped
+        self.driverID = driverID
+        self.canDrive = canDrive
+        self.distanceToShip = distanceToShip
+        self.motorLoad = motorLoad
+    }
+}
+
+/// Корабль или ровер в переключателе HUD.
+public struct ControllableVessel: Sendable, Hashable {
+    public var id: VesselID
+    public var isRover: Bool
+    /// «Луна», «Тропа» — имя проекта/ровера.
+    public var name: String
+
+    public init(id: VesselID, isRover: Bool, name: String) {
+        self.id = id
+        self.isRover = isRover
+        self.name = name
+    }
+}
+
+// MARK: - EVA (этап 6)
+
+/// Числа EVA (docs/CONTRACTS.md «EVA»).
+public enum EVABalance {
+    /// Скорость шага относительно грунта, м/с (травмирован — `injuredWalkSpeed`).
+    public static let walkSpeed = 1.8
+    public static let injuredWalkSpeed = 0.9
+    /// Предел ускорения шага: min(`walkAccelMax`, `walkTraction` × g тела), м/с².
+    public static let walkAccelMax = 6.0
+    public static let walkTraction = 1.5
+    /// Прыжок: добавка вертикальной скорости, м/с.
+    public static let jumpSpeed = 2.4
+    /// Ранец: ускорение при полной команде, м/с²; запас — секунды полной тяги (Δv = 2.5 × 24 = 60 м/с).
+    public static let jetpackAccel = 2.5
+    public static let jetpackFuel = 24.0
+    /// Вход в люк: расстояние от центра космонавта (стопы + `centerHeight`) до люка, м.
+    /// На грунте считается расстояние по горизонтали (люк может быть выше — лестница этапа 6.2).
+    public static let boardRadius = 2.0
+    public static let centerHeight = 1.0
+    /// Удар о грунт по нормали: ≥ `injurySpeed` — травма (вторая — гибель), ≥ `deathSpeed` — гибель, м/с.
+    public static let injurySpeed = 10.0
+    public static let deathSpeed = 15.0
+    /// Выход: на орбите — в `exitOffset` м наружу от люка со скоростью корабля; на грунте — на грунт под люком,
+    /// `exitGroundOffset` м наружу от борта.
+    public static let exitOffset = 0.6
+    public static let exitGroundOffset = 1.5
+    // 6.2: лестница, поручни, корпус.
+    /// Захват: центр космонавта ближе этого к лестнице или люку, м.
+    public static let gripRadius = 2.0
+    /// Скорость подъёма/спуска по лестнице и перебора по поручням, м/с.
+    public static let climbSpeed = 0.8
+    /// Лестница отстоит от корпуса, м; держащийся космонавт — ещё на столько же наружу.
+    public static let ladderStandoff = 0.15
+    /// Вход с лестницы: верх лестницы ближе этого, м.
+    public static let ladderTopReach = 0.3
+    /// Радиус космонавта для столкновений с корпусом, м.
+    public static let bodyRadius = 0.35
+    /// Руки держащегося — на столько выше стоп по оси корабля, м (`EVAGrip.along` — высота рук на лестнице).
+    public static let handHeight = 1.2
+}
+
+/// Лестница люка (6.2): вертикальный отрезок в осях корабля относительно `VesselState.position`,
+/// по центру под люком на стороне люка; `top` — у нижнего края люка, `bottom` — на уровне нижней точки корабля.
+public struct EVALadder: Sendable, Hashable {
+    /// Индекс в `VesselState.hatches`.
+    public var hatch: Int
+    public var bottom: Vec3
+    public var top: Vec3
+
+    public init(hatch: Int, bottom: Vec3, top: Vec3) {
+        self.hatch = hatch
+        self.bottom = bottom
+        self.top = top
+    }
+
+    public var length: Double { (top - bottom).length }
+}
+
+/// Захват (6.2): за лестницу (`along` — высота рук от низа, м, 0…`length`; стопы на `EVABalance.handHeight` ниже)
+/// или за поручни у люка (`along` = nil; стопы на `handHeight` ниже люка по оси корабля).
+public struct EVAGrip: Sendable, Hashable {
+    public var vessel: VesselID
+    /// Индекс в `VesselState.hatches`.
+    public var hatch: Int
+    public var along: Double?
+
+    public init(vessel: VesselID, hatch: Int, along: Double?) {
+        self.vessel = vessel
+        self.hatch = hatch
+        self.along = along
+    }
+}
+
+/// Почему нельзя выйти.
+public enum EVABlocker: String, Sendable, Hashable, Codable {
+    case noCrew, inAtmosphere, thrusting, splashed, crashed
+
+    public var text: String {
+        switch self {
+        case .noCrew: "нет экипажа"
+        case .inAtmosphere: "в атмосфере выходить нельзя"
+        case .thrusting: "двигатели работают"
+        case .splashed: "в воде выходить нельзя"
+        case .crashed: "корабль разбит"
+        }
+    }
+}
+
+public enum CosmonautHealth: String, Sendable, Hashable, Codable {
+    case ok, injured
+}
+
+/// Космонавт снаружи. Оси скафандра: +Y — к голове, +Z — спина (ранец), −Z — куда смотрит, +X — правая рука.
+public struct CosmonautState: Sendable, Hashable {
+    public var memberID: String
+    public var name: String
+    public var body: BodyID
+    /// Точка между стопами, инерциальная система тела, м; скорость — инерциальная.
+    public var position: Vec3
+    public var velocity: Vec3
+    public var attitude: Quat
+    public var onGround: Bool
+    public var health: CosmonautHealth
+    public var jetpackOn: Bool
+    /// Команда на сопла ранца в последнем шаге в осях скафандра (−1…1); ноль — молчат.
+    public var jetpackFiring: Vec3
+    /// Запас ранца, с полной тяги, и ёмкость.
+    public var fuel: Double
+    public var fuelCapacity: Double
+    public var fuelFraction: Double { fuelCapacity > 0 ? fuel / fuelCapacity : 0 }
+    public var altitude: Double
+    public var heightAboveTerrain: Double
+    /// Скорость относительно грунта и вертикальная (относительно грунта), м/с.
+    public var surfaceSpeed: Double
+    public var verticalSpeed: Double
+    /// Орбита (nil — на грунте).
+    public var orbit: OrbitSummary?
+    /// Научная ситуация здесь (nil — нельзя).
+    public var situation: ScienceSituation?
+    /// Ближайший люк: корабль, расстояние (по правилу `boardRadius`), можно ли войти сейчас (в радиусе и есть место).
+    public var hatchVessel: VesselID?
+    public var hatchDistance: Double?
+    public var canBoard: Bool
+    /// Данные при себе (переносятся в кабину при входе).
+    public var carried: [ScienceData]
+    /// Почему нельзя: флаг / образец / отчёт; nil — можно.
+    public var flagBlocker: ScienceBlocker?
+    public var sampleBlocker: ScienceBlocker?
+    public var reportBlocker: ScienceBlocker?
+    /// 6.2: держится за лестницу/поручни (nil — нет); можно ухватиться сейчас.
+    public var grip: EVAGrip? = nil
+    public var canGrip: Bool = false
+    /// Ближайший «люк» — кресло ровера (HUD: «Сесть» вместо «В капсулу»).
+    public var hatchIsSeat: Bool = false
+
+    public init(memberID: String, name: String, body: BodyID, position: Vec3, velocity: Vec3 = .zero,
+                attitude: Quat = .identity, onGround: Bool = false, health: CosmonautHealth = .ok,
+                jetpackOn: Bool = false, jetpackFiring: Vec3 = .zero,
+                fuel: Double = EVABalance.jetpackFuel, fuelCapacity: Double = EVABalance.jetpackFuel,
+                altitude: Double = 0, heightAboveTerrain: Double = 0, surfaceSpeed: Double = 0, verticalSpeed: Double = 0,
+                orbit: OrbitSummary? = nil, situation: ScienceSituation? = nil,
+                hatchVessel: VesselID? = nil, hatchDistance: Double? = nil, canBoard: Bool = false,
+                carried: [ScienceData] = [], flagBlocker: ScienceBlocker? = nil,
+                sampleBlocker: ScienceBlocker? = nil, reportBlocker: ScienceBlocker? = nil) {
+        self.memberID = memberID
+        self.name = name
+        self.body = body
+        self.position = position
+        self.velocity = velocity
+        self.attitude = attitude
+        self.onGround = onGround
+        self.health = health
+        self.jetpackOn = jetpackOn
+        self.jetpackFiring = jetpackFiring
+        self.fuel = fuel
+        self.fuelCapacity = fuelCapacity
+        self.altitude = altitude
+        self.heightAboveTerrain = heightAboveTerrain
+        self.surfaceSpeed = surfaceSpeed
+        self.verticalSpeed = verticalSpeed
+        self.orbit = orbit
+        self.situation = situation
+        self.hatchVessel = hatchVessel
+        self.hatchDistance = hatchDistance
+        self.canBoard = canBoard
+        self.carried = carried
+        self.flagBlocker = flagBlocker
+        self.sampleBlocker = sampleBlocker
+        self.reportBlocker = reportBlocker
+    }
+}
+
+/// Флаг на поверхности (живёт в пределах полёта).
+public struct FlagState: Sendable, Hashable {
+    public var id: Int
+    public var body: BodyID
+    /// Основание древка в системе, связанной с телом (`World.toBodyFixed`), м.
+    public var fixedPosition: Vec3
+    /// Подпись: «Имя · Тело».
+    public var text: String
+    public var memberID: String
+    public var time: Double
+
+    public init(id: Int, body: BodyID, fixedPosition: Vec3, text: String, memberID: String, time: Double) {
+        self.id = id
+        self.body = body
+        self.fixedPosition = fixedPosition
+        self.text = text
+        self.memberID = memberID
+        self.time = time
+    }
 }
 
 /// Контрольная точка для отката (обучение). Симуляции без поддержки возвращают nil.

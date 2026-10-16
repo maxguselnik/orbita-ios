@@ -44,6 +44,15 @@ protocol FlightRenderer: AnyObject {
     func project(_ position: Vec3, body: BodyID) -> CGPoint?
     /// Тап по орбите: время ближайшей точки текущей траектории (до манёвра) не дальше `maxDistance` pt; nil — мимо.
     func orbitPick(at point: CGPoint, maxDistance: CGFloat) -> Double?
+
+    // MARK: EVA (этап 6)
+    /// Оси камеры EVA в инерциальной системе тела управляемого космонавта: на грунте — горизонтальные, на орбите —
+    /// экранные «вправо» и «вперёд»; nil — не EVA. UI строит из них `EVAInput.move`.
+    var evaCameraBasis: (right: Vec3, forward: Vec3)? { get }
+}
+
+extension FlightRenderer {
+    var evaCameraBasis: (right: Vec3, forward: Vec3)? { nil }
 }
 
 /// Фокус камеры карты.

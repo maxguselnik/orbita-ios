@@ -10,6 +10,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case hangarEmpty
     /// Ангар с проектом «Ускорители» (боковые блоки, симметрия, стабилизаторы, обтекатели).
     case hangarBoosters
+    /// Ангар с проектом «Луна-Р» (ровер на посадочной ступени).
+    case hangarRover
     /// Космоцентр (режим «Наука», немного науки).
     case spaceCenter
     /// Исследовательский центр (режим «Наука», 37 науки, открыты первые технологии).
@@ -35,6 +37,14 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
     case lunaSurface
+    /// EVA (этап 6): космонавт спустился по лестнице на Луну рядом с посадочным кораблём.
+    case evaSurface
+    /// EVA 6.2: космонавт на середине лестницы посадочного корабля «Луна-2» (кабина ЛК-2) на Луне.
+    case evaLadder
+    /// EVA на круговой орбите Луны 30 км: ранец включён, топлива ~18 %.
+    case evaOrbit
+    /// Ровер (6.3): «Луна-Р» на Луне, ровер отделён, Лера дошла до кресла, села и едет вперёд.
+    case roverDrive
     /// Последние 25 м реальной посадки автопилота и неподвижный корабль после касания.
     case lunaTouchdown
     /// Посадочный блок в 1.5 км над Луной (свободное падение, касание через ~40 с) при низком Солнце: видны кратеры у места посадки.
@@ -108,7 +118,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
     }
 
     /// Сценарий открывает не полёт, а экран космоцентра.
-    var opensBase: Bool { [.hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research].contains(self) }
+    var opensBase: Bool { [.hangar, .hangarEmpty, .hangarBoosters, .hangarRover, .spaceCenter, .research].contains(self) }
 
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
@@ -119,7 +129,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
         case .tarosOrbit: return Self.planetOrbit(.taros)
         case .vellaSurface: return Self.planetSurface(.vella)
         case .ardaSurface: return Self.planetSurface(.arda)
-        case .hangar, .hangarEmpty, .hangarBoosters, .spaceCenter, .research, .flight, .tutorial,
+        case .hangar, .hangarEmpty, .hangarBoosters, .hangarRover, .spaceCenter, .research, .flight, .tutorial,
              .crewGallery, .crewCalm:
             return FlightSim(design: .orbit)
         case .crewStrain: return DemoScenario.ascent.makeSimulation()
@@ -155,6 +165,23 @@ enum DemoScenario: String, CaseIterable, Sendable {
             }
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+        case .evaSurface, .evaLadder:
+            let flight = ScenarioFlight(design: self == .evaLadder ? .luna2 : .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+            flight.send(.evaExit)
+            // С лестницы вниз: до грунта (сцена «поверхность») или ~2 с (сцена «лестница»).
+            flight.setEVAInput(EVAInput(vertical: -1))
+            var t = 0.0
+            while t < (self == .evaLadder ? 2.5 : 30), flight.snapshot.controlled?.grip != nil {
+                _ = flight.advance(realDelta: 1.0 / 60)
+                t += 1.0 / 60
+            }
+            flight.setEVAInput(.neutral)
+            Self.roll(flight, seconds: self == .evaLadder ? 0.5 : 1.5)
+            return flight
+        case .evaOrbit:
+            return Self.evaOrbit()
+        case .roverDrive:
+            return Self.roverDrive()
         case .lunaTouchdown:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: true) { sim, ap in
                 sim.activeBody == .luna && ap.phase == .descent && sim.snapshot.telemetry.heightAboveTerrain < 25
@@ -258,6 +285,65 @@ enum DemoScenario: String, CaseIterable, Sendable {
                                     time: world.time) ?? ManeuverNode(time: world.time + 600)
     }
 
+    /// Капсула К-1 на круговой орбите Луны 30 км; космонавт снаружи, ранец выработан импульсами туда-обратно до ~18 %.
+    private static func evaOrbit() -> FlightSim {
+        let r = Vec3(Bodies.luna.radius + 30_000, 0, 0)
+        let v = Vec3(0, (Bodies.luna.mu / r.length).squareRoot(), 0)
+        let sim = FlightSim(design: VesselDesign(name: "EVA", parts: [.chute, .podK1]), body: .luna, position: r, velocity: v,
+                            attitude: Quat(basisX: Vec3.unitY, y: Vec3.unitX, z: Vec3.unitY.cross(Vec3.unitX)))
+        sim.send(.evaExit)
+        sim.send(.evaRelease)
+        let side = Vec3.unitX // вдоль корпуса: импульсы не упираются в борт
+        for k in 0..<40 {
+            sim.setEVAInput(EVAInput(move: side * [1.0, -1, -1, 1][k % 4]))
+            for _ in 0..<30 { _ = sim.advance(realDelta: 1.0 / 60) }
+        }
+        sim.setEVAInput(EVAInput(move: Vec3.unitY * 0.4))
+        for _ in 0..<60 { _ = sim.advance(realDelta: 1.0 / 60) }
+        sim.setEVAInput(.neutral)
+        for _ in 0..<120 { _ = sim.advance(realDelta: 1.0 / 60) }
+        return sim
+    }
+
+    /// «Луна-Р» садится автопилотом, ровер отделяется, космонавт спускается, идёт к креслу, садится и едет 3 с.
+    private static func roverDrive() -> ScenarioFlight {
+        let flight = ScenarioFlight(design: .lunaRover, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
+        flight.send(.deployRover)
+        flight.send(.evaExit)
+        func frames(_ seconds: Double, until done: () -> Bool = { false }) {
+            var t = 0.0
+            while t < seconds, !done() {
+                _ = flight.advance(realDelta: 1.0 / 60)
+                t += 1.0 / 60
+            }
+        }
+        flight.setEVAInput(EVAInput(vertical: -1))
+        frames(30) { flight.snapshot.controlled?.grip == nil }
+        // К креслу: по горизонтали к ближайшему «люку» ровера.
+        frames(40) {
+            let s = flight.snapshot
+            guard let c = s.controlled else { return true }
+            if c.hatchIsSeat, c.canBoard { return true }
+            guard let rover = s.vessels.first(where: { !$0.wheels.isEmpty }) else { return true }
+            let up = c.position.normalized
+            var d = rover.position - c.position
+            d = d - up * d.dot(up)
+            flight.setEVAInput(EVAInput(move: d.lengthSquared > 1e-6 ? d.normalized : .zero))
+            return false
+        }
+        flight.setEVAInput(.neutral)
+        flight.send(.evaBoard)
+        flight.setRoverInput(RoverInput(drive: 1))
+        frames(3)
+        flight.setRoverInput(RoverInput(drive: 0.6, steer: 0.2))
+        return flight
+    }
+
+    /// Прокрутить сцену `seconds` секунд кадрами по 1/60.
+    private static func roll(_ sim: some FlightSimulation, seconds: Double) {
+        for _ in 0..<Int(seconds * 60) { _ = sim.advance(realDelta: 1.0 / 60) }
+    }
+
     /// Прокрутка физики по 1/60 с до условия (не дольше 10 мин симуляции).
     private static func roll(_ sim: FlightSim, until done: (FlightSim) -> Bool) {
         var t = 0.0
@@ -312,6 +398,14 @@ final class ScenarioFlight: FlightSimulation, FlightCheckpointing {
 
     func send(_ command: FlightCommand) {
         sim.send(command)
+    }
+
+    func setEVAInput(_ input: EVAInput) {
+        sim.setEVAInput(input)
+    }
+
+    func setRoverInput(_ input: RoverInput) {
+        sim.setRoverInput(input)
     }
 
     func predictTrajectory(maxPatches: Int) -> Trajectory {

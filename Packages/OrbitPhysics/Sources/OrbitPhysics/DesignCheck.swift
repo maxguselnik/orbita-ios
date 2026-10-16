@@ -109,7 +109,8 @@ extension VesselDesign {
                 }
             }
             // Разделитель, который уносит часть без двигателей (и без командного модуля), — лишний.
-            for n in nodes where n.part.spec.kind == .decoupler && n.parent != nil {
+            // Разделитель ровера (6.3) уносит ровер, а не ступень, — не «лишний».
+            for n in nodes where n.part.spec.kind == .decoupler && n.parent != nil && !isRoverMount(n) {
                 let sub = subtreeIDs(n.id)
                 if sub.contains(where: { id in node(id).map { $0.part.spec.kind == .pod || $0.part.spec.kind == .probe } ?? false }) {
                     continue

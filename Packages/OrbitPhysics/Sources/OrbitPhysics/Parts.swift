@@ -12,10 +12,14 @@ public enum PartKind: String, Sendable, Hashable, Codable {
     case heatShield
     /// Научный прибор (крепится сбоку, детей не принимает; `ExperimentID.instrument`).
     case instrument
+    /// Ровер (этап 6.3): колесо (мотор, тормоз, руль — передние), рама, батарея, солнечная панель, кресло.
+    case wheel, roverFrame, battery, solar, seat
 }
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case chute, podK1, podK3, probe, decoupler, decouplerXL
+    /// Посадочная кабина ЛК-2 (6.2): 2 места, люк у пола.
+    case lk2
     case t100, t200, t400, t800, j64
     case legs
     case shtil, vikhr, titan, molot
@@ -26,6 +30,8 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case heatShield, heatShieldXL
     /// Научные приборы.
     case thermometer, barometer, gravimeter
+    /// Ровер (6.3).
+    case wheelK1, wheelK2, roverFrame, batteryB1, solarS1, roverSeat
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -58,12 +64,15 @@ public struct PartSpec: Sendable, Hashable {
         case .pod, .engine, .fairing: 2400
         case .tank, .decoupler, .monoTank, .fin: 2000
         case .probe, .chute, .legs, .rcs, .instrument: 1600
+        case .wheel, .roverFrame, .battery, .solar, .seat: 1200
         }
     }
 
     public var mount: PartMount {
         switch id {
-        case .decouplerRadial, .fin, .thermometer, .barometer, .gravimeter: .radial
+        case .decouplerRadial, .fin, .thermometer, .barometer, .gravimeter,
+             .wheelK1, .wheelK2, .batteryB1, .solarS1, .roverSeat: .radial
+        case .roverFrame: .any
         case .t100, .t200, .t400, .t800, .j64, .shtil, .vikhr, .titan, .molot, .rcsBlock, .m100: .any
         default: .axial
         }
@@ -79,6 +88,26 @@ public struct PartSpec: Sendable, Hashable {
     public func thrust(pressure p: Double) -> Double { massFlow * isp(pressure: p) * standardGravity }
 }
 
+// MARK: - Детали ровера (6.3)
+
+extension PartSpec {
+    /// Ёмкость батареи, ед. (`RoverBalance.batteryCapacity` у Б-1); 0 — не батарея.
+    public var chargeCapacity: Double { kind == .battery ? RoverBalance.batteryCapacity : 0 }
+    /// Заряд от панели на солнце, ед./с; 0 — не панель.
+    public var solarRate: Double { kind == .solar ? RoverBalance.solarCharge : 0 }
+    /// Колесо: радиус (половина `height`), м; 0 — не колесо.
+    public var wheelRadius: Double { kind == .wheel ? height / 2 : 0 }
+    /// Колесо: наибольшая сила мотора и тормоза на грунте, Н (до предела сцепления μ·нагрузка).
+    public var wheelMotorForce: Double {
+        switch id {
+        case .wheelK1: 150
+        case .wheelK2: 300
+        default: 0
+        }
+    }
+    public var wheelBrakeForce: Double { 2 * wheelMotorForce }
+}
+
 public enum PartCatalog {
     private static func make(_ id: PartID, _ name: String, _ kind: PartKind, dry: Double, fuel: Double = 0,
                              thrust: Double = 0, isp: (Double, Double) = (0, 0), solid: Bool = false,
@@ -92,6 +121,7 @@ public enum PartCatalog {
         make(.chute, "Парашют П-16", .chute, dry: 0.1, h: 0.35, w: 0.7),
         make(.podK1, "Капсула К-1", .pod, dry: 0.84, crew: 1, h: 1.6, w: 1.25),
         make(.podK3, "Капсула К-3", .pod, dry: 2.7, crew: 3, h: 2.2, w: 2.5),
+        make(.lk2, "Посадочная кабина ЛК-2", .pod, dry: 1.3, crew: 2, h: 1.4, w: 1.25),
         make(.probe, "Модуль управления", .probe, dry: 0.1, h: 0.5, w: 1.25),
         make(.decoupler, "Разделитель 1.25 м", .decoupler, dry: 0.05, h: 0.25, w: 1.25),
         make(.decouplerXL, "Разделитель XL 2.5 м", .decoupler, dry: 0.2, h: 0.3, w: 2.5),
@@ -119,6 +149,13 @@ public enum PartCatalog {
         make(.heatShieldXL, "Теплозащитный экран Э-2", .heatShield, dry: 0.3, fuel: 0.8, h: 0.3, w: 2.5),
         // Научные приборы (SPEC «Наука»): `h` — высота вдоль оси, `w` — вынос от борта.
         make(.thermometer, "Термометр Т-1", .instrument, dry: 0.005, h: 0.2, w: 0.12),
+        // Ровер (6.3): размеры колёс — высота = диаметр колеса, ширина = ширина шины; рама — длина по оси.
+        make(.wheelK1, "Колесо К-1", .wheel, dry: 0.04, h: 0.6, w: 0.25),
+        make(.wheelK2, "Колесо К-2", .wheel, dry: 0.08, h: 1.0, w: 0.35),
+        make(.roverFrame, "Рама «Тропа»", .roverFrame, dry: 0.15, h: 2.0, w: 0.6),
+        make(.batteryB1, "Батарея Б-1", .battery, dry: 0.02, h: 0.25, w: 0.35),
+        make(.solarS1, "Солнечная панель С-1", .solar, dry: 0.02, h: 0.6, w: 0.9),
+        make(.roverSeat, "Кресло", .seat, dry: 0.05, crew: 1, h: 0.6, w: 0.5),
         make(.barometer, "Барометр Б-1", .instrument, dry: 0.05, h: 0.3, w: 0.2),
         make(.gravimeter, "Гравиметр Г-1", .instrument, dry: 0.05, h: 0.35, w: 0.2),
     ]
@@ -141,6 +178,10 @@ extension VesselDesign {
     public static let luna = VesselDesign(name: "Луна", parts: [.chute, .podK1, .heatShield, .decoupler, .t800, .legs,
                                                                .shtil, .decoupler, .t800, .t800, .vikhr,
                                                                .decouplerXL, .j64, .titan])
+    /// «Луна-2» (6.2): как «Луна», но с посадочной кабиной ЛК-2 (2 места, люк у пола) вместо К-1.
+    public static let luna2 = VesselDesign(name: "Луна-2", parts: [.chute, .lk2, .heatShield, .decoupler, .t800, .legs,
+                                                                  .shtil, .decoupler, .t800, .t800, .vikhr,
+                                                                  .decouplerXL, .j64, .titan])
     /// «Ускорители»: ядро как у «Орбиты» без средней ступени, два РДТТ «Молот» на боковых разделителях
     /// с обтекателями сверху, четыре стабилизатора у низа ядра.
     public static let boosters: VesselDesign = {
@@ -168,7 +209,35 @@ extension VesselDesign {
         d.normalizeOrder()
         return d.autoStaged()
     }()
-    public static let presets: [VesselDesign] = [jump, orbit, luna, boosters]
+    /// «Луна-Р» (6.3): «Луна» с ровером «Тропа» на боковом разделителе посадочного бака Т-800.
+    public static let lunaRover: VesselDesign = {
+        var d = VesselDesign(name: "Луна-Р", parts: luna.parts)
+        d.addRover(on: 4)
+        return d
+    }()
+
+    /// Ровер «Тропа» на боковом разделителе детали `parentID` (сторона −Z, напротив люка и лестницы).
+    /// Рама повёрнута на 180° вокруг своей оси: верх ровера (+Z рамы) — наружу; колёса К-1 по бортам
+    /// (азимуты рамы 0°/180°), батарея, кресло и панель — сверху (90°), опущены на 0.2 м к платформе.
+    /// Разделитель ровера не в ступенях — его отделяет `deployRover`.
+    mutating func addRover(on parentID: Int) {
+        let base = nextID
+        let dec = base, frame = base + 1
+        nodes.append(DesignPart(id: dec, part: .decouplerRadial, parent: parentID, node: .radial, angle: 270, height: 0.5))
+        nodes.append(DesignPart(id: frame, part: .roverFrame, parent: dec, node: .radial, angle: 270, height: 0.5,
+                                rotation: Vec3(0, 180, 0)))
+        for (k, (a, h)) in [(0.0, 0.15), (180.0, 0.15), (0.0, 0.85), (180.0, 0.85)].enumerated() {
+            nodes.append(DesignPart(id: base + 2 + k, part: .wheelK1, parent: frame, node: .radial, angle: a, height: h))
+        }
+        let down = Vec3(0, 0, 0.2) // оси корабля: верх ровера — −Z
+        for (k, (p, h)) in [(PartID.batteryB1, 0.15), (.roverSeat, 0.5), (.solarS1, 0.85)].enumerated() {
+            nodes.append(DesignPart(id: base + 6 + k, part: p, parent: frame, node: .radial, angle: 90, height: h,
+                                    offset: down))
+        }
+        normalizeOrder()
+        self = autoStaged()
+    }
+    public static let presets: [VesselDesign] = [jump, orbit, luna, luna2, boosters, lunaRover]
 
     /// Полная масса, кг.
     public var mass: Double { parts.reduce(0) { $0 + $1.spec.wetMass } }
