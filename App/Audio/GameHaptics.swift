@@ -29,6 +29,9 @@ final class GameHaptics: FlightHaptics {
 
     private lazy var patterns = HapticPatterns()
     private var gripTracker = GripTracker()
+    private var roverHandbrake: Bool?
+    private var roverAirborneSince: ContinuousClock.Instant?
+    private var roverWasGrounded = false
 
     init() {}
 
@@ -73,7 +76,31 @@ final class GameHaptics: FlightHaptics {
         default: break
         }
 
+        updateRover(snapshot.rover)
         updateRumble(snapshot.telemetry)
+    }
+
+    /// Ровер: лёгкий тик на ручнике и мягкий толчок при приземлении после полёта ≥ 0.3 с.
+    private func updateRover(_ rover: RoverStatus?) {
+        guard let rover else {
+            roverHandbrake = nil
+            roverAirborneSince = nil
+            roverWasGrounded = false
+            return
+        }
+        if let previous = roverHandbrake, previous != rover.handbrake { play(patterns.evaTap) }
+        roverHandbrake = rover.handbrake
+        let now = ContinuousClock.now
+        if rover.wheelsOnGround > 0 {
+            if !roverWasGrounded, let since = roverAirborneSince, now - since >= .milliseconds(300) {
+                play(patterns.roverBump)
+            }
+            roverAirborneSince = nil
+            roverWasGrounded = true
+        } else {
+            if roverWasGrounded || roverAirborneSince == nil { roverAirborneSince = now }
+            roverWasGrounded = false
+        }
     }
 
     /// Экипаж: лёгкий двойной тап на радость, резкий короткий на панику и аварию. Остальное — без вибрации.
@@ -284,6 +311,10 @@ struct HapticPatterns {
     ])
     let evaTap = HapticPatterns.make([
         .transient(0, intensity: 0.3, sharpness: 0.4),
+    ])
+    let roverBump = HapticPatterns.make([
+        .transient(0, intensity: 0.55, sharpness: 0.3),
+        .continuous(0, duration: 0.12, intensity: 0.3, sharpness: 0.1, fade: true),
     ])
     let evaGrip = HapticPatterns.make([
         .transient(0, intensity: 0.5, sharpness: 0.7),

@@ -26,6 +26,7 @@ final class ProceduralAudio: FlightAudio {
     private var lastStartAttempt: ContinuousClock.Instant?
     private var pendingStop: Task<Void, Never>?
     private var gripTracker = GripTracker()
+    private var roverTracker = RoverTracker()
 
     init() {
         Self.observeSession(into: sessionObservers, flags: flags, didBecomeActive: UIApplication.didBecomeActiveNotification)
@@ -57,6 +58,25 @@ final class ProceduralAudio: FlightAudio {
         } else {
             control.jet = 0
             control.stepRate = 0
+        }
+        // Ровер: гул мотора по нагрузке и скорости, хруст грунта по скорости при колёсах на земле.
+        if let rover = snapshot.rover, !crashed {
+            let v = min(abs(rover.speed) / 12, 1)
+            let load = min(max(rover.motorLoad, 0), 1)
+            let idle = rover.chargeFraction > 0 ? 0.06 : 0 // тихое дежурное гудение под зарядом
+            control.roverHum = load > 0 || v > 0.02 ? min(0.15 + 0.5 * load + 0.4 * v, 1) : idle
+            control.roverPitch = min(0.7 * v + 0.3 * load, 1)
+            control.roverCrunch = (rover.wheelsOnGround > 0 && abs(rover.speed) > 0.2) ? min(0.2 + 0.8 * v, 1) : 0
+            switch roverTracker.update(rover) {
+            case .handbrake: control.shots.handbrakeClick &+= 1
+            case .lowCharge: control.shots.lowChargeBeep &+= 1
+            case nil: break
+            }
+        } else {
+            control.roverHum = 0
+            control.roverPitch = 0
+            control.roverCrunch = 0
+            _ = roverTracker.update(nil)
         }
         switch gripTracker.update(snapshot.controlled) {
         case .grabbed: control.shots.gripOn &+= 1
@@ -337,6 +357,34 @@ struct GripTracker {
         guard id == member else { return nil } // смена космонавта — не событие
         if nowGripped != gripped { return nowGripped ? .grabbed : .released }
         if let a = rung, let b = nowRung, a != b { return b > a ? .rungUp : .rungDown }
+        return nil
+    }
+}
+
+/// Одноразовые сигналы ровера: смена ручника и падение заряда ниже порога (один раз, до подзарядки выше порога + гистерезис).
+struct RoverTracker {
+    enum Change { case handbrake, lowCharge }
+    static let lowChargeThreshold = 0.15
+    static let rearmThreshold = 0.2
+
+    private var seen = false
+    private var handbrake = false
+    private var lowWarned = false
+
+    mutating func update(_ rover: RoverStatus?) -> Change? {
+        guard let rover else { seen = false; lowWarned = false; return nil }
+        defer { handbrake = rover.handbrake; seen = true }
+        let fraction = rover.chargeFraction
+        if fraction >= Self.rearmThreshold { lowWarned = false }
+        guard seen else { // первый кадр: запоминаем, без звуков
+            lowWarned = fraction < Self.lowChargeThreshold
+            return nil
+        }
+        if rover.handbrake != handbrake { return .handbrake }
+        if fraction < Self.lowChargeThreshold, !lowWarned, rover.chargeCapacity > 0 {
+            lowWarned = true
+            return .lowCharge
+        }
         return nil
     }
 }
