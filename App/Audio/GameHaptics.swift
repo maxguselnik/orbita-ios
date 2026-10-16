@@ -28,6 +28,10 @@ final class GameHaptics: FlightHaptics {
     private var watchdog: Task<Void, Never>?
 
     private lazy var patterns = HapticPatterns()
+    private var gripTracker = GripTracker()
+    private var roverHandbrake: Bool?
+    private var roverAirborneSince: ContinuousClock.Instant?
+    private var roverWasGrounded = false
 
     init() {}
 
@@ -53,12 +57,50 @@ final class GameHaptics: FlightHaptics {
             case .crash(let speed):
                 stopRumble()
                 play(HapticPatterns.crash(speed: speed))
+            case .evaLanded(_, let speed):
+                play(HapticPatterns.evaLanded(speed: speed))
+            case .evaInjured, .evaDied:
+                play(patterns.evaHurt)
+            case .flagPlanted, .evaScienceCollected:
+                play(patterns.evaTap)
+            case .evaExited, .evaBoarded:
+                play(patterns.evaHatch)
             default:
                 break
             }
         }
 
+        switch gripTracker.update(snapshot.controlled) {
+        case .grabbed: play(patterns.evaGrip)
+        case .released: play(patterns.evaTap)
+        default: break
+        }
+
+        updateRover(snapshot.rover)
         updateRumble(snapshot.telemetry)
+    }
+
+    /// Ровер: лёгкий тик на ручнике и мягкий толчок при приземлении после полёта ≥ 0.3 с.
+    private func updateRover(_ rover: RoverStatus?) {
+        guard let rover else {
+            roverHandbrake = nil
+            roverAirborneSince = nil
+            roverWasGrounded = false
+            return
+        }
+        if let previous = roverHandbrake, previous != rover.handbrake { play(patterns.evaTap) }
+        roverHandbrake = rover.handbrake
+        let now = ContinuousClock.now
+        if rover.wheelsOnGround > 0 {
+            if !roverWasGrounded, let since = roverAirborneSince, now - since >= .milliseconds(300) {
+                play(patterns.roverBump)
+            }
+            roverAirborneSince = nil
+            roverWasGrounded = true
+        } else {
+            if roverWasGrounded || roverAirborneSince == nil { roverAirborneSince = now }
+            roverWasGrounded = false
+        }
     }
 
     /// Экипаж: лёгкий двойной тап на радость, резкий короткий на панику и аварию. Остальное — без вибрации.
@@ -262,6 +304,25 @@ struct HapticPatterns {
     let crewSharp = HapticPatterns.make([
         .transient(0, intensity: 0.9, sharpness: 0.9),
     ])
+    let evaHurt = HapticPatterns.make([
+        .transient(0, intensity: 1, sharpness: 0.9),
+        .continuous(0, duration: 0.5, intensity: 0.8, sharpness: 0.3, fade: true),
+        .transient(0.12, intensity: 0.8, sharpness: 0.7),
+    ])
+    let evaTap = HapticPatterns.make([
+        .transient(0, intensity: 0.3, sharpness: 0.4),
+    ])
+    let roverBump = HapticPatterns.make([
+        .transient(0, intensity: 0.55, sharpness: 0.3),
+        .continuous(0, duration: 0.12, intensity: 0.3, sharpness: 0.1, fade: true),
+    ])
+    let evaGrip = HapticPatterns.make([
+        .transient(0, intensity: 0.5, sharpness: 0.7),
+    ])
+    let evaHatch = HapticPatterns.make([
+        .transient(0, intensity: 0.6, sharpness: 0.6),
+        .transient(0.08, intensity: 0.45, sharpness: 0.3),
+    ])
     /// Гул двигателей: долгое непрерывное событие, зацикливается плеером.
     let rumble = HapticPatterns.make([
         .continuous(0, duration: 30, intensity: 1, sharpness: 0.2, fade: false),
@@ -270,6 +331,12 @@ struct HapticPatterns {
     static func touchdown(speed: Double) -> CHHapticPattern? {
         let k = Float(0.35 + min(max(speed, 0) / 10, 1) * 0.65)
         return make([.transient(0, intensity: k, sharpness: 0.4)])
+    }
+
+    /// Касание космонавта: лёгкая, растёт со скоростью.
+    static func evaLanded(speed: Double) -> CHHapticPattern? {
+        let k = Float(0.15 + min(max(speed, 0) / 8, 1) * 0.45)
+        return make([.transient(0, intensity: k, sharpness: 0.3)])
     }
 
     /// Авария: сила растёт со скоростью удара (от 0.6 до 1 на 30 м/с).

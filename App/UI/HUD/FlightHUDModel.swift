@@ -64,6 +64,30 @@ final class FlightHUDModel {
     /// Детали активного корабля сверху вниз: стек ступеней и экипаж в HUD. Меняется при отделении.
     private(set) var parts: [PartID]
     private(set) var toast: HUDToast?
+    /// EVA: данные HUD управляемого космонавта (nil — управляем кораблём). Меняется только при смене отображаемого.
+    private(set) var eva: EVAHUDState?
+    /// Космонавтов снаружи и почему нельзя выйти — для переключателя «Корабль | Космонавт».
+    private(set) var evaOutside = 0
+    /// Кто из экипажа снаружи и кто погиб (метки в полосе экипажа).
+    private(set) var evaOutsideIDs: [String] = []
+    private(set) var evaDeadIDs: [String] = []
+    @ObservationIgnored private var evaLastGrip: (String, Bool)?
+    private(set) var evaExitBlocker: EVABlocker?
+    /// Джойстик космонавта (x вправо, y вперёд) и «Вниз/Вверх» (−1…1): пишут вьюхи, читает `tick`.
+    @ObservationIgnored var evaStick = SIMD2<Double>.zero
+    @ObservationIgnored var evaVertical = 0.0
+    @ObservationIgnored private var wasEVA = false
+    /// Ровер (6.3): данные HUD активного ровера (nil — активный корабль не ровер), можно ли отделить ровер,
+    /// корабли и роверы для переключателя. Меняются только при смене отображаемого.
+    private(set) var rover: RoverHUDState?
+    private(set) var roverDeployable = false
+    private(set) var controllable: [ControllableVessel] = []
+    /// Джойстик ровера (x вправо, y вперёд, −1…1): пишет вьюха, читает `tick`.
+    @ObservationIgnored var roverStick = SIMD2<Double>.zero
+    @ObservationIgnored private var wasRover = false
+    @ObservationIgnored private var roverLastDriver: (VesselID?, String?)?
+    /// Только что нажато «Отделить ровер»: событие разделения этого кадра без тоста ступени.
+    @ObservationIgnored var roverJustDeployed = false
     /// Панель итогов полёта: авария или посадка.
     private(set) var result: FlightResult?
     /// Подсказка первого полёта (показывает вьюха, если подсказки включены).
@@ -255,6 +279,7 @@ final class FlightHUDModel {
         if scenario == .mapManeuver, maneuverNode != nil { maneuverGoal = .toLuna }
         refreshGoals(now: 0)
         saveTutorialCheckpoint()
+        refreshEVA(snapshot)
     }
 
     /// Один кадр игрового цикла; `now` — время кадра в секундах (CACurrentMediaTime).
@@ -278,13 +303,52 @@ final class FlightHUDModel {
         refreshGoals(now: now)
         let tilt = feedback?.tiltInput() ?? (pitch: 0, roll: 0)
         let axes = attitudeAxes(now: now)
-        sim.setInput(ControlInput(
-            throttle: throttle,
-            pitch: min(max(axes.pitch + tilt.pitch, -1), 1),
-            yaw: axes.yaw,
-            roll: min(max(axes.roll + tilt.roll, -1), 1),
-            translation: rcs.enabled ? translationInput : .zero
-        ))
+        if snapshot.controlledCosmonaut != nil {
+            // Управляем космонавтом: кораблю нейтральный ввод, космонавту — джойстик в осях камеры.
+            if !wasEVA {
+                wasEVA = true
+                throttle = 0
+                // Автопрожиг не продолжается без пилота: иначе отделит ступень, пока экипаж снаружи.
+                if executor != nil {
+                    executor = nil
+                    autoBurnText = nil
+                    notify("Автопрожиг отменён")
+                }
+            }
+            if wasRover {
+                wasRover = false
+                roverStick = .zero
+                sim.setRoverInput(.neutral)
+            }
+            sim.setInput(.neutral)
+            sim.setEVAInput(evaInput())
+        } else if snapshot.rover != nil {
+            // Управляем ровером: кораблю нейтральный ввод, ровер получает джойстик.
+            if !wasRover {
+                wasRover = true
+                throttle = 0
+            }
+            sim.setInput(.neutral)
+            sim.setRoverInput(roverInput())
+        } else {
+            if wasRover {
+                wasRover = false
+                roverStick = .zero
+                sim.setRoverInput(.neutral)
+            }
+            if wasEVA {
+                wasEVA = false
+                evaStick = .zero
+                evaVertical = 0
+            }
+            sim.setInput(ControlInput(
+                throttle: throttle,
+                pitch: min(max(axes.pitch + tilt.pitch, -1), 1),
+                yaw: axes.yaw,
+                roll: min(max(axes.roll + tilt.roll, -1), 1),
+                translation: rcs.enabled ? translationInput : .zero
+            ))
+        }
         applyManeuverDrag(now: now, delta: delta)
         if let tutorial, tutorial.holdsPhysics {
             // Пауза урока: мир стоит, но сцена рисуется (камера), карта считает прогноз узла,
@@ -303,7 +367,14 @@ final class FlightHUDModel {
         feedback?.crew(crew.update(telemetry: snapshot.telemetry, events: events, dt: delta))
         map.update(sim: sim, now: now)
         advise(events: events, now: now)
-        if let message = events.compactMap(Self.message(for:)).last {
+        // Сел в кресло ровера — тост «за рулём» даёт смена водителя, «в капсуле» не нужен.
+        var shown = snapshot.rover == nil ? events : events.filter { if case .evaBoarded = $0 { false } else { true } }
+        // «Отделить ровер» — тост свой, не «нижняя ступень отделена».
+        if roverJustDeployed {
+            roverJustDeployed = false
+            shown = shown.filter { if case .separation = $0 { false } else { true } }
+        }
+        if let message = shown.compactMap(Self.message(for:)).last {
             show(message, now: now)
         }
         if let tutorial { tutorialFrame(tutorial, delta: delta) }
@@ -939,8 +1010,52 @@ final class FlightHUDModel {
     /// Шаги миссии для карточки (с учётом монотонного прогресса).
     var missionSteps: [MissionStep] { MissionChecklist.steps(telemetry, reached: missionProgress) }
 
+    private func refreshEVA(_ snapshot: WorldSnapshot) {
+        // Тосты захвата (6.2): по смене `grip` у того же космонавта (событий в контракте нет).
+        let current = snapshot.controlled.map { ($0.memberID, $0.grip != nil) }
+        // Сошёл с лестницы на грунт — не «отпустила».
+        let steppedOff = snapshot.controlled?.onGround == true
+        if let current, let last = evaLastGrip, last.0 == current.0, last.1 != current.1, current.1 || !steppedOff {
+            let id = current.0
+            notify(Self.evaName(id) + " " + (current.1 ? "держится" : Self.evaVerb(id, "отпустил", "отпустила")))
+        }
+        evaLastGrip = current
+        let next = snapshot.controlled.map(EVAHUDState.init)
+        if eva != next { eva = next }
+        let outsideIDs = snapshot.cosmonauts.map(\.memberID)
+        if evaOutsideIDs != outsideIDs { evaOutsideIDs = outsideIDs }
+        if evaDeadIDs != snapshot.deadCrew { evaDeadIDs = snapshot.deadCrew }
+        if evaOutside != snapshot.cosmonauts.count { evaOutside = snapshot.cosmonauts.count }
+        if evaExitBlocker != snapshot.evaExitBlocker { evaExitBlocker = snapshot.evaExitBlocker }
+        refreshRover(snapshot)
+    }
+
+    /// Ровер (6.3): состояние HUD и тосты «за рулём» / «встала» по смене водителя того же ровера.
+    private func refreshRover(_ snapshot: WorldSnapshot) {
+        if let status = snapshot.rover {
+            let sameRover = roverLastDriver?.0 == snapshot.activeVessel
+            let lastDriver = sameRover ? roverLastDriver?.1 : nil
+            // Сел с EVA: до посадки активен был корабль — «за рулём» и в этом случае.
+            if roverLastDriver == nil || !sameRover || lastDriver != status.driverID {
+                if let id = status.driverID, lastDriver != id, roverLastDriver != nil || !sameRover {
+                    notify(Self.evaName(id) + " за рулём")
+                } else if status.driverID == nil, let old = lastDriver {
+                    notify(Self.evaName(old) + " " + Self.evaVerb(old, "встал", "встала"))
+                }
+            }
+            roverLastDriver = (snapshot.activeVessel, status.driverID)
+        } else {
+            roverLastDriver = nil
+        }
+        let next = snapshot.rover.map { RoverHUDState($0, name: RoverHUDState.roverName(snapshot)) }
+        if rover != next { rover = next }
+        if roverDeployable != snapshot.roverDeployable { roverDeployable = snapshot.roverDeployable }
+        if controllable != snapshot.controllable { controllable = snapshot.controllable }
+    }
+
     private func publish(_ snapshot: WorldSnapshot) {
         self.snapshot = snapshot
+        refreshEVA(snapshot)
         let currentThrottle = snapshot.vessels.first(where: { $0.id == snapshot.activeVessel })?.throttle ?? throttle
         if throttle != currentThrottle { throttle = currentThrottle }
         let t = snapshot.telemetry
@@ -1092,6 +1207,22 @@ final class FlightHUDModel {
             return "Сгорела деталь: \(part.spec.name)"
         case .warpReset(let reason):
             return "Ускорение сброшено: \(warpReasonText(reason))"
+        case .evaExited(let id):
+            return "\(evaName(id)) \(evaVerb(id, "вышел", "вышла"))"
+        case .evaBoarded(let id):
+            return "\(evaName(id)) в капсуле"
+        case .evaInjured(let id, let speed):
+            return "\(evaName(id)) \(evaVerb(id, "травмирован", "травмирована")) · \(HUDFormat.speed(speed))"
+        case .evaDied(let id, let speed):
+            return "\(evaName(id)) \(evaVerb(id, "погиб", "погибла")) · \(HUDFormat.speed(speed))"
+        case .flagPlanted:
+            return "Флаг установлен"
+        case .evaScienceCollected(let subject):
+            return "Данные: \(subject.experiment.title) · \(subject.placeTitle)"
+        case .jetpackEmpty:
+            return "Ранец пуст"
+        case .evaLanded:
+            return nil
         }
     }
 
@@ -1102,6 +1233,7 @@ final class FlightHUDModel {
         case .thrust: "работает двигатель"
         case .soiChange: "смена сферы влияния"
         case .maneuver: "узел манёвра"
+        case .eva: "космонавт снаружи"
         }
     }
 }

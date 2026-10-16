@@ -53,6 +53,7 @@ final class GameFlow {
         case .hangarFuels:
             design = VesselDesign(name: "Топливо", parts: [.chute, .podK1, .gasJet, .n50, .decoupler, .mk400, .t800,
                                                           .spolokh, .vikhr])
+        case .hangarRover: design = .lunaRover
         case .spaceCenter: progress = GameProgress(mode: .science, science: 12, milestones: [.launch, .above10km])
         case .research:
             progress = GameProgress(mode: .science, science: 37, researched: [.basics, .rocketry, .stability],

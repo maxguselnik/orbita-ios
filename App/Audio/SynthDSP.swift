@@ -23,6 +23,15 @@ struct SynthControl: Sendable {
     var chute = 0.0
     /// Космический эмбиент 0…1.
     var space = 0.0
+    /// Шипение ранца космонавта 0…1.
+    var jet = 0.0
+    /// Частота шагов, Гц (0 — не идёт).
+    var stepRate = 0.0
+    /// Гул электромотора ровера 0…1 (громкость) и его высота 0…1 (по скорости и нагрузке).
+    var roverHum = 0.0
+    var roverPitch = 0.0
+    /// Хруст грунта под колёсами ровера 0…1.
+    var roverCrunch = 0.0
     var sampleRate = 48_000.0
     /// Растёт с каждой отправкой; если долго не меняется (пауза, фон) — лупы затихают.
     var serial: UInt64 = 0
@@ -136,6 +145,18 @@ struct OneShotCounters: Sendable, Equatable {
     var touchdown: UInt32 = 0
     var splashdown: UInt32 = 0
     var crash: UInt32 = 0
+    var evaLanded: UInt32 = 0
+    var evaInjured: UInt32 = 0
+    var evaDied: UInt32 = 0
+    var hatch: UInt32 = 0
+    var ping: UInt32 = 0
+    var jetEmpty: UInt32 = 0
+    var gripOn: UInt32 = 0
+    var gripOff: UInt32 = 0
+    var rungUp: UInt32 = 0
+    var rungDown: UInt32 = 0
+    var handbrakeClick: UInt32 = 0
+    var lowChargeBeep: UInt32 = 0
 }
 
 /// Фильтр с переменным состоянием (топология TPT): устойчив при любом изменении частоты.
@@ -226,6 +247,8 @@ final class SynthDSP: @unchecked Sendable {
     // Сглаженные значения.
     private var sMaster = 0.0, sThrust = 0.0, sSolid = 0.0, sAir = 1.0
     private var sWind = 0.0, sHeat = 0.0, sChute = 0.0, sSpace = 0.0
+    private var sJet = 0.0, sStepRate = 0.0, stepPhase = 0.0, stepToggle = false
+    private var sHum = 0.0, sPitch = 0.0, sCrunch = 0.0, humPhase = 0.0, humPhase2 = 0.0
     private var smoothFast = 0.0, smoothSlow = 0.0, smoothPad = 0.0
     private var counter = 0
 
@@ -245,6 +268,8 @@ final class SynthDSP: @unchecked Sendable {
     private var crackleFilter = SVF()
     private var windFilter = SVF()
     private var heatFilter = SVF()
+    private var jetFilter = SVF()
+    private var crunchFilter = SVF()
     private var voices = [Voice](repeating: Voice(), count: SynthDSP.voiceCount)
     private var crewVoices = [CrewVoice](repeating: CrewVoice(), count: 3)
 
@@ -310,7 +335,7 @@ final class SynthDSP: @unchecked Sendable {
         smoothFast = 1 - exp(-1 / (0.06 * rate))
         smoothSlow = 1 - exp(-1 / (0.25 * rate))
         smoothPad = 1 - exp(-1 / (1.5 * rate))
-        engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
+        engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset(); jetFilter.reset(); crunchFilter.reset()
         for i in voices.indices { voices[i].active = false }
         for i in crewVoices.indices { crewVoices[i].active = false }
     }
@@ -318,9 +343,10 @@ final class SynthDSP: @unchecked Sendable {
     /// Новый полёт: обнуляем непрерывные звуки, хвосты и фильтры. `sMaster` не трогаем — он сам плавно нарастёт.
     private func resetState() {
         sThrust = 0; sSolid = 0; sAir = c.air
-        sWind = 0; sHeat = 0; sChute = 0; sSpace = 0
+        sWind = 0; sHeat = 0; sChute = 0; sSpace = 0; sJet = 0; sStepRate = 0; stepPhase = 0
+        sHum = 0; sPitch = 0; sCrunch = 0; humPhase = 0; humPhase2 = 0
         crackleEnv = 0
-        engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset()
+        engineFilter.reset(); crackleFilter.reset(); windFilter.reset(); heatFilter.reset(); jetFilter.reset(); crunchFilter.reset()
         for i in voices.indices { voices[i].active = false }
         for i in crewVoices.indices { crewVoices[i].active = false }
         seenCrew = c.crewSerial
@@ -338,6 +364,9 @@ final class SynthDSP: @unchecked Sendable {
         let w = min(sWind + sHeat * 0.6, 1.4)
         windFilter.set(frequency: 350 + w * 1500 + gust * 300, q: 0.5, sampleRate: sampleRate)
         heatFilter.set(frequency: 1800 + sHeat * 2500, q: 0.6, sampleRate: sampleRate)
+        jetFilter.set(frequency: 2200 + sJet * 1400 + gust * 300, q: 0.6, sampleRate: sampleRate)
+
+        crunchFilter.set(frequency: 500 + sCrunch * 900 + gust * 200, q: 0.9, sampleRate: sampleRate)
 
         crewTick()
         for i in voices.indices where voices[i].active {
@@ -389,6 +418,11 @@ final class SynthDSP: @unchecked Sendable {
         sHeat += (c.heat * loops - sHeat) * smoothSlow
         sChute += (c.chute * loops - sChute) * smoothSlow
         sSpace += (c.space * loops - sSpace) * smoothPad
+        sJet += (c.jet * loops - sJet) * smoothFast
+        sStepRate = c.stepRate * loops
+        sHum += (c.roverHum * loops - sHum) * smoothFast
+        sPitch += (c.roverPitch - sPitch) * smoothSlow
+        sCrunch += (c.roverCrunch * loops - sCrunch) * smoothFast
 
         let n = white()
         brown = (brown + 0.02 * n) / 1.02
@@ -449,6 +483,41 @@ final class SynthDSP: @unchecked Sendable {
             pad += sin(twoPi * padPhase.1) * (0.33 + 0.16 * sin(twoPi * padLFO.1))
             pad += sin(twoPi * padPhase.2) * (0.33 + 0.16 * sin(twoPi * padLFO.2))
             out += pad * sSpace * 0.05
+        }
+
+        // Шипение ранца: узкополосный шум, громкость по тяге сопел.
+        if sJet > 0.0005 {
+            out += jetFilter.process(n).bp * sJet * 0.32 * (1 + gust * 1.5)
+        }
+
+        // Шаги: удар на каждом обороте фазы, чередуем лёгкую и чуть более низкую ногу.
+        if sStepRate > 0.1 {
+            stepPhase += sStepRate / sampleRate
+            if stepPhase >= 1 {
+                stepPhase -= 1
+                stepToggle.toggle()
+                let pitch = stepToggle ? 1.0 : 0.88
+                let speedK = min(max((sStepRate - 1.2) / 1.0, 0), 1)
+                start(Shot(wave: .sine, f0: 95 * pitch, f1: 45, duration: 0.11, volume: 0.16 + 0.06 * speedK), scale: 1)
+                start(Shot(wave: .noise, mode: .low, f0: 520, f1: 120, duration: 0.08, volume: 0.1), scale: 1)
+            }
+        } else {
+            stepPhase = 0
+        }
+
+        // Электромотор ровера: две синусоиды (основная и квинта) + лёгкий вой, высота растёт со скоростью.
+        if sHum > 0.0005 {
+            let f = 70 + 150 * sPitch
+            humPhase = (humPhase + f / sampleRate).truncatingRemainder(dividingBy: 1)
+            humPhase2 = (humPhase2 + f * 3 / sampleRate).truncatingRemainder(dividingBy: 1)
+            let tone = sin(2 * Double.pi * humPhase) * 0.8 + sin(2 * Double.pi * humPhase2) * (0.15 + 0.2 * sPitch)
+            out += tone * sHum * 0.16
+        }
+
+        // Хруст грунта: полосовой шум с неровной огибающей, громкость по скорости.
+        if sCrunch > 0.0005 {
+            let rough = 0.55 + 0.9 * abs(flicker * 40)
+            out += crunchFilter.process(n).bp * sCrunch * 0.3 * min(rough, 1.4)
         }
 
         out += renderVoices()
@@ -628,6 +697,61 @@ final class SynthDSP: @unchecked Sendable {
             let k = 0.25 + min(impact / 10, 1) * 0.75
             start(Shot(wave: .sine, f0: 100, f1: 40, duration: 0.25, volume: 0.6), scale: k * body)
             start(Shot(wave: .noise, mode: .low, f0: 800, f1: 150, duration: 0.2, volume: 0.4), scale: k * body)
+        }
+        if s.evaLanded != seenShots.evaLanded {
+            let k = 0.2 + min(impact / 8, 1) * 0.6
+            start(Shot(wave: .sine, f0: 85, f1: 38, duration: 0.2, volume: 0.6), scale: k)
+            start(Shot(wave: .noise, mode: .low, f0: 600, f1: 100, duration: 0.14, volume: 0.35), scale: k)
+        }
+        if s.evaInjured != seenShots.evaInjured {
+            for i in 0..<3 {
+                start(Shot(wave: .triangle, f0: 1250, f1: 950, duration: 0.11, volume: 0.32, delay: Double(i) * 0.15), scale: 1)
+            }
+            start(Shot(wave: .sine, f0: 70, f1: 35, duration: 0.25, volume: 0.45), scale: 1)
+        }
+        if s.evaDied != seenShots.evaDied {
+            start(Shot(wave: .saw, f0: 110, f1: 52, duration: 1.6, volume: 0.28), scale: 1)
+            start(Shot(wave: .sine, f0: 82, f1: 48, duration: 1.8, volume: 0.4), scale: 1)
+            start(Shot(wave: .triangle, f0: 330, f1: 220, duration: 0.8, volume: 0.12, delay: 0.1), scale: 1)
+        }
+        if s.hatch != seenShots.hatch {
+            start(Shot(wave: .noise, mode: .band, f0: 3200, f1: 900, duration: 0.05, volume: 0.45, q: 1.2), scale: 1)
+            start(Shot(wave: .sine, f0: 160, f1: 70, duration: 0.09, volume: 0.35), scale: 1)
+            start(Shot(wave: .noise, mode: .high, f0: 4500, f1: 1800, duration: 0.55, volume: 0.22, delay: 0.07), scale: 1)
+        }
+        if s.gripOn != seenShots.gripOn {
+            start(Shot(wave: .noise, mode: .band, f0: 2800, f1: 1200, duration: 0.035, volume: 0.4, q: 1.4), scale: 1)
+            start(Shot(wave: .triangle, f0: 420, f1: 260, duration: 0.07, volume: 0.28), scale: 1)
+        }
+        if s.gripOff != seenShots.gripOff {
+            start(Shot(wave: .noise, mode: .band, f0: 2200, f1: 1000, duration: 0.03, volume: 0.3, q: 1.4), scale: 1)
+            start(Shot(wave: .triangle, f0: 300, f1: 200, duration: 0.06, volume: 0.2), scale: 1)
+        }
+        if s.rungUp != seenShots.rungUp {
+            start(Shot(wave: .triangle, f0: 640, f1: 520, duration: 0.08, volume: 0.1), scale: 1)
+            start(Shot(wave: .noise, mode: .band, f0: 2400, f1: 900, duration: 0.03, volume: 0.1, q: 1.6), scale: 1)
+        }
+        if s.rungDown != seenShots.rungDown {
+            start(Shot(wave: .triangle, f0: 560, f1: 450, duration: 0.08, volume: 0.1), scale: 1)
+            start(Shot(wave: .noise, mode: .band, f0: 2000, f1: 800, duration: 0.03, volume: 0.1, q: 1.6), scale: 1)
+        }
+        if s.handbrakeClick != seenShots.handbrakeClick {
+            start(Shot(wave: .noise, mode: .band, f0: 2400, f1: 1100, duration: 0.03, volume: 0.4, q: 1.5), scale: 1)
+            start(Shot(wave: .triangle, f0: 260, f1: 150, duration: 0.07, volume: 0.25), scale: 1)
+            start(Shot(wave: .noise, mode: .band, f0: 1800, f1: 900, duration: 0.025, volume: 0.3, q: 1.5, delay: 0.06), scale: 1)
+        }
+        if s.lowChargeBeep != seenShots.lowChargeBeep {
+            start(Shot(wave: .sine, f0: 740, f1: 740, duration: 0.12, volume: 0.1), scale: 1)
+            start(Shot(wave: .sine, f0: 740, f1: 740, duration: 0.12, volume: 0.1, delay: 0.18), scale: 1)
+        }
+        if s.ping != seenShots.ping {
+            start(Shot(wave: .sine, f0: 880, f1: 880, duration: 0.14, volume: 0.22), scale: 1)
+            start(Shot(wave: .sine, f0: 1320, f1: 1320, duration: 0.2, volume: 0.22, delay: 0.1), scale: 1)
+        }
+        if s.jetEmpty != seenShots.jetEmpty {
+            for i in 0..<3 {
+                start(Shot(wave: .sine, f0: 1600, f1: 1600, duration: 0.09, volume: 0.25, delay: Double(i) * 0.15), scale: 1)
+            }
         }
         if s.splashdown != seenShots.splashdown {
             let k = 0.4 + min(impact / 15, 1) * 0.6

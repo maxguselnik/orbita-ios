@@ -25,6 +25,8 @@ final class ProceduralAudio: FlightAudio {
     private var sessionReady = false
     private var lastStartAttempt: ContinuousClock.Instant?
     private var pendingStop: Task<Void, Never>?
+    private var gripTracker = GripTracker()
+    private var roverTracker = RoverTracker()
 
     init() {
         Self.observeSession(into: sessionObservers, flags: flags, didBecomeActive: UIApplication.didBecomeActiveNotification)
@@ -47,6 +49,42 @@ final class ProceduralAudio: FlightAudio {
         control.heat = crashed ? 0 : min(max(t.heating, 0), 1)
         control.chute = (t.chute == .open && !crashed) ? min(control.wind * 4, 1) : 0
         control.space = (p < 1e-5 && !crashed) ? 1 : 0
+        // Космонавт: шипение ранца по тяге сопел, шаги по скорости на грунте.
+        if let eva = snapshot.controlled, !crashed {
+            let f = eva.jetpackFiring
+            control.jet = min(max((f.x * f.x + f.y * f.y + f.z * f.z).squareRoot(), 0), 1)
+            control.stepRate = (eva.onGround && eva.surfaceSpeed > 0.3)
+                ? 1.2 + min(max((eva.surfaceSpeed - 0.3) / 1.5, 0), 1) : 0
+        } else {
+            control.jet = 0
+            control.stepRate = 0
+        }
+        // Ровер: гул мотора по нагрузке и скорости, хруст грунта по скорости при колёсах на земле.
+        if let rover = snapshot.rover, !crashed {
+            let v = min(abs(rover.speed) / 12, 1)
+            let load = min(max(rover.motorLoad, 0), 1)
+            let idle = rover.chargeFraction > 0 ? 0.06 : 0 // тихое дежурное гудение под зарядом
+            control.roverHum = load > 0 || v > 0.02 ? min(0.15 + 0.5 * load + 0.4 * v, 1) : idle
+            control.roverPitch = min(0.7 * v + 0.3 * load, 1)
+            control.roverCrunch = (rover.wheelsOnGround > 0 && abs(rover.speed) > 0.2) ? min(0.2 + 0.8 * v, 1) : 0
+            switch roverTracker.update(rover) {
+            case .handbrake: control.shots.handbrakeClick &+= 1
+            case .lowCharge: control.shots.lowChargeBeep &+= 1
+            case nil: break
+            }
+        } else {
+            control.roverHum = 0
+            control.roverPitch = 0
+            control.roverCrunch = 0
+            _ = roverTracker.update(nil)
+        }
+        switch gripTracker.update(snapshot.controlled) {
+        case .grabbed: control.shots.gripOn &+= 1
+        case .released: control.shots.gripOff &+= 1
+        case .rungUp: control.shots.rungUp &+= 1
+        case .rungDown: control.shots.rungDown &+= 1
+        case nil: break
+        }
         control.serial &+= 1
 
         for event in events {
@@ -70,6 +108,19 @@ final class ProceduralAudio: FlightAudio {
             case .crash(let speed):
                 control.impactSpeed = speed
                 control.shots.crash &+= 1
+            case .evaLanded(_, let speed):
+                control.impactSpeed = speed
+                control.shots.evaLanded &+= 1
+            case .evaInjured:
+                control.shots.evaInjured &+= 1
+            case .evaDied:
+                control.shots.evaDied &+= 1
+            case .evaExited, .evaBoarded:
+                control.shots.hatch &+= 1
+            case .flagPlanted, .evaScienceCollected:
+                control.shots.ping &+= 1
+            case .jetpackEmpty:
+                control.shots.jetEmpty &+= 1
             default:
                 break
             }
@@ -286,5 +337,54 @@ final class ObserverBag: @unchecked Sendable {
 
     deinit {
         for token in tokens { NotificationCenter.default.removeObserver(token) }
+    }
+}
+
+/// Отслеживает захват и ступени лестницы у управляемого космонавта (шаг ступени — `rungStep`).
+struct GripTracker {
+    enum Change { case grabbed, released, rungUp, rungDown }
+    static let rungStep = 0.3
+
+    private var member: String?
+    private var gripped = false
+    private var rung: Int?
+
+    mutating func update(_ eva: CosmonautState?) -> Change? {
+        let id = eva?.memberID
+        let nowGripped = eva?.grip != nil
+        let nowRung = eva?.grip?.along.map { Int(($0 / Self.rungStep).rounded(.down)) }
+        defer { member = id; gripped = nowGripped; rung = nowRung }
+        guard id == member else { return nil } // смена космонавта — не событие
+        if nowGripped != gripped { return nowGripped ? .grabbed : .released }
+        if let a = rung, let b = nowRung, a != b { return b > a ? .rungUp : .rungDown }
+        return nil
+    }
+}
+
+/// Одноразовые сигналы ровера: смена ручника и падение заряда ниже порога (один раз, до подзарядки выше порога + гистерезис).
+struct RoverTracker {
+    enum Change { case handbrake, lowCharge }
+    static let lowChargeThreshold = 0.15
+    static let rearmThreshold = 0.2
+
+    private var seen = false
+    private var handbrake = false
+    private var lowWarned = false
+
+    mutating func update(_ rover: RoverStatus?) -> Change? {
+        guard let rover else { seen = false; lowWarned = false; return nil }
+        defer { handbrake = rover.handbrake; seen = true }
+        let fraction = rover.chargeFraction
+        if fraction >= Self.rearmThreshold { lowWarned = false }
+        guard seen else { // первый кадр: запоминаем, без звуков
+            lowWarned = fraction < Self.lowChargeThreshold
+            return nil
+        }
+        if rover.handbrake != handbrake { return .handbrake }
+        if fraction < Self.lowChargeThreshold, !lowWarned, rover.chargeCapacity > 0 {
+            lowWarned = true
+            return .lowCharge
+        }
+        return nil
     }
 }

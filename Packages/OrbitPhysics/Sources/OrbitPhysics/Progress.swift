@@ -28,6 +28,8 @@ public enum TechID: String, Sendable, Hashable, Codable, CaseIterable {
     case instruments, gravimetry
     /// Газовая РСУ (раньше «Роя») и метановые баки и двигатель.
     case gasControl, methane
+    /// Роверы (6.3): рама, колёса, батарея, панель, кресло.
+    case rovers
 }
 
 public struct TechNode: Sendable, Hashable, Identifiable {
@@ -60,7 +62,7 @@ public enum TechTree {
         TechNode(id: .control, title: "Управление", cost: 15, requires: [.liquid],
                  parts: [.probe, .rcsBlock, .m100], column: 3, row: 1),
         TechNode(id: .crew, title: "Экипаж", cost: 25, requires: [.control, .landing],
-                 parts: [.podK3], column: 4, row: 2),
+                 parts: [.podK3, .lk2], column: 4, row: 2),
         TechNode(id: .heavy, title: "Тяжёлые ракеты", cost: 30, requires: [.aero, .liquid],
                  parts: [.titan, .j64, .decouplerXL, .fairingXL, .heatShieldXL], column: 3, row: 0),
         TechNode(id: .instruments, title: "Приборостроение", cost: 10, requires: [.basics],
@@ -71,6 +73,8 @@ public enum TechTree {
                  parts: [.gasJet, .n50], column: 1, row: 3),
         TechNode(id: .methane, title: "Метан", cost: 40, requires: [.heavy],
                  parts: [.mk200, .mk400, .spolokh], column: 4, row: 0),
+        TechNode(id: .rovers, title: "Роверы", cost: 40, requires: [.crew],
+                 parts: [.roverFrame, .wheelK1, .wheelK2, .batteryB1, .solarS1, .roverSeat], column: 5, row: 2),
     ]
 
     public static func node(_ id: TechID) -> TechNode { nodes.first { $0.id == id }! }

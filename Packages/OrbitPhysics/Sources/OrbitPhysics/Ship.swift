@@ -56,6 +56,9 @@ struct Ship: Sendable, Hashable {
 
     private(set) var contactPoints: [Vec3] = []
     private(set) var contactReach = 0.0
+    /// EVA 6.2: люки кабин и лестницы (пересчёт при смене состава, `EVA.swift`).
+    private(set) var hatches: [ShipHatch] = []
+    private(set) var ladders: [EVALadder] = []
 
     init(design: VesselDesign) {
         let lay = design.layout()
@@ -143,6 +146,7 @@ struct Ship: Sendable, Hashable {
         dragArea = area
         contactPoints = makeContactPoints()
         contactReach = contactPoints.map(\.length).max() ?? 0
+        (hatches, ladders) = makeEVAGeometry()
     }
 
     func index(of uid: Int) -> Int? { parts.firstIndex { $0.uid == uid } }
