@@ -26,6 +26,8 @@ public enum TechID: String, Sendable, Hashable, Codable, CaseIterable {
     case basics, rocketry, stability, aero, liquid, landing, control, crew, heavy
     /// Научные приборы (первая поставка науки).
     case instruments, gravimetry
+    /// Газовая РСУ (раньше «Роя») и метановые баки и двигатель.
+    case gasControl, methane
 }
 
 public struct TechNode: Sendable, Hashable, Identifiable {
@@ -65,6 +67,10 @@ public enum TechTree {
                  parts: [.thermometer, .barometer], column: 1, row: 1),
         TechNode(id: .gravimetry, title: "Гравиметрия", cost: 20, requires: [.instruments],
                  parts: [.gravimeter], column: 3, row: 2),
+        TechNode(id: .gasControl, title: "Ориентация газом", cost: 5, requires: [.basics],
+                 parts: [.gasJet, .n50], column: 1, row: 3),
+        TechNode(id: .methane, title: "Метан", cost: 40, requires: [.heavy],
+                 parts: [.mk200, .mk400, .spolokh], column: 4, row: 0),
     ]
 
     public static func node(_ id: TechID) -> TechNode { nodes.first { $0.id == id }! }

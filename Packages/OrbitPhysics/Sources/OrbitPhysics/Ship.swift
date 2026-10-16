@@ -35,10 +35,10 @@ struct ThrustResult {
     var force: Vec3?
 }
 
-/// Источник топлива двигателя: своё (РДТТ) или группа баков, связанных без разделителей.
+/// Источник топлива двигателя: своё (РДТТ) или баки своего топлива в группе, связанной без разделителей.
 enum FuelSource: Hashable {
     case solid(Int)
-    case group(Int)
+    case group(Int, FuelType)
 }
 
 struct Ship: Sendable, Hashable {
@@ -442,30 +442,82 @@ struct Ship: Sendable, Hashable {
 
     // MARK: РСУ
 
-    /// Блоки РСУ на корабле.
+    /// Блоки РСУ на корабле (все типы).
     var rcsBlocks: Int { parts.reduce(0) { $0 + ($1.spec.kind == .rcs ? 1 : 0) } }
     /// Монотопливо всего корабля (общий пул `.rcs` + `.monoTank`) и его ёмкость, кг.
-    var monoMass: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.fuel : 0) } }
-    var monoCapacity: Double { parts.reduce(0) { $0 + (Self.holdsMono($1.spec.kind) ? $1.spec.fuelMass : 0) } }
-    static func holdsMono(_ k: PartKind) -> Bool { k == .rcs || k == .monoTank }
+    var monoMass: Double { rcsMass(.mono) }
+    var monoCapacity: Double { rcsCapacity(.mono) }
+    static func holdsRCS(_ spec: PartSpec, _ t: FuelType) -> Bool {
+        (spec.kind == .rcs || spec.kind == .monoTank) && spec.fuelType == t
+    }
 
-    /// Забрать `amount` кг монотоплива из общего пула пропорционально остаткам.
-    mutating func drawMono(_ amount: Double) {
-        let total = monoMass
+    /// Запас топлива РСУ типа `t` на всём корабле и его ёмкость, кг.
+    func rcsMass(_ t: FuelType) -> Double { parts.reduce(0) { $0 + (Self.holdsRCS($1.spec, t) ? $1.fuel : 0) } }
+    func rcsCapacity(_ t: FuelType) -> Double {
+        parts.reduce(0) { $0 + (Self.holdsRCS($1.spec, t) ? $1.spec.fuelMass : 0) }
+    }
+
+    /// Блоки РСУ типа `t`: число, суммарная тяга на направление при давлении `p` и массовый расход, кг/с.
+    func rcsJets(_ t: FuelType, pressure p: Double = 0) -> (count: Int, thrust: Double, flow: Double) {
+        var n = 0, thrust = 0.0, flow = 0.0
+        for part in parts where part.spec.kind == .rcs && part.spec.fuelType == t {
+            n += 1
+            thrust += part.spec.thrust(pressure: p)
+            flow += part.spec.massFlow
+        }
+        return (n, thrust, flow)
+    }
+
+    mutating func drawMono(_ amount: Double) { drawRCS(.mono, amount) }
+
+    /// Забрать `amount` кг топлива РСУ типа `t` из общего пула пропорционально остаткам.
+    mutating func drawRCS(_ t: FuelType, _ amount: Double) {
+        let total = rcsMass(t)
         guard amount > 0, total > 0 else { return }
         let k = max(0, 1 - amount / total)
-        for i in parts.indices where Self.holdsMono(parts[i].spec.kind) { parts[i].fuel *= k }
+        for i in parts.indices where Self.holdsRCS(parts[i].spec, t) { parts[i].fuel *= k }
+    }
+
+    /// Δv поступательного РСУ типа `t` в вакууме на текущей массе (только этим топливом), м/с.
+    func rcsDeltaV(_ t: FuelType) -> Double {
+        let jets = rcsJets(t)
+        let fuel = rcsMass(t)
+        let m = mass
+        guard jets.flow > 0, fuel > 0, m > fuel else { return 0 }
+        return jets.thrust / jets.flow * log(m / (m - fuel))
     }
 
     // MARK: Топливо
 
-    func source(_ i: Int) -> FuelSource { parts[i].spec.isSolid ? .solid(i) : .group(group[i]) }
+    /// Топливо двигателя `i` (для РДТТ — `.solid`).
+    func fuelType(_ i: Int) -> FuelType { parts[i].spec.fuelType ?? .kerolox }
 
-    /// Жидкое топливо группы, кг.
+    func source(_ i: Int) -> FuelSource { parts[i].spec.isSolid ? .solid(i) : .group(group[i], fuelType(i)) }
+
+    /// Бак `.tank` с топливом `t`.
+    private func isTank(_ i: Int, _ t: FuelType) -> Bool { parts[i].spec.kind == .tank && parts[i].spec.fuelType == t }
+
+    /// Жидкое топливо группы (все баки `.tank`), кг.
     func liquidFuel(group g: Int) -> Double {
         var f = 0.0
         for i in parts.indices where group[i] == g && parts[i].spec.kind == .tank { f += parts[i].fuel }
         return f
+    }
+
+    /// Топливо `t` в баках группы, кг.
+    func fuel(group g: Int, type t: FuelType) -> Double {
+        guard g >= 0 else { return 0 }
+        var f = 0.0
+        for i in parts.indices where group[i] == g && isTank(i, t) { f += parts[i].fuel }
+        return f
+    }
+
+    /// Ёмкость баков топлива `t` в группе, кг.
+    func capacity(group g: Int, type t: FuelType) -> Double {
+        guard g >= 0 else { return 0 }
+        var c = 0.0
+        for i in parts.indices where group[i] == g && isTank(i, t) { c += parts[i].spec.fuelMass }
+        return c
     }
 
     /// Жидкое топливо в баках с индексами `r`, кг.
@@ -476,22 +528,31 @@ struct Ship: Sendable, Hashable {
     func fuel(_ s: FuelSource) -> Double {
         switch s {
         case .solid(let i): parts[i].fuel
-        case .group(let g): g < 0 ? 0 : liquidFuel(group: g)
+        case .group(let g, let t): fuel(group: g, type: t)
         }
     }
 
     func capacity(_ s: FuelSource) -> Double {
         switch s {
-        case .solid(let i): return parts[i].spec.fuelMass
-        case .group(let g):
-            guard g >= 0 else { return 0 }
-            var c = 0.0
-            for i in parts.indices where group[i] == g && parts[i].spec.kind == .tank { c += parts[i].spec.fuelMass }
-            return c
+        case .solid(let i): parts[i].spec.fuelMass
+        case .group(let g, let t): capacity(group: g, type: t)
         }
     }
 
-    /// Есть ли у двигателя `i` топливо (РДТТ — своё, жидкостный — в группе).
+    /// Забрать `use` кг из баков источника пропорционально остаткам (`all` — опустошить).
+    private mutating func drain(_ s: FuelSource, _ use: Double, all: Bool = false) {
+        switch s {
+        case .solid(let i):
+            parts[i].fuel = all ? 0 : max(0, parts[i].fuel - use)
+        case .group(let g, let t):
+            let f = fuel(group: g, type: t)
+            for i in parts.indices where group[i] == g && isTank(i, t) && parts[i].fuel > 0 {
+                parts[i].fuel = all || f <= 0 ? 0 : max(0, parts[i].fuel - parts[i].fuel / f * use)
+            }
+        }
+    }
+
+    /// Есть ли у двигателя `i` топливо (РДТТ — своё, жидкостный — своего типа в группе).
     func engineHasFuel(_ i: Int) -> Bool {
         parts[i].spec.isSolid ? parts[i].fuel > 0 : fuel(source(i)) > 1e-9
     }
@@ -521,8 +582,8 @@ struct Ship: Sendable, Hashable {
         let engines = ignitedEngines
         guard !engines.isEmpty else { return res }
         var engineThrust = Array(repeating: 0.0, count: parts.count)
-        // Жидкостные — по группам.
-        var liquidBy: [Int: [Int]] = [:]
+        // Жидкостные — по группам и типу топлива.
+        var liquidBy: [FuelSource: [Int]] = [:]
         for i in engines {
             let spec = parts[i].spec
             if spec.isSolid {
@@ -536,12 +597,13 @@ struct Ship: Sendable, Hashable {
                     parts[i].fuel = max(0, parts[i].fuel - use)
                 }
             } else {
-                liquidBy[group[i], default: []].append(i)
+                liquidBy[source(i), default: []].append(i)
             }
         }
-        for g in liquidBy.keys.sorted() {
-            let list = liquidBy[g] ?? []
-            let liq = g < 0 ? 0 : liquidFuel(group: g)
+        // Порядок — по первому двигателю источника (детерминированно).
+        for src in liquidBy.keys.sorted(by: { liquidBy[$0]![0] < liquidBy[$1]![0] }) {
+            let list = liquidBy[src] ?? []
+            let liq = fuel(src)
             guard liq > 1e-9 else { continue }
             var flow = 0.0
             var gThrust = 0.0
@@ -562,9 +624,7 @@ struct Ship: Sendable, Hashable {
                     for i in list { engineThrust[i] *= k }
                     use = liq
                 }
-                for i in parts.indices where group[i] == g && parts[i].spec.kind == .tank && parts[i].fuel > 0 {
-                    parts[i].fuel = max(0, parts[i].fuel - parts[i].fuel / liq * use)
-                }
+                drain(src, use)
             }
             res.liquidThrust += gThrust
         }
@@ -704,9 +764,9 @@ struct Ship: Sendable, Hashable {
             let inDropped: Bool
             switch s {
             case .solid(let k): inDropped = dropped.contains(parts[k].uid)
-            case .group(let g):
+            case .group(let g, let t):
                 inDropped = g >= 0 && parts.indices.contains {
-                    group[$0] == g && parts[$0].spec.kind == .tank && dropped.contains(parts[$0].uid)
+                    group[$0] == g && isTank($0, t) && dropped.contains(parts[$0].uid)
                 }
             }
             if inDropped && !stopSources.contains(s) { stopSources.append(s) }
@@ -721,6 +781,7 @@ struct Ship: Sendable, Hashable {
             tVac0 += parts[i].spec.thrustVacuum
         }
         var dv = 0.0, time = 0.0
+        var dvByFuel: [FuelType: Double] = [:]
         var m = m0
         for _ in 0..<64 {
             let burning = engines.filter { engineHasFuel($0) }
@@ -729,7 +790,8 @@ struct Ship: Sendable, Hashable {
             var thrust = 0.0, flow = 0.0
             var vec = Vec3.zero
             var tilted = false
-            var drain: [FuelSource: Double] = [:]
+            var drainBy: [FuelSource: Double] = [:]
+            var flowBy: [FuelType: Double] = [:]
             for i in burning {
                 let spec = parts[i].spec
                 let q = parts[i].placement.orientation
@@ -737,33 +799,28 @@ struct Ship: Sendable, Hashable {
                 if q != .identity { tilted = true }
                 vec += q.rotate(.unitY) * spec.thrust(pressure: p)
                 flow += spec.massFlow
-                drain[source(i), default: 0] += spec.massFlow
+                drainBy[source(i), default: 0] += spec.massFlow
+                flowBy[fuelType(i), default: 0] += spec.massFlow
             }
             // Наклонённые двигатели: полезна только суммарная (векторная) тяга.
             if tilted { thrust = vec.length }
             guard flow > 0 else { break }
             var dt = Double.infinity
             var first: FuelSource?
-            for (s, d) in drain where d > 0 {
+            for (s, d) in drainBy where d > 0 {
                 let t = fuel(s) / d
                 if t < dt { dt = t; first = s }
             }
             guard dt.isFinite else { break }
             let m1 = m - flow * dt
-            if m1 > 0 && m > m1 { dv += thrust / flow * log(m / m1) }
-            time += dt
-            for (s, d) in drain {
-                let use = d * dt
-                switch s {
-                case .solid(let i):
-                    parts[i].fuel = s == first ? 0 : max(0, parts[i].fuel - use)
-                case .group(let g):
-                    let f = liquidFuel(group: g)
-                    for i in parts.indices where group[i] == g && parts[i].spec.kind == .tank {
-                        parts[i].fuel = s == first || f <= 0 ? 0 : max(0, parts[i].fuel - parts[i].fuel / f * use)
-                    }
-                }
+            if m1 > 0 && m > m1 {
+                let step = thrust / flow * log(m / m1)
+                dv += step
+                // Δv шага делится между топливами по доле массового расхода.
+                for (t, f) in flowBy { dvByFuel[t, default: 0] += step * f / flow }
             }
+            time += dt
+            for (s, d) in drainBy { drain(s, d * dt, all: s == first) }
             m = m1
         }
         var info = StageInfo(deltaV: dv,
@@ -774,6 +831,7 @@ struct Ship: Sendable, Hashable {
                              hasSolid: hasSolid, fuelMass: fuelMass, fuelCapacity: fuelCap,
                              hasLiquidEngine: hasLiquidEngine)
         info.parts = []
+        info.deltaVByFuel = dvByFuel
         return info
     }
 }

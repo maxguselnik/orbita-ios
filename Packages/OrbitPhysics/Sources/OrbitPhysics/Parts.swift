@@ -14,6 +14,24 @@ public enum PartKind: String, Sendable, Hashable, Codable {
     case instrument
 }
 
+/// Тип топлива (SPEC «Топливо и ориентация»): двигатель и блок РСУ берут только своё.
+public enum FuelType: String, Sendable, Hashable, Codable, CaseIterable {
+    case kerolox, solid, methalox, mono, gas
+
+    public var title: String {
+        switch self {
+        case .kerolox: "Керосин + окислитель"
+        case .solid: "Твёрдое"
+        case .methalox: "Метан + окислитель"
+        case .mono: "Монотопливо"
+        case .gas: "Сжатый азот"
+        }
+    }
+
+    /// Топливо РСУ (общий запас на корабль, в Δv ступеней не входит).
+    public var isRCS: Bool { self == .mono || self == .gas }
+}
+
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case chute, podK1, podK3, probe, decoupler, decouplerXL
     case t100, t200, t400, t800, j64
@@ -26,6 +44,8 @@ public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case heatShield, heatShieldXL
     /// Научные приборы.
     case thermometer, barometer, gravimeter
+    /// Газовая РСУ: сопла «Бриз» и баллон азота А-50. Метан: баки МК-200/400, двигатель «Сполох».
+    case gasJet, n50, mk200, mk400, spolokh
 
     public var spec: PartSpec { PartCatalog.spec(self) }
 }
@@ -49,6 +69,16 @@ public struct PartSpec: Sendable, Hashable {
 
     public var wetMass: Double { dryMass + fuelMass }
 
+    /// Топливо детали: что хранит бак/блок РСУ или что берёт двигатель; nil — без топлива.
+    public var fuelType: FuelType? {
+        switch kind {
+        case .tank: id == .mk200 || id == .mk400 ? .methalox : .kerolox
+        case .engine: isSolid ? .solid : (id == .spolokh ? .methalox : .kerolox)
+        case .rcs, .monoTank: id == .gasJet || id == .n50 ? .gas : .mono
+        default: nil
+        }
+    }
+
     /// Как деталь крепится (контракт 5.2): капсулы, модуль, осевые разделители, парашют, опоры, обтекатели —
     /// по оси; боковой разделитель и стабилизатор — только сбоку; баки, двигатели, РСУ, монотопливо — как угодно.
     /// Предел температуры детали, К (5.2): выше — деталь разрушается. Значения — по типу детали (A уточняет).
@@ -64,7 +94,8 @@ public struct PartSpec: Sendable, Hashable {
     public var mount: PartMount {
         switch id {
         case .decouplerRadial, .fin, .thermometer, .barometer, .gravimeter: .radial
-        case .t100, .t200, .t400, .t800, .j64, .shtil, .vikhr, .titan, .molot, .rcsBlock, .m100: .any
+        case .t100, .t200, .t400, .t800, .j64, .shtil, .vikhr, .titan, .molot, .rcsBlock, .m100,
+             .gasJet, .n50, .mk200, .mk400, .spolokh: .any
         default: .axial
         }
     }
@@ -121,6 +152,13 @@ public enum PartCatalog {
         make(.thermometer, "Термометр Т-1", .instrument, dry: 0.005, h: 0.2, w: 0.12),
         make(.barometer, "Барометр Б-1", .instrument, dry: 0.05, h: 0.3, w: 0.2),
         make(.gravimeter, "Гравиметр Г-1", .instrument, dry: 0.05, h: 0.35, w: 0.2),
+        // Газовая РСУ: слабые дешёвые сопла на сжатом азоте (тяга — на одно направление) и баллон.
+        make(.gasJet, "Сопла ориентации «Бриз»", .rcs, dry: 0.03, fuel: 0.01, thrust: 0.5, isp: (45, 65), h: 0.25, w: 1.25),
+        make(.n50, "Баллон азота А-50", .monoTank, dry: 0.06, fuel: 0.08, h: 0.4, w: 1.25),
+        // Метан + окислитель: баки легче (меньше сухая доля), выше из-за меньшей плотности; двигатель с высоким Isp.
+        make(.mk200, "Бак МК-200", .tank, dry: 0.09, fuel: 1, h: 1.15, w: 1.25),
+        make(.mk400, "Бак МК-400", .tank, dry: 0.18, fuel: 2, h: 2.15, w: 1.25),
+        make(.spolokh, "«Сполох»", .engine, dry: 1.3, thrust: 200, isp: (280, 350), h: 1.3, w: 1.25),
     ]
 
     private static let byID: [PartID: PartSpec] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
@@ -172,6 +210,18 @@ extension VesselDesign {
 
     /// Полная масса, кг.
     public var mass: Double { parts.reduce(0) { $0 + $1.spec.wetMass } }
+
+    /// Δv поступательного РСУ по типу топлива (вакуум) на последней конфигурации — после всех ступеней.
+    public func rcsDeltaV() -> [FuelType: Double] {
+        var ship = Ship(design: self)
+        for k in ship.pendingStages { ship.simulateActivation(k) }
+        var out: [FuelType: Double] = [:]
+        for t in FuelType.allCases where t.isRCS {
+            let dv = ship.rcsDeltaV(t)
+            if dv > 0 { out[t] = dv }
+        }
+        return out
+    }
 
     /// Ступени для ангара: [0] — первая (по давлению `pressure`, по умолчанию у земли), остальные — вакуум.
     public func stageInfos(pressure: Double = 1, gravity: Double = Bodies.terra.surfaceGravity) -> [StageInfo] {
