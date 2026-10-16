@@ -62,7 +62,7 @@ for scene in "${SCENES[@]}"; do
   t "$scene: launch"
   xcrun simctl launch "$UDID" com.maxguselnik.orbita -screen "$scene"
   # Портреты экипажа догружают текстуры асинхронно — им нужно больше времени.
-  case "$scene" in crew*|luna*|evaSurface|evaLadder) sleep 20 ;; *) sleep 6 ;; esac
+  case "$scene" in crew*|luna*|evaSurface|evaLadder|roverDrive) sleep 20 ;; *) sleep 6 ;; esac
   t "$scene: screenshot"
   xcrun simctl io "$UDID" screenshot "$OUT/$scene.png"
   t "$scene: проверка падения"
