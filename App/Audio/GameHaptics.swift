@@ -1,4 +1,5 @@
 import CoreHaptics
+import QuartzCore
 import Synchronization
 import OrbitPhysics
 
@@ -26,6 +27,10 @@ final class GameHaptics: FlightHaptics {
     private var lastSend: ContinuousClock.Instant?
     private var lastUpdate = ContinuousClock.now
     private var watchdog: Task<Void, Never>?
+
+    private var monoOnset = RCSOnset()
+    private var gasOnset = RCSOnset()
+    private var rcsLimiter = RCSTapLimiter()
 
     private lazy var patterns = HapticPatterns()
 
@@ -59,6 +64,26 @@ final class GameHaptics: FlightHaptics {
         }
 
         updateRumble(snapshot.telemetry)
+        updateRCS(RCSCue.levels(snapshot.vessels.first { $0.id == snapshot.activeVessel }))
+    }
+
+    /// Тап при включении сопел типа; оба типа в одном кадре — одним тапом с большими значениями.
+    private func updateRCS(_ now: (mono: Double, gas: Double)) {
+        let time = CACurrentMediaTime()
+        let monoOn = monoOnset.update(level: now.mono, now: time)
+        let gasOn = gasOnset.update(level: now.gas, now: time)
+        guard monoOn || gasOn else { return }
+        guard rcsLimiter.allow(now: time) else { return }
+        var intensity = 0.0, sharpness = 0.0
+        if monoOn {
+            intensity = 0.3 + 0.3 * now.mono
+            sharpness = 0.6
+        }
+        if gasOn {
+            intensity = max(intensity, 0.2 + 0.2 * now.gas)
+            sharpness = max(sharpness, 0.3)
+        }
+        play(HapticPatterns.rcsPuff(intensity: Float(intensity), sharpness: Float(sharpness)))
     }
 
     /// Экипаж: лёгкий двойной тап на радость, резкий короткий на панику и аварию. Остальное — без вибрации.
@@ -270,6 +295,11 @@ struct HapticPatterns {
     static func touchdown(speed: Double) -> CHHapticPattern? {
         let k = Float(0.35 + min(max(speed, 0) / 10, 1) * 0.65)
         return make([.transient(0, intensity: k, sharpness: 0.4)])
+    }
+
+    /// Короткий тап сопел РСУ.
+    static func rcsPuff(intensity: Float, sharpness: Float) -> CHHapticPattern? {
+        make([.transient(0, intensity: min(max(intensity, 0), 1), sharpness: min(max(sharpness, 0), 1))])
     }
 
     /// Авария: сила растёт со скоростью удара (от 0.6 до 1 на 30 м/с).

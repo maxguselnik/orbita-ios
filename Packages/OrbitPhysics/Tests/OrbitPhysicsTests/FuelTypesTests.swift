@@ -284,4 +284,13 @@ struct FuelTypesTests {
         #expect(fuels(translation: Vec3(0, 1, 0)).isEmpty)
         #expect(fuels().isEmpty)
     }
+
+    @Test func rcsFuelsEmptyOnPadWithoutLiftoff() {
+        // На площадке сопла не отрывают корабль — топливо не тратится, в снимке пусто.
+        let s = FlightSim(design: VesselDesign(name: "", parts: [.probe, .n50, .gasJet, .m100, .rcsBlock]))
+        s.send(.setRCS(true))
+        s.setInput(ControlInput(translation: Vec3(1, 0, 0)))
+        _ = run(s, limit: 0.3, frame: 0.05)
+        #expect(s.snapshot.vessels[s.activeIndex].rcsFuels.isEmpty)
+    }
 }

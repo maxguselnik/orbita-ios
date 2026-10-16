@@ -33,7 +33,7 @@ final class VesselVisual {
     private var canopy: Entity?
     /// Струйки РСУ: по 20 конусов на блок (4 выступа × 5 слотов, индекс `k * 5 + slot`).
     static var rcsPuffsEnabled = true
-    private var rcsPuffs: [(partIndex: Int, jets: [ModelEntity])] = []
+    private var rcsPuffs: [(partIndex: Int, fuel: FuelType, jets: [ModelEntity])] = []
     private var rcsLit = false
     private var maxDiameter: Double = 1
 
@@ -266,7 +266,7 @@ final class VesselVisual {
                 makePlume(index: i, spec: spec, at: bottomPoint, rotation: q)
             }
             if spec.kind == .rcs, Self.rcsPuffsEnabled {
-                makeRCSPuffs(index: i, at: bottomPoint)
+                makeRCSPuffs(index: i, fuel: spec.fuelType ?? .mono, at: bottomPoint)
             }
             if spec.kind == .chute {
                 makeCanopy(at: topPoint)
@@ -348,8 +348,9 @@ final class VesselVisual {
 
     private static var rcsPuffMesh: MeshResource?
     private static var rcsPuffMaterial: UnlitMaterial?
+    private static var rcsGasPuffMaterial: UnlitMaterial?
 
-    private func makeRCSPuffs(index: Int, at origin: F3) {
+    private func makeRCSPuffs(index: Int, fuel: FuelType, at origin: F3) {
         if Self.rcsPuffMesh == nil {
             var b = MeshBuilder()
             // Единичная струйка: от сопла (y = 0) расширяется к y = 1, радиус до 1.
@@ -361,7 +362,14 @@ final class VesselVisual {
             m.blending = .transparent(opacity: .init(floatLiteral: 0.55))
             Self.rcsPuffMaterial = m
         }
-        guard let mesh = Self.rcsPuffMesh, let mat = Self.rcsPuffMaterial else { return }
+        if Self.rcsGasPuffMaterial == nil {
+            var m = UnlitMaterial(color: UIColor(red: 0.92, green: 0.97, blue: 1.0, alpha: 1))
+            m.blending = .transparent(opacity: .init(floatLiteral: 0.3))
+            Self.rcsGasPuffMaterial = m
+        }
+        guard let mesh = Self.rcsPuffMesh, let monoMat = Self.rcsPuffMaterial,
+              let gasMat = Self.rcsGasPuffMaterial else { return }
+        let mat = fuel == .gas ? gasMat : monoMat
         let holder = Entity()
         holder.position = origin
         var jets: [ModelEntity] = []
@@ -376,14 +384,14 @@ final class VesselVisual {
             }
         }
         root.addChild(holder)
-        rcsPuffs.append((index, jets))
+        rcsPuffs.append((index, fuel, jets))
     }
 
     /// Струйки РСУ по команде корабля: поступательная (a) и поворотная (rot: x — тангаж, y — крен, z — рыскание).
     private func updateRCS(_ v: VesselState, time: Double) {
         let tr = v.rcsTranslation, rot = v.rcsRotation
         let peak = max(abs(tr.x), abs(tr.y), abs(tr.z), abs(rot.x), abs(rot.y), abs(rot.z))
-        guard peak > 0.02 else {
+        guard peak > 0.02, !v.rcsFuels.isEmpty else {
             if rcsLit {
                 for set in rcsPuffs { for j in set.jets where j.isEnabled { j.isEnabled = false } }
                 rcsLit = false
@@ -392,6 +400,11 @@ final class VesselVisual {
         }
         rcsLit = true
         for set in rcsPuffs {
+            if !v.rcsFuels.contains(set.fuel) {
+                for j in set.jets where j.isEnabled { j.isEnabled = false }
+                continue
+            }
+            let gas = set.fuel == .gas
             for k in 0..<4 {
                 let rx = Double(PartModels.rcsRadial[k].x), rz = Double(PartModels.rcsRadial[k].z)
                 // Знак s > 0 — выхлоп вниз: тяга вперёд (+Y), тангаж и рыскание дают разные стороны блоков.
@@ -410,8 +423,8 @@ final class VesselVisual {
                     if jet.isEnabled != on { jet.isEnabled = on }
                     guard on else { continue }
                     let flick = 1 + 0.22 * sin(time * 91 + Double(k * 5 + slot) * 1.7 + Double(set.partIndex))
-                    let length = (0.25 + 0.95 * val) * flick
-                    let width = 0.05 * (0.6 + 0.4 * val)
+                    let length = (0.25 + 0.95 * val) * flick * (gas ? 0.6 : 1)
+                    let width = 0.05 * (0.6 + 0.4 * val) * (gas ? 0.8 : 1)
                     jet.scale = F3(Float(width), Float(length), Float(width))
                 }
             }
