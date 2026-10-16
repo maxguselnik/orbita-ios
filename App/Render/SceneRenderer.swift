@@ -14,7 +14,7 @@ import UIKit
 final class SceneRenderer: FlightRenderer {
     var cameraMode: CameraMode = .follow {
         didSet {
-            if cameraMode != oldValue { rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1 }
+            if cameraMode != oldValue, lastEVA == nil { rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1 }
         }
     }
 
@@ -45,6 +45,17 @@ final class SceneRenderer: FlightRenderer {
     private let effects = VesselEffects()
     private var governor = QualityGovernor()
     private var shake = CameraShake()
+    // EVA (этап 6): модели создаются один раз на космонавта/флаг, в кадре — только трансформы.
+    private var cosmonauts: [String: CosmonautVisual] = [:]
+    private var flags: [Int: FlagVisual] = [:]
+    private let hatchRing = HatchHighlight()
+    private var lastEVA: String?
+    /// Опорное направление камеры EVA (горизонтальное, устойчивое в мире), «азимут 0» — камера за спиной.
+    private var evaRef: D3?
+    private var evaRecenter = false
+    private static let evaHideDistance = 2_000.0
+    /// Оси камеры EVA для `EVAInput.move` (nil — не EVA); обновляется в `update`.
+    private(set) var evaCameraBasis: (right: Vec3, forward: Vec3)?
     /// Желаемая частота кадров (из настроек) — для авто-качества.
     var targetFrameRate: Double = 90
     /// Только диагностический кадр -planet-preview: общий план тела в настоящей полётной сцене.
@@ -86,6 +97,7 @@ final class SceneRenderer: FlightRenderer {
         flightRoot.addChild(backdrop.root)
         flightRoot.addChild(cloudShell.root)
         flightRoot.addChild(effects.root)
+        flightRoot.addChild(hatchRing.root)
         pad.root.isEnabled = false
 
         Task { [weak self] in
@@ -122,6 +134,7 @@ final class SceneRenderer: FlightRenderer {
             }
             return
         }
+        if input.reset { evaRecenter = true }
         rig.apply(orbit: input.orbitDelta, zoom: input.zoomFactor, reset: input.reset)
     }
 
@@ -177,6 +190,15 @@ final class SceneRenderer: FlightRenderer {
         seen.removeAll()
         lastActive = nil
         renderTime = 0
+        for c in cosmonauts.values { c.root.removeFromParent() }
+        cosmonauts.removeAll()
+        for f in flags.values { f.root.removeFromParent() }
+        flags.removeAll()
+        hatchRing.hide()
+        lastEVA = nil
+        evaRef = nil
+        evaRecenter = false
+        evaCameraBasis = nil
         rig = CameraRig()
         rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1
         pad.root.isEnabled = false
@@ -212,17 +234,18 @@ final class SceneRenderer: FlightRenderer {
         let attitude = active.attitude.quatd
         let nose = attitude.act(D3(0, 1, 0))
         let height = activeVisual.stackHeight
-        let target = pos + nose * (height / 2)
+        var target = pos + nose * (height / 2)
         let radial = simd_normalize(pos)
         let switched = lastActive != active.id
         lastActive = active.id
         if switched { effects.reset() }
-        rig.setDefaultDistance(max(height * 1.7, 14), snap: switched)
+        let vesselDistance = max(height * 1.7, 14)
+        rig.setDefaultDistance(vesselDistance, snap: switched)
         // Плавно раскрывать горизонт на подъёме; ручное вращение сохраняется.
         let altitude = simd_length(pos) - Bodies.body(active.body).radius
         rig.setDefaultElevation(0.12 + 0.33 * clampd(altitude / 70_000, 0, 1))
 
-        let forward: D3, up: D3
+        var forward: D3, up: D3
         switch cameraMode {
         case .free:
             up = D3(0, 0, 1)
@@ -238,6 +261,45 @@ final class SceneRenderer: FlightRenderer {
             }
             forward = simd_length(v) > 3 ? -simd_normalize(v) : -nose
         }
+        // Камера EVA: цель — центр космонавта, вертикаль радиальная, азимут отсчитывается от устойчивого в мире направления.
+        let eva = snapshot.controlled
+        var targetRadius = activeVisual.boundingRadius
+        var lookDrop = 0.12
+        if eva?.memberID != lastEVA {
+            lastEVA = eva?.memberID
+            evaRecenter = true
+            if lastEVA != nil {
+                rig.minDistance = CameraRig.evaMinDistance
+                rig.setDefaultDistance(4, snap: true)
+                rig.defaultAzimuth = 0
+                rig.setDefaultElevation(0.25)
+            } else {
+                rig.minDistance = CameraRig.minDistance
+                rig.setDefaultDistance(vesselDistance, snap: true)
+                rig.defaultAzimuth = cameraMode == .heading ? 0 : -2.1
+            }
+            rig.apply(orbit: .zero, zoom: 1, reset: true)
+            rig.snap()
+        }
+        if let c = eva {
+            let cUp = simd_normalize(c.position.d3)
+            target = RenderFrame.bodyCenter(c.body, in: frame, time: snapshot.time) + c.position.d3 + cUp * 1.0
+            up = cUp
+            if evaRecenter || evaRef == nil {
+                evaRef = perpendicular(c.attitude.quatd.act(D3(0, 0, 1)), to: cUp)
+            } else if let r = evaRef {
+                // Параллельный перенос по вертикали: направление остаётся в мире, а не за лицом.
+                evaRef = perpendicular(r, to: cUp)
+            }
+            forward = evaRef ?? D3(0, 0, 1)
+            rig.setDefaultDistance(4, snap: false)
+            rig.setDefaultElevation(0.25)
+            targetRadius = 0.9
+            lookDrop = 0.03
+        } else {
+            evaRef = nil
+        }
+        evaRecenter = false
         let cam = rig.offset(forward: forward, up: up, dt: switched ? 0 : frameDelta)
         var eye = target + cam.offset
         if let inspectionBody {
@@ -416,11 +478,12 @@ final class SceneRenderer: FlightRenderer {
         // Камера в нуле; ближняя плоскость — по ближайшему объекту.
         // Смотрим чуть ниже цели: корабль выше центра кадра, факел и земля не под навболом.
         // Тряска по скоростному напору, тяге и событиям — угловое смещение точки взгляда.
-        let jolt = shake.update(telemetry: snapshot.telemetry, events: events, time: renderTime, dt: frameDelta)
+        var jolt = shake.update(telemetry: snapshot.telemetry, events: events, time: renderTime, dt: frameDelta)
+        if eva != nil { jolt = .zero }
         let side = simd_normalize(simd_cross(cam.up, target - eye))
-        let lookPoint = target - cam.up * (camToTarget * (0.12 - jolt.y)) + side * (camToTarget * jolt.x)
+        let lookPoint = target - cam.up * (camToTarget * (lookDrop - jolt.y)) + side * (camToTarget * jolt.x)
         camera.look(at: f3(lookPoint - eye), from: .zero, upVector: f3(cam.up), relativeTo: nil)
-        camera.camera.fieldOfViewInDegrees = Float(60 + 5 * shake.speedFeel)
+        camera.camera.fieldOfViewInDegrees = Float(60 + (eva == nil ? 5 * shake.speedFeel : 0))
         if let inspectionBody {
             let center = RenderFrame.bodyCenter(inspectionBody, in: frame, time: snapshot.time)
             var look = center - eye
@@ -433,13 +496,100 @@ final class SceneRenderer: FlightRenderer {
             camera.look(at: f3(look), from: .zero, upVector: F3(0, 0, 1), relativeTo: nil)
             camera.camera.fieldOfViewInDegrees = Float(MapScale.fovDegrees)
         }
-        let toVessel = max(0.1, camToTarget - activeVisual.boundingRadius)
+        updateEVA(snapshot: snapshot, frame: frame, eye: eye, eva: eva, camUp: cam.up,
+                  look: lookPoint - eye, dt: frameDelta)
+        let toVessel = max(0.1, camToTarget - targetRadius)
         // Ближняя плоскость мала, пока камера у корабля: факел длиной с корабль не должен
         // обрезаться у камеры; дальность глубины на горизонте для рельефа не критична.
         var near = clampd(0.08 * min(toVessel, clearance), 0.05, 1_000)
         if camToTarget < 300 { near = min(near, 0.6) }
         if clearance < 500 { near = min(near, 0.5) }
         camera.camera.near = Float(near)
+    }
+
+    /// Космонавты, флаги, подсветка люка и оси камеры EVA. Без космонавтов и флагов — ничего не делает.
+    private func updateEVA(snapshot: WorldSnapshot, frame: BodyID, eye: D3, eva: CosmonautState?, camUp: D3,
+                           look: D3, dt: Double) {
+        let time = snapshot.time
+        var seenC: Set<String> = []
+        for c in snapshot.cosmonauts {
+            seenC.insert(c.memberID)
+            let vis: CosmonautVisual
+            if let v = cosmonauts[c.memberID] {
+                vis = v
+            } else {
+                vis = CosmonautVisual()
+                cosmonauts[c.memberID] = vis
+                flightRoot.addChild(vis.root)
+            }
+            let rel = RenderFrame.bodyCenter(c.body, in: frame, time: time) + c.position.d3 - eye
+            let on = simd_length(rel) < Self.evaHideDistance
+            if vis.root.isEnabled != on { vis.root.isEnabled = on }
+            if on { vis.update(c, rel: rel, dt: dt) }
+        }
+        if cosmonauts.count != seenC.count {
+            for id in cosmonauts.keys where !seenC.contains(id) {
+                cosmonauts[id]?.root.removeFromParent()
+                cosmonauts[id] = nil
+            }
+        }
+        var seenF: Set<Int> = []
+        for f in snapshot.flags {
+            seenF.insert(f.id)
+            let vis: FlagVisual
+            if let v = flags[f.id] {
+                vis = v
+            } else {
+                vis = FlagVisual(id: f.id, text: f.text)
+                flags[f.id] = vis
+                flightRoot.addChild(vis.root)
+            }
+            let fixed = f.fixedPosition.d3
+            let rot = RenderFrame.bodyRotation(f.body, time: time)
+            let rel = RenderFrame.bodyCenter(f.body, in: frame, time: time) + rot.act(fixed) - eye
+            let on = simd_length(rel) < Self.evaHideDistance
+            if vis.root.isEnabled != on { vis.root.isEnabled = on }
+            if on { vis.update(rel: rel, up: rot.act(simd_normalize(fixed))) }
+        }
+        if flags.count != seenF.count {
+            for id in flags.keys where !seenF.contains(id) {
+                flags[id]?.root.removeFromParent()
+                flags[id] = nil
+            }
+        }
+
+        // Люк: ближайший к управляемому космонавту.
+        var ringShown = false
+        if let c = eva, let hd = c.hatchDistance, hd < 6,
+           let v = snapshot.vessels.first(where: { $0.id == c.hatchVessel }), !v.hatches.isEmpty {
+            let att = v.attitude.quatd
+            let center = RenderFrame.bodyCenter(v.body, in: frame, time: time) + v.position.d3
+            let me = RenderFrame.bodyCenter(c.body, in: frame, time: time) + c.position.d3
+            var best = center, bestD = Double.infinity
+            for h in v.hatches {
+                let p = center + att.act(h.d3)
+                let d = simd_length_squared(p - me)
+                if d < bestD { bestD = d; best = p }
+            }
+            let normal = att.act(D3(0, 0, 1))
+            hatchRing.update(rel: best + normal * 0.04 - eye, orientation: att, canBoard: c.canBoard, time: Float(renderTime))
+            ringShown = true
+        }
+        if !ringShown { hatchRing.hide() }
+
+        // Оси для EVAInput.move: на грунте — проекции на горизонт, иначе экранные.
+        guard let c = eva else { evaCameraBasis = nil; return }
+        let cUp = simd_normalize(c.position.d3)
+        let behind = -(evaRef ?? D3(0, 0, 1))
+        let fwd = simd_length(look) > 1e-6 ? simd_normalize(look) : behind
+        if c.onGround || c.heightAboveTerrain < 50 {
+            let flat = fwd - cUp * simd_dot(fwd, cUp)
+            let fh = perpendicular(simd_length_squared(flat) > 1e-4 ? fwd : behind, to: cUp)
+            evaCameraBasis = (vec3(simd_normalize(simd_cross(fh, cUp))), vec3(fh))
+        } else {
+            let right = simd_normalize(simd_cross(fwd, camUp))
+            evaCameraBasis = (vec3(right), vec3(fwd))
+        }
     }
 
     private func visual(for v: VesselState) -> VesselVisual {

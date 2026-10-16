@@ -6,6 +6,7 @@ import simd
 /// сцена — влево), orbitDelta.y > 0 — камера выше, zoomFactor < 1 — ближе.
 struct CameraRig {
     static let minDistance = 5.0
+    static let evaMinDistance = 1.5
     static let maxDistance = 50_000.0
     static let maxElevation = 1.45
 
@@ -18,6 +19,8 @@ struct CameraRig {
     }
     var distance = 25.0
     var defaultDistance = 25.0
+    /// Ближний предел зума: у корабля 5 м, у космонавта 1.5 м.
+    var minDistance = CameraRig.minDistance
 
     private var sAz = -2.1
     private var sEl = 0.12
@@ -39,18 +42,21 @@ struct CameraRig {
         azimuth += Double(orbit.x)
         elevation = clampd(elevation + Double(orbit.y), -Self.maxElevation, Self.maxElevation)
         if zoom.isFinite, zoom > 0 {
-            distance = clampd(distance * Double(zoom), Self.minDistance, Self.maxDistance)
+            distance = clampd(distance * Double(zoom), minDistance, Self.maxDistance)
         }
     }
 
     /// Задать расстояние по размеру корабля (при первом кадре и смене корабля).
     mutating func setDefaultDistance(_ d: Double, snap: Bool) {
-        defaultDistance = clampd(d, Self.minDistance, 2_000)
+        defaultDistance = clampd(d, minDistance, 2_000)
         if snap {
             distance = defaultDistance
             sDist = distance
         }
     }
+
+    /// Следующий `offset` берёт сглаженные значения прямо из текущих (смена режима камеры без плавного перелёта).
+    mutating func snap() { initialized = false }
 
     mutating func setDefaultElevation(_ e: Double) {
         defaultElevation = e
