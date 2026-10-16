@@ -24,8 +24,11 @@ enum MapScale {
 /// Орбитальная камера карты: азимут/возвышение/расстояние вокруг фокуса, ось «верх» — +Z.
 /// Знаки ввода — как у `CameraRig`.
 struct MapCamera {
+    /// Наклон: от «почти сбоку» до «сверху»; под плоскость орбиты камера не уходит — систему не перевернуть.
+    static let minElevation = 0.12
     static let maxElevation = 1.45
-    static let defaultElevation = 0.62
+    /// Исходный и сброшенный (двойной тап) ракурс — почти сверху: орбиты читаются как кольца.
+    static let defaultElevation = 1.1
     static let defaultAzimuth = -1.9
 
     var azimuth = MapCamera.defaultAzimuth
@@ -42,7 +45,7 @@ struct MapCamera {
 
     mutating func apply(orbit: SIMD2<Float>, zoom: Float) {
         azimuth += Double(orbit.x)
-        elevation = clampd(elevation + Double(orbit.y), -Self.maxElevation, Self.maxElevation)
+        elevation = clampd(elevation + Double(orbit.y), Self.minElevation, Self.maxElevation)
         if zoom.isFinite, zoom > 0 {
             distance = clampd(distance * Double(zoom), minDistance, maxDistance)
         }

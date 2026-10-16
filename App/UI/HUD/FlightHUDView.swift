@@ -49,15 +49,7 @@ struct FlightHUDView: View {
             }
 
             if mapOpen {
-                MapLayer(model: model, hintsEnabled: hintsEnabled && !inLesson, showLegend: $showLegend)
-                // «Система» — масштаб планет: навбол там не нужен и закрывает орбиты.
-                if !model.mapPanelsHidden, !model.isSystemMap {
-                    NavballCluster(model: model, ascentEnabled: false)
-                        .padding(.bottom, NavballCluster.lift)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                        .ignoresSafeArea(.container, edges: .bottom)
-                }
-
+                MapLayer(model: model, showLegend: $showLegend)
             } else if model.eva != nil {
                 // Управляем космонавтом: HUD корабля скрыт целиком.
                 EVALayer(model: model)
@@ -104,7 +96,6 @@ struct FlightHUDView: View {
         .animation(.easeOut(duration: 0.2), value: model.controlHint)
         .animation(.easeOut(duration: 0.2), value: model.toast)
         .animation(.easeOut(duration: 0.2), value: model.hint)
-        .overlay(alignment: .topLeading) { stagePanel }
         .overlay {
             if mapOpen, showLegend, !model.isPaused {
                 MapLegendView(onClose: { showLegend = false })
@@ -160,18 +151,6 @@ struct FlightHUDView: View {
     private static let hintOffset: CGFloat = 40
     /// В уроке сверху стоит плашка шага: полоса сообщений уходит ниже неё.
     private static let lessonCardExtra: CGFloat = 116
-
-    /// Панель ступеней выезжает слева поверх стопки ступеней: правая колонка (крен, РСУ, узел манёвра на карте)
-    /// остаётся доступной. Сверху — под строкой времени и паузы, снизу — над кнопкой «Пуск».
-    @ViewBuilder private var stagePanel: some View {
-        if model.isPanelOpen, model.eva == nil, model.map.isOpen {
-            StagePanel(model: model)
-                .padding(.top, MissionTimeBar.height + 12)
-                .padding(.leading, 6)
-                .padding(.bottom, model.map.isOpen ? 60 : FlightLayer.controlCenterFromBottom + StageButton.height / 2 + 6)
-                .transition(.move(edge: .leading).combined(with: .opacity))
-        }
-    }
 }
 
 /// Раскладка полёта: компактный HUD; в уроке — он же, с якорями подсветки шагов.
@@ -217,11 +196,10 @@ struct ManeuverBadgeHost: View {
     }
 }
 
-/// Раскладка карты: время сверху слева, «Ступени» справа, слева SAS и «Полёт», по центру — сводка карты,
-/// справа — панель узла манёвра и «Ступень».
+/// Раскладка карты: сверху время, уровень, «Эксперт»/«Просто» и «Полёт»; слева под шапкой — кнопка цели,
+/// справа — карточка узла и «Выполнить манёвр». Центр свободен для жестов и ручек Δv.
 struct MapLayer: View {
     let model: FlightHUDModel
-    var hintsEnabled = true
     @Binding var showLegend: Bool
     private var contentTop: CGFloat { model.tutorial?.isActive == true ? 104 : 58 }
 
@@ -235,24 +213,14 @@ struct MapLayer: View {
                     SystemMapBottomBar(model: model)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                 } else {
-                    if !model.mapPanelsHidden {
-                        HStack(alignment: .bottom, spacing: 8) {
-                            MapLeftColumn(model: model)
-                            MapCenterColumn(model: model, hintsEnabled: hintsEnabled)
-                            MapSideColumn(model: model)
-                        }
-                        .padding(.top, contentTop)
-                        .padding(.bottom, 54)
+                    HStack(alignment: .top, spacing: 8) {
+                        MapLeftColumn(model: model)
+                        Spacer(minLength: 0)
+                        MapSideColumn(model: model)
                     }
-                    HStack(alignment: .bottom) {
-                        MapToggleButton(model: model).frame(width: MapLeftColumn.width)
-                        Spacer(minLength: 8)
-                        if model.isAutoBurning && model.mapPanelsHidden {
-                            ManeuverExecuteButton(model: model).frame(width: MapSideColumn.width)
-                        }
-                    }
-                    .padding(.bottom, 6)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
+                    .padding(.top, contentTop)
+                    .padding(.bottom, 8)
+                    .frame(maxHeight: .infinity, alignment: .top)
                 }
             }
             .frame(width: geometry.size.width, height: geometry.size.height)
@@ -261,19 +229,15 @@ struct MapLayer: View {
     }
 }
 
-/// Левая колонка карты: прокручиваемые цели и закреплённый SAS; «Полёт» находится в общей нижней строке.
+/// Левая колонка карты: кнопка цели («К Луне ▾») под шапкой.
 struct MapLeftColumn: View {
     let model: FlightHUDModel
 
-    static let width: CGFloat = 156
+    static let width = MapGoalsColumn.width
 
     var body: some View {
-        VStack(spacing: 6) {
-            ScrollView { MapGoalsColumn(model: model) }
-                .scrollIndicators(.visible)
-            MapSASRow(model: model)
-        }
-        .frame(width: Self.width)
+        MapGoalsColumn(model: model)
+            .frame(width: Self.width, alignment: .topLeading)
     }
 }
 

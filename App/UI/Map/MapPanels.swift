@@ -84,109 +84,81 @@ struct MapToggleButton: View {
     }
 }
 
-/// SAS на карте: вкл/выкл и «по узлу».
-struct MapSASRow: View {
-    let model: FlightHUDModel
+// MARK: - Цель («Куда летим?»)
 
-    var body: some View {
-        let current = model.sas
-        let enabled = model.hasManeuver || current == .maneuver
-        HStack(spacing: 4) {
-            SASToggleButton(model: model, stacked: true)
-            Button {
-                model.send(.setSAS(current == .maneuver ? .hold : .maneuver))
-            } label: {
-                VStack(spacing: 1) {
-                    SASIcon(mode: .maneuver)
-                        .frame(width: 18, height: 18)
-                    Text("УЗЕЛ").font(.system(size: HUDFont.caption, weight: .bold))
-                }
-                .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch)
-            }
-            .buttonStyle(HUDButtonStyle(isActive: current == .maneuver))
-            .disabled(!enabled)
-            .opacity(enabled ? 1 : 0.45)
-            .tutorialAnchor(.mapSASNode)
-            .accessibilityLabel("SAS по узлу манёвра")
-            .longPressHint("УЗЕЛ — нос корабля смотрит туда, куда нужно жечь")
-        }
-    }
-}
-
-// MARK: - Центр
-
-/// Середина экрана на карте: сводка сверху слева, остальное — свободно для жестов и ручек.
-struct MapCenterColumn: View {
-    let model: FlightHUDModel
-    var hintsEnabled = true
-
-    var body: some View {
-        // Сводка и подсказка делят одну область над контролами. Длинный текст прокручивается,
-        // поэтому в «Эксперт» он не перекрывает ни сводку, ни фокус карты и навбол.
-        ScrollView {
-            VStack(alignment: .leading, spacing: 6) {
-                MapInfoPanel(snapshot: model.map.snapshot)
-                    .tutorialAnchor(.mapSummary)
-                if model.mapExpert, !model.isPaused {
-                    MapHintHost(model: model, hintsEnabled: hintsEnabled)
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .scrollIndicators(.hidden)
-        .padding(.bottom, max(0, NavballCluster.height + NavballCluster.lift - 54))
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-// MARK: - Цели («Куда летим?»)
-
-/// Колонка целей простой карты: по одной кнопке на цель из `availableGoals`; активная подсвечена.
-/// Нет целей — колонки нет.
+/// Кнопка цели простой карты: «главная» цель (текущая цель урока, иначе активная, иначе первая) и «▾» с меню всех целей.
+/// Тап по названию ставит узел по главной цели. Нет целей — кнопки нет.
 struct MapGoalsColumn: View {
     let model: FlightHUDModel
 
+    static let width: CGFloat = 156
+    private static let menuWidth = HUDStyle.minTouch
+
     var body: some View {
         let goals = model.availableGoals
-        if !goals.isEmpty {
-            let active = model.maneuverGoal
-            let planets = goals.filter { $0.planet != nil }
-            VStack(alignment: .leading, spacing: 4) {
-                Text("КУДА ЛЕТИМ?")
-                    .font(.system(size: HUDFont.caption, weight: .heavy))
-                    .foregroundStyle(HUDStyle.secondaryText)
-                    .padding(.leading, 2)
-                ForEach(goals.filter { $0.planet == nil }, id: \.self) { goal in
-                    Button {
-                        model.planManeuver(goal)
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: Self.icon(goal))
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 18)
-                            Text(Self.title(goal))
-                                .font(.system(size: 13, weight: .bold))
-                                .lineLimit(2)
-                                .minimumScaleFactor(0.8)
-                                .multilineTextAlignment(.leading)
-                            Spacer(minLength: 0)
-                        }
-                        .padding(.horizontal, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+        let active = model.maneuverGoal
+        let lesson = model.tutorial?.isActive == true ? (model.tutorial?.display.targets ?? []) : []
+        if let main = Self.mainGoal(goals, active: active, lessonTargets: lesson) {
+            let several = goals.count > 1
+            HStack(spacing: 2) {
+                Button {
+                    model.planManeuver(main)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: Self.icon(main))
+                            .font(.system(size: 14, weight: .semibold))
+                            .frame(width: 18)
+                        Text(Self.title(main))
+                            .font(.system(size: 13, weight: .bold))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                            .multilineTextAlignment(.leading)
+                        Spacer(minLength: 0)
                     }
-                    .buttonStyle(HUDButtonStyle(isActive: goal == active))
-                    .tutorialAnchor(optional: Self.anchor(goal))
-                    .accessibilityLabel(Self.title(goal))
-                    .accessibilityHint("Игра сама поставит узел манёвра")
-                    .longPressHint(Self.hint(goal))
-                    .accessibilityAddTraits(goal == active ? .isSelected : [])
+                    .padding(.horizontal, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if !planets.isEmpty {
-                    PlanetGoalsMenu(model: model, goals: planets, active: active)
+                .buttonStyle(HUDButtonStyle(isActive: main == active))
+                .tutorialAnchor(optional: Self.anchor(main))
+                .accessibilityLabel(Self.title(main))
+                .accessibilityHint("Игра сама поставит узел манёвра")
+                .longPressHint(Self.hint(main))
+                .accessibilityAddTraits(main == active ? .isSelected : [])
+                if several {
+                    Menu {
+                        ForEach(goals, id: \.self) { goal in
+                            Button {
+                                model.planManeuver(goal)
+                            } label: {
+                                if let window = model.planetWindowText(goal) {
+                                    Text(Self.title(goal) + " · " + window)
+                                } else {
+                                    Text(Self.title(goal))
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 12, weight: .bold))
+                    }
+                    .menuStyle(.button)
+                    .buttonStyle(HUDButtonStyle())
+                    .frame(width: Self.menuWidth)
+                    .accessibilityLabel("Выбрать другую цель")
                 }
             }
+            .frame(width: Self.width)
             .tutorialAnchor(.mapGoals)
         }
+    }
+
+    /// Главная цель: текущая цель урока из кнопок целей, иначе активная из списка, иначе первая.
+    static func mainGoal(_ goals: [ManeuverGoal], active: ManeuverGoal?, lessonTargets: [LessonElement]) -> ManeuverGoal? {
+        for target in lessonTargets {
+            if let goal = goals.first(where: { anchor($0) == target }) { return goal }
+        }
+        if let active, goals.contains(active) { return active }
+        return goals.first
     }
 
     /// Ключ рамки кнопки цели для уроков.
@@ -230,154 +202,6 @@ struct MapGoalsColumn: View {
         case .returnHome: "house.fill"
         case .toVella, .toArda, .toTaros: "globe"
         }
-    }
-}
-
-/// Кнопка «К планете»: меню планет с временем до окна отлёта (с орбиты Терры) — два нажатия до узла.
-struct PlanetGoalsMenu: View {
-    let model: FlightHUDModel
-    let goals: [ManeuverGoal]
-    let active: ManeuverGoal?
-
-    var body: some View {
-        let current = goals.first { $0 == active }
-        Menu {
-            ForEach(goals, id: \.self) { goal in
-                Button {
-                    model.planManeuver(goal)
-                } label: {
-                    if let window = model.planetWindowText(goal) {
-                        Text(MapGoalsColumn.title(goal) + " · " + window)
-                    } else {
-                        Text(MapGoalsColumn.title(goal))
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "globe")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 18)
-                Text(current.map(MapGoalsColumn.title) ?? "К планете")
-                    .font(.system(size: 13, weight: .bold))
-                    .lineLimit(2)
-                    .minimumScaleFactor(0.8)
-                    .multilineTextAlignment(.leading)
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 11, weight: .bold))
-            }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .menuStyle(.button)
-        .buttonStyle(HUDButtonStyle(isActive: current != nil))
-        .accessibilityLabel("К планете")
-        .accessibilityHint(MapGoalsColumn.hint(.toArda))
-        .accessibilityAddTraits(current != nil ? .isSelected : [])
-    }
-}
-
-/// Строка сводки карты.
-struct MapInfoLine: Identifiable {
-    let id: String
-    let text: String
-    let color: Color
-}
-
-/// Сводка: фаза Луны против гомановской, встреча, возврат, падение. Обновляется со снимком карты (≤ 4 Гц).
-struct MapInfoPanel: View {
-    let snapshot: MapSnapshot
-
-    /// Разница фаз, при которой пора начинать перелёт, рад.
-    static let phaseTolerance = 3 * Double.pi / 180
-
-    var body: some View {
-        let phase = Self.phaseLine(snapshot)
-        let path = Self.pathLines(snapshot)
-        if phase != nil || !path.isEmpty {
-            VStack(alignment: .leading, spacing: 3) {
-                if let phase {
-                    line(phase)
-                }
-                if snapshot.maneuver != nil, !path.isEmpty {
-                    Text("ПОСЛЕ УЗЛА")
-                        .font(.system(size: HUDFont.caption, weight: .heavy))
-                        .foregroundStyle(MapPalette.afterManeuver)
-                }
-                ForEach(path) { item in
-                    line(item)
-                }
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .hudBackground(corner: 10)
-            .allowsHitTesting(false)
-            .accessibilityElement(children: .combine)
-        }
-    }
-
-    private func line(_ item: MapInfoLine) -> some View {
-        Text(item.text)
-            .font(.system(size: 12, weight: .semibold).monospacedDigit())
-            .foregroundStyle(item.color)
-            .lineLimit(1)
-            .minimumScaleFactor(0.8)
-    }
-
-    /// Фаза Луны относительно корабля и нужная для гомановского перелёта; «пора» — разница < 3°.
-    static func phaseLine(_ s: MapSnapshot) -> MapInfoLine? {
-        guard let phase = s.lunaPhase, let target = s.hohmannPhase else { return nil }
-        let diff = remainder(phase - target, 2 * Double.pi)
-        let ready = abs(diff) < phaseTolerance
-        var text = "Фаза Луны \(MapText.degrees(phase)) · нужна \(MapText.degrees(target))"
-        if ready {
-            text += " · пора"
-        } else if let wait = waitTime(s, diff: diff) {
-            text += " · " + waitText(wait)
-        }
-        return MapInfoLine(id: "phase", text: text, color: ready ? MapPalette.ready : Color.white)
-    }
-
-    /// Время до нужной фазы, с: разница фаз / (угловая скорость корабля − угловая скорость Луны).
-    static func waitTime(_ s: MapSnapshot, diff: Double) -> Double? {
-        guard let period = ManeuverPanel.period(s) else { return nil }
-        let relative = 2 * Double.pi / period - World.lunaAngularRate
-        guard relative > 1e-9 else { return nil }
-        let ahead = diff < 0 ? diff + 2 * Double.pi : diff
-        let wait = ahead / relative
-        return wait.isFinite ? wait : nil
-    }
-
-    /// «через ~7 мин», «через ~3 ч».
-    static func waitText(_ seconds: Double) -> String {
-        let minutes = max(1, Int((seconds / 60).rounded()))
-        return minutes >= 120 ? "через ~\(minutes / 60) ч" : "через ~\(minutes) мин"
-    }
-
-    /// Встреча, возврат, падение — по траектории после узла, без узла — по текущей.
-    static func pathLines(_ s: MapSnapshot) -> [MapInfoLine] {
-        var out: [MapInfoLine] = []
-        guard let trajectory = s.maneuver?.trajectory ?? s.trajectory else { return out }
-        if let e = trajectory.encounter {
-            out.append(MapInfoLine(
-                id: "encounter",
-                text: "Встреча с \(MapText.instrumental(e.body)) · \(MapText.periapsis(e.periapsisAltitude)) · через \(HUDFormat.countdown(e.time - s.time))",
-                color: MapPalette.encounter))
-        }
-        if let r = trajectory.returnToTerra {
-            out.append(MapInfoLine(
-                id: "return",
-                text: "Возврат к Терре · \(MapText.periapsis(r.periapsisAltitude))",
-                color: MapPalette.returnTrip))
-        }
-        if let i = trajectory.impact {
-            out.append(MapInfoLine(
-                id: "impact",
-                text: "Падение на \(MapText.accusative(i.body)) · через \(HUDFormat.countdown(i.time - s.time))",
-                color: MapPalette.impact))
-        }
-        return out
     }
 }
 
@@ -468,35 +292,49 @@ struct MapFocusPicker: View {
     }
 }
 
+extension ManeuverAxis {
+    /// Название строки оси в панели «Эксперт».
+    var rowTitle: String {
+        switch self {
+        case .prograde: "↑ Вперёд"
+        case .normal: "↻ Вбок"
+        case .radial: "⇡ От планеты"
+        }
+    }
+}
+
 // MARK: - Правая колонка
 
-/// Правая колонка карты. Просто: карточка «Результат», «Выполнить манёвр» и компактная «Ступень».
-/// «Эксперт»: панель узла (или подсказка) и «Ступень».
+/// Правая колонка карты: карточка узла (по режиму) и «Выполнить манёвр».
+/// Просто: итог цели и «Сила прожига». Эксперт: итог, Δv, оси и шаг.
 struct MapSideColumn: View {
     let model: FlightHUDModel
 
-    static let width: CGFloat = 196
-    /// Зазор между «Выполнить» и «Ступень», pt.
-    static let stageGap: CGFloat = 16
+    static let width: CGFloat = 190
 
     var body: some View {
-        VStack(spacing: 6) {
-            ScrollView {
-                VStack(spacing: 6) {
-                    if model.deletedNode != nil, !model.hasManeuver {
-                        DeletedNodeBar(model: model)
-                    }
-                    if model.mapExpert { expert } else { simple }
-                }
-            }
-            .scrollIndicators(.visible)
-            if !model.mapExpert || model.isAutoBurning {
+        // Низкая карточка стоит над кнопкой без зазора; высокая прокручивается, кнопка остаётся на виду.
+        ViewThatFits(in: .vertical) {
+            VStack(spacing: 6) {
+                content
                 ManeuverExecuteButton(model: model)
             }
-            StageButton(model: model, compact: true)
-                .padding(.top, MapSideColumn.stageGap - 6)
+            VStack(spacing: 6) {
+                ScrollView { content }
+                    .scrollIndicators(.visible)
+                ManeuverExecuteButton(model: model)
+            }
         }
         .frame(width: Self.width)
+    }
+
+    private var content: some View {
+        VStack(spacing: 6) {
+            if model.deletedNode != nil, !model.hasManeuver {
+                DeletedNodeBar(model: model)
+            }
+            if model.mapExpert { expert } else { simple }
+        }
     }
 
     @ViewBuilder
@@ -504,14 +342,9 @@ struct MapSideColumn: View {
         if model.hasManeuver {
             ManeuverResultCard(model: model)
         } else {
-            let text = model.availableGoals.isEmpty
-                ? "Манёвры появятся на орбите"
-                : "Выберите цель слева: игра сама поставит узел"
-            MapHintCard(text: text) {
-                model.setMapExpert(true)
-            } label: {
-                "Эксперт"
-            }
+            MapHintCard(text: model.availableGoals.isEmpty
+                        ? "Манёвры появятся на орбите"
+                        : "Выберите цель слева: игра сама поставит узел")
         }
     }
 
@@ -520,11 +353,7 @@ struct MapSideColumn: View {
         if model.hasManeuver {
             ManeuverPanel(model: model)
         } else {
-            MapHintCard(text: "Тапните по орбите, чтобы поставить узел манёвра") {
-                model.setMapExpert(false)
-            } label: {
-                "Просто"
-            }
+            MapHintCard(text: "Тапните по орбите, чтобы поставить узел манёвра")
         }
     }
 }
@@ -559,31 +388,20 @@ struct DeletedNodeBar: View {
     }
 }
 
-/// Карточка-подсказка справа с кнопкой переключения режима.
+/// Карточка-подсказка справа, когда узла нет.
 struct MapHintCard: View {
     let text: String
-    let action: () -> Void
-    let label: () -> String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(text)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(HUDStyle.secondaryText)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-                .allowsHitTesting(false)
-            Button(action: action) {
-                Text(label())
-                    .font(.system(size: 12, weight: .bold))
-                    .padding(.horizontal, 10)
-            }
-            .buttonStyle(HUDButtonStyle())
-            .accessibilityLabel(label() == "Эксперт" ? "Режим «Эксперт»" : "Простой режим")
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .hudBackground(corner: 10)
+        Text(text)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(HUDStyle.secondaryText)
+            .multilineTextAlignment(.leading)
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hudBackground(corner: 10)
+            .allowsHitTesting(false)
     }
 }
 
@@ -622,6 +440,45 @@ enum ManeuverResultText {
         }
     }
 
+    /// Подпись над крупным значением итога: «Пролёт над Луной».
+    static func caption(_ outcome: ManeuverOutcome) -> String {
+        switch outcome.kind {
+        case .lunaPeriapsis: "Пролёт над Луной"
+        case .terraPeriapsis: "Возврат к Терре, высота"
+        case .orbit(_, let apoapsis, _): apoapsis.isInfinite ? "Пролёт" : "Орбита"
+        case .planetPeriapsis(let body, _): "Пролёт над " + MapText.genitive(body)
+        case .planetApproach(let body, _, _): "Сближение с " + MapText.instrumental(body)
+        case .noEncounter, .impact: "Итог"
+        }
+    }
+
+    /// Крупное значение итога: «30 км ✓», «80 × 74 км ✓». Галочка — только если цель достигнута.
+    static func value(_ outcome: ManeuverOutcome) -> String {
+        let mark = outcome.isGood ? check : ""
+        switch outcome.kind {
+        case .lunaPeriapsis(let altitude), .terraPeriapsis(let altitude):
+            return HUDFormat.distance(altitude) + mark
+        case .orbit(_, let apoapsis, let periapsis):
+            if apoapsis.isInfinite { return "Пе " + HUDFormat.distance(periapsis) + mark }
+            return kilometers(apoapsis) + " × " + kilometers(periapsis) + " км" + mark
+        case .planetPeriapsis(_, let altitude):
+            return HUDFormat.distance(altitude) + mark
+        case .planetApproach(_, let distance, let correction):
+            return HUDFormat.distance(distance) + " · коррекция ~" + HUDFormat.speed(correction) + mark
+        case .noEncounter, .impact:
+            return headline(outcome)
+        }
+    }
+
+    /// Строка простой карточки без Δv: «прожиг через 57 с», «прожиг сейчас», «выполнен».
+    static func simpleDetail(_ m: ManeuverStatus) -> String {
+        let lead = m.burnTime.isFinite ? m.timeToBurn : m.timeToNode
+        if m.isDone { return "выполнен" }
+        if lead <= 0 { return "прожиг сейчас" }
+        return "прожиг через " + HUDFormat.countdown(lead)
+    }
+
+
     /// Высота в километрах без единиц: «80», «80.5».
     static func kilometers(_ meters: Double) -> String {
         let km = meters / 1_000
@@ -643,66 +500,47 @@ enum ManeuverResultText {
     }
 }
 
-/// Карточка «Результат»: итог цели, Δv и время, «Подправить» (−, ползунок, +), «Эксперт».
-struct ManeuverResultCard: View {
+/// Подпись и крупное значение итога цели; общая верхушка карточек «Просто» и «Эксперт».
+struct ManeuverResultHeader: View {
     let model: FlightHUDModel
 
     var body: some View {
         let outcome = model.map.snapshot.maneuver.map {
             ManeuverPlanner.outcome(model.maneuverGoal, trajectory: $0.trajectory)
         }
-        let busy = model.isAutoBurning
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 4) {
-                Text("ИТОГ")
-                    .font(.system(size: HUDFont.caption, weight: .heavy))
-                    .foregroundStyle(HUDStyle.secondaryText)
-                Spacer(minLength: 0)
-                Button {
-                    model.deleteManeuver()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(HUDStyle.secondaryText)
-                        .padding(.horizontal, 8)
-                        .frame(minHeight: HUDStyle.minTouch)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(HUDPressStyle())
-                .padding(.vertical, -14)
-                // Зазор до «Эксперт» ≥ 16 pt (4 между кнопками + 12 здесь).
-                .padding(.trailing, 12)
-                .accessibilityLabel("Удалить узел")
-                .longPressHint("Удалить узел манёвра")
-                Button {
-                    model.setMapExpert(true)
-                } label: {
-                    Text("Эксперт")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(HUDStyle.secondaryText)
-                        .padding(.horizontal, 8)
-                        .frame(minHeight: HUDStyle.minTouch)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(HUDPressStyle())
-                // Высота строки — по заголовку, касание — полные 44 pt.
-                .padding(.vertical, -14)
-                .accessibilityLabel("Режим «Эксперт»")
-                .longPressHint("Эксперт — ручки Δv, оси и время узла вручную")
-            }
+        VStack(alignment: .leading, spacing: 1) {
             if let outcome {
-                Text(ManeuverResultText.headline(outcome))
-                    .font(.system(size: 16, weight: .heavy))
-                    .foregroundStyle(outcome.isGood ? MapPalette.ready : HUDStyle.accent)
-                    .lineLimit(2)
+                let caption = ManeuverResultText.caption(outcome)
+                let value = ManeuverResultText.value(outcome)
+                Text(caption)
+                    .font(.system(size: HUDFont.caption, weight: .semibold))
+                    .foregroundStyle(HUDStyle.secondaryText)
+                    .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .accessibilityLabel(ManeuverResultText.headline(outcome).replacingOccurrences(of: "✓", with: "цель достигнута"))
+                Text(value)
+                    .font(.system(size: 18, weight: .heavy))
+                    .foregroundStyle(outcome.isGood ? MapPalette.ready : HUDStyle.accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                    .accessibilityLabel(caption + ": " + value.replacingOccurrences(of: "✓", with: "цель достигнута"))
             } else {
                 Text(HUDFormat.dash)
-                    .font(.system(size: 16, weight: .heavy))
+                    .font(.system(size: 18, weight: .heavy))
                     .foregroundStyle(HUDStyle.secondaryText)
             }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// Карточка «Просто»: итог цели, время прожига, «Сила прожига» (−, ползунок, +).
+struct ManeuverResultCard: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        let busy = model.isAutoBurning
+        VStack(alignment: .leading, spacing: 4) {
+            ManeuverResultHeader(model: model)
             ManeuverResultDetail(model: model)
             if busy {
                 Text("Идёт прожиг — сначала Стоп")
@@ -711,8 +549,8 @@ struct ManeuverResultCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
-            Text("ПОДПРАВИТЬ")
-                .font(.system(size: HUDFont.caption, weight: .heavy))
+            Text("Сила прожига")
+                .font(.system(size: HUDFont.caption, weight: .semibold))
                 .foregroundStyle(HUDStyle.secondaryText)
                 .padding(.top, 2)
             HStack(spacing: 4) {
@@ -727,17 +565,18 @@ struct ManeuverResultCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .hudBackground()
         .tutorialAnchor(.mapPanel)
+        .tutorialAnchor(.mapSummary)
     }
 }
 
-/// «Δv 857 м/с · через 31:41» — единственная часть карточки, читающая кадр.
+/// «прожиг через 57 с» — единственная часть карточки «Просто», читающая кадр.
 struct ManeuverResultDetail: View {
     let model: FlightHUDModel
 
     var body: some View {
         if let m = model.maneuver {
-            Text(ManeuverResultText.detail(m))
-                .font(.system(size: 11, weight: .semibold).monospacedDigit())
+            Text(ManeuverResultText.simpleDetail(m))
+                .font(.system(size: 12, weight: .semibold).monospacedDigit())
                 .foregroundStyle(HUDStyle.secondaryText)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -943,8 +782,8 @@ struct ManeuverExecuteButton: View {
     }
 }
 
-/// Панель узла: сводка (каждый кадр — только `ManeuverReadout`), компоненты Δv, точные шаги,
-/// сдвиг по времени, «К узлу», удаление.
+/// Панель узла «Эксперт»: итог цели, Δv и время (каждый кадр — только `ManeuverReadout`), оси Δv,
+/// шаг подстройки, «К узлу» и «Удалить».
 struct ManeuverPanel: View {
     let model: FlightHUDModel
 
@@ -957,46 +796,21 @@ struct ManeuverPanel: View {
 
     var body: some View {
         let node = model.maneuverNode
-        let period = Self.period(model.map.snapshot)
         let busy = model.isAutoBurning
         VStack(spacing: 4) {
-            HStack(spacing: 4) {
-                Button {
-                    model.setMapExpert(false)
-                } label: {
-                    Text("Просто")
-                        .font(.system(size: 12, weight: .bold))
-                        .lineLimit(1)
-                        .padding(.horizontal, 6)
-                }
-                .buttonStyle(HUDButtonStyle())
-                .accessibilityLabel("Простой режим")
-                Spacer(minLength: 0)
-                Button {
+            // «К узлу» и «Удалить» — значками справа от итога: отдельный ряд не помещался по высоте экрана.
+            HStack(alignment: .top, spacing: 2) {
+                ManeuverResultHeader(model: model)
+                iconButton("forward.end.fill", label: "Ускорить время до узла", hint: "К узлу — время ускорится и остановится перед прожигом") {
                     model.warpToManeuver()
-                } label: {
-                    Text("К узлу")
-                        .font(.system(size: 12, weight: .bold))
-                        .lineLimit(1)
-                        .padding(.horizontal, 6)
                 }
-                .buttonStyle(HUDButtonStyle())
                 .disabled(!model.canWarpToManeuver)
                 .opacity(model.canWarpToManeuver ? 1 : 0.4)
                 .tutorialAnchor(.mapToNode)
-                .accessibilityLabel("Ускорить время до узла")
-                Button {
+                iconButton("trash", label: "Удалить узел", hint: "Удалить узел манёвра") {
                     model.deleteManeuver()
-                } label: {
-                    Image(systemName: "trash")
-                        .font(.system(size: 15, weight: .semibold))
                 }
-                .buttonStyle(HUDButtonStyle())
-                // Зазор до «К узлу» ≥ 16 pt (4 между кнопками + 12 здесь).
-                .padding(.leading, 12)
-                .accessibilityLabel("Удалить узел")
             }
-
             ManeuverReadout(model: model)
 
             if busy {
@@ -1008,86 +822,92 @@ struct ManeuverPanel: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
 
-            HStack(spacing: 4) {
+            VStack(spacing: 3) {
                 ForEach(ManeuverAxis.allCases, id: \.self) { item in
-                    Button {
-                        axis = item
-                    } label: {
-                        VStack(spacing: 0) {
-                            Text(item.shortName)
-                                .font(.system(size: HUDFont.caption, weight: .heavy))
-                            Text(HUDFormat.fixed(node.map { item.value($0) } ?? 0, digits: 1))
-                                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(HUDButtonStyle(isActive: axis == item))
-                    .accessibilityLabel("Компонента \(item.fullName)")
-                }
-            }
-            .disabled(busy)
-            .opacity(busy ? 0.4 : 1)
-
-            VStack(spacing: 8) {
-                HStack(spacing: 4) {
-                    ForEach(Self.stepChoices, id: \.self) { choice in
-                        Button {
-                            step = choice
-                        } label: {
-                            Text(HUDFormat.fixed(choice, digits: choice < 1 ? 1 : 0))
-                                .font(.system(size: HUDFont.body, weight: .bold).monospacedDigit())
-                                .foregroundStyle(step == choice ? Color.black : Color.white)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 28)
-                                .background(step == choice ? MapPalette.ready : HUDStyle.control, in: Capsule())
-                                .frame(height: HUDStyle.minTouch)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(HUDPressStyle())
-                        // Видимая капсула 28 pt, касание — полные 44.
-                        .padding(.vertical, -8)
-                        .accessibilityLabel("Шаг \(HUDFormat.fixed(choice, digits: choice < 1 ? 1 : 0)) м/с")
-                        .accessibilityAddTraits(step == choice ? .isSelected : [])
-                    }
-                }
-                HStack(spacing: 8) {
-                    ExpertStepButton(model: model, axis: axis, step: step, direction: -1)
-                    ExpertStepButton(model: model, axis: axis, step: step, direction: 1)
+                    axisRow(item, value: node.map { item.value($0) } ?? 0)
                 }
             }
             .disabled(busy)
             .opacity(busy ? 0.4 : 1)
 
             HStack(spacing: 4) {
-                timeButton(period.map { -$0 }, text: HUDFormat.minus + "об", label: "На оборот раньше")
-                timeButton(-60, text: HUDFormat.minus + "1м", label: "На минуту раньше")
-                timeButton(60, text: "+1м", label: "На минуту позже")
-                timeButton(period, text: "+об", label: "На оборот позже")
+                ExpertStepButton(model: model, axis: axis, step: step, direction: -1)
+                Menu {
+                    ForEach(Self.stepChoices, id: \.self) { choice in
+                        Button(Self.stepText(choice)) { step = choice }
+                    }
+                } label: {
+                    HStack(spacing: 3) {
+                        Text(Self.stepText(step))
+                            .font(.system(size: 12, weight: .bold).monospacedDigit())
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        Image(systemName: "chevron.down").font(.system(size: 9, weight: .bold))
+                    }
+                    .padding(.horizontal, 2)
+                }
+                .menuStyle(.button)
+                .buttonStyle(HUDButtonStyle())
+                .frame(width: 78)
+                .accessibilityLabel("Шаг \(Self.stepText(step)), выбрать")
+                ExpertStepButton(model: model, axis: axis, step: step, direction: 1)
             }
             .disabled(busy)
             .opacity(busy ? 0.4 : 1)
         }
-        .padding(5)
+        .padding(6)
         .hudBackground()
         .tutorialAnchor(.mapPanel)
+        .tutorialAnchor(.mapSummary)
     }
 
-    private func timeButton(_ seconds: Double?, text: String, label: String) -> some View {
-        Button {
-            if let seconds { model.shiftManeuver(by: seconds) }
-        } label: {
-            Text(text)
-                .font(.system(size: 12, weight: .bold))
-                .lineLimit(1)
-                .frame(maxWidth: .infinity)
+    /// Значок 44 × 44 в строке итога.
+    private func iconButton(_ systemImage: String, label: String, hint: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.system(size: 14, weight: .bold))
+                .frame(width: HUDStyle.minTouch, height: HUDStyle.minTouch)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(HUDButtonStyle())
-        .disabled(seconds == nil)
-        .opacity(seconds == nil ? 0.45 : 1)
+        .buttonStyle(.plain)
+        .foregroundStyle(HUDStyle.secondaryText)
         .accessibilityLabel(label)
+        .longPressHint(hint)
     }
+
+    /// Строка оси: «↑ Вперёд — 857 м/с»; тап выбирает ось для «−» и «+».
+    private func axisRow(_ item: ManeuverAxis, value: Double) -> some View {
+        let selected = axis == item
+        return Button {
+            axis = item
+        } label: {
+            HStack(spacing: 4) {
+                Text(item.rowTitle)
+                    .font(.system(size: 12, weight: .bold))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                Spacer(minLength: 2)
+                Text(abs(value) < 0.05 ? "0" : HUDFormat.signedSpeed(value))
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+            }
+            .foregroundStyle(selected ? Color.black : Color.white)
+            .padding(.horizontal, 8)
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .hudBackground(selected ? HUDStyle.accent : HUDStyle.control, corner: 10)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HUDPressStyle())
+        .accessibilityLabel("Компонента \(item.fullName)")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private static func stepText(_ step: Double) -> String {
+        HUDFormat.fixed(step, digits: step < 1 ? 1 : 0) + " м/с"
+    }
+
 
     /// Период текущей орбиты (первый участок прогноза), nil — орбита незамкнутая.
     static func period(_ snapshot: MapSnapshot) -> Double? {
@@ -1158,16 +978,21 @@ struct ExpertStepButton: View {
     }
 }
 
-/// Числа узла — единственная часть панели, читающая кадр.
+/// Числа узла — единственная часть панели, читающая кадр: «Δv 857 м/с · прожиг 38 с», «узел через 30:24».
 struct ManeuverReadout: View {
     let model: FlightHUDModel
 
     var body: some View {
         if let m = model.maneuver {
+            // Прожиг уже идёт — вместо полного Δv остаток.
+            let burning = !m.isDone && m.timeToBurn <= 0 && m.remainingDeltaV < m.deltaV - 0.5
             VStack(alignment: .leading, spacing: 2) {
-                Self.row("Δv", HUDFormat.speed(m.deltaV), "ост", HUDFormat.speed(m.remainingDeltaV))
-                Self.row("до узла", m.timeToNode < 0 ? "позади" : HUDFormat.countdown(m.timeToNode),
-                         "прожиг", HUDFormat.countdown(m.burnTime))
+                Text((burning ? "ост " + HUDFormat.speed(m.remainingDeltaV) : "Δv " + HUDFormat.speed(m.deltaV))
+                     + " · прожиг " + HUDFormat.countdown(m.burnTime))
+                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 if m.isDone || m.timeToNode < -max(m.burnTime.isFinite ? m.burnTime : 0, 1) {
                     Button {
                         model.deleteManeuver()
@@ -1185,32 +1010,14 @@ struct ManeuverReadout: View {
                         .foregroundStyle(HUDStyle.accent)
                         .lineLimit(1)
                 } else {
-                    Self.row("начало через", HUDFormat.countdown(m.timeToBurn), nil, nil)
+                    Text(m.timeToNode < 0 ? "узел позади" : "узел через " + HUDFormat.countdown(m.timeToNode))
+                        .font(.system(size: 12, weight: .semibold).monospacedDigit())
+                        .foregroundStyle(HUDStyle.secondaryText)
+                        .lineLimit(1)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private static func row(_ label1: String, _ value1: String, _ label2: String?, _ value2: String?) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(label1)
-                .font(.system(size: HUDFont.caption, weight: .bold))
-                .foregroundStyle(HUDStyle.secondaryText)
-            Text(value1)
-                .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                .foregroundStyle(.white)
-            if let label2, let value2 {
-                Spacer(minLength: 2)
-                Text(label2)
-                    .font(.system(size: HUDFont.caption, weight: .bold))
-                    .foregroundStyle(HUDStyle.secondaryText)
-                Text(value2)
-                    .font(.system(size: 12, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white)
-            }
-        }
-        .lineLimit(1)
     }
 }
 
