@@ -68,6 +68,10 @@ final class FlightHUDModel {
     private(set) var eva: EVAHUDState?
     /// Космонавтов снаружи и почему нельзя выйти — для переключателя «Корабль | Космонавт».
     private(set) var evaOutside = 0
+    /// Кто из экипажа снаружи и кто погиб (метки в полосе экипажа).
+    private(set) var evaOutsideIDs: [String] = []
+    private(set) var evaDeadIDs: [String] = []
+    @ObservationIgnored private var evaLastGrip: (String, Bool)?
     private(set) var evaExitBlocker: EVABlocker?
     /// Джойстик космонавта (x вправо, y вперёд) и «Вниз/Вверх» (−1…1): пишут вьюхи, читает `tick`.
     @ObservationIgnored var evaStick = SIMD2<Double>.zero
@@ -971,8 +975,18 @@ final class FlightHUDModel {
     var missionSteps: [MissionStep] { MissionChecklist.steps(telemetry, reached: missionProgress) }
 
     private func refreshEVA(_ snapshot: WorldSnapshot) {
+        // Тосты захвата (6.2): по смене `grip` у того же космонавта (событий в контракте нет).
+        let current = snapshot.controlled.map { ($0.memberID, $0.grip != nil) }
+        if let current, let last = evaLastGrip, last.0 == current.0, last.1 != current.1 {
+            let id = current.0
+            notify(Self.evaName(id) + " " + (current.1 ? "держится" : Self.evaVerb(id, "отпустил", "отпустила")))
+        }
+        evaLastGrip = current
         let next = snapshot.controlled.map(EVAHUDState.init)
         if eva != next { eva = next }
+        let outsideIDs = snapshot.cosmonauts.map(\.memberID)
+        if evaOutsideIDs != outsideIDs { evaOutsideIDs = outsideIDs }
+        if evaDeadIDs != snapshot.deadCrew { evaDeadIDs = snapshot.deadCrew }
         if evaOutside != snapshot.cosmonauts.count { evaOutside = snapshot.cosmonauts.count }
         if evaExitBlocker != snapshot.evaExitBlocker { evaExitBlocker = snapshot.evaExitBlocker }
     }

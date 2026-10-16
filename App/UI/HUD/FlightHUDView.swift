@@ -216,7 +216,7 @@ struct FlightLayer: View {
     private var topRight: some View {
         HStack(alignment: .top, spacing: 2) {
             if !model.crew.isEmpty {
-                CrewStrip(crew: model.crew)
+                CrewStrip(crew: model.crew, outside: model.evaOutsideIDs, dead: model.evaDeadIDs) { model.send(.evaSelect(memberID: $0)) }
                     .tutorialAnchor(.crew)
                     .padding(.top, 2)
                     .padding(.trailing, 2)
