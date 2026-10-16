@@ -15,14 +15,18 @@ public enum DesignIssue: Sendable, Hashable {
     case lowTWR(stage: Int, twr: Double)
     /// В секции жидкостный двигатель без баков с топливом.
     case noFuel(stage: Int)
+    /// В секции жидкостного двигателя есть баки, но не его топлива.
+    case wrongFuel(stage: Int, fuel: FuelType)
     /// Секция ниже командной без двигателей (лишний разделитель).
     case emptyStage(stage: Int)
     /// Нижняя деталь — разделитель.
     case decouplerAtBottom
     /// Есть экипаж, нет парашюта.
     case noChute
-    /// Есть бак монотоплива, но нет блока РСУ.
+    /// Есть бак монотоплива, но нет блока РСУ на монотопливе.
     case monoWithoutRCS
+    /// Есть баллон азота, но нет газовых сопел.
+    case gasWithoutJets
     /// Тяга ступени проходит мимо центра масс (плечо > 0.1 м) — корабль закрутит.
     case asymmetricThrust(stage: Int)
     /// После срабатывания разделителя у корабля (часть с корнем) не остаётся капсулы или модуля управления.
@@ -50,6 +54,8 @@ public enum DesignIssue: Sendable, Hashable {
             "TWR \(Self.stageWord(stage)) \(String(format: "%.2f", twr)) — ракета не оторвётся"
         case .noFuel(let stage):
             "\(Self.stageWord(stage, capitalized: true)): двигатель без топливных баков"
+        case .wrongFuel(let stage, let fuel):
+            "\(Self.stageWord(stage, capitalized: true)): двигателю нужно «\(fuel.title)»"
         case .emptyStage(let stage):
             "\(Self.stageWord(stage, capitalized: true)) без двигателей — лишний разделитель"
         case .decouplerAtBottom:
@@ -58,6 +64,8 @@ public enum DesignIssue: Sendable, Hashable {
             "Есть экипаж, но нет парашюта"
         case .monoWithoutRCS:
             "Бак монотоплива без блока РСУ"
+        case .gasWithoutJets:
+            "Баллон азота без газовых сопел"
         case .decouplerDropsCommand:
             "Разделитель отделяет капсулу или модуль управления"
         case .asymmetricThrust(let stage):
@@ -97,9 +105,14 @@ extension VesselDesign {
         if !hasEngine { warnings.append(.noEngine) }
 
         if hasEngine {
-            // Топливо: жидкостный двигатель без баков в своей группе.
+            // Топливо: жидкостный двигатель без баков в своей группе или без баков своего топлива.
             for (i, n) in nodes.enumerated() where n.part.spec.kind == .engine && !n.part.spec.isSolid {
-                if ship.liquidFuel(group: ship.group[i]) <= 1e-9 { add(.noFuel(stage: ship.parts[i].stage ?? 0)) }
+                let stage = ship.parts[i].stage ?? 0
+                if ship.liquidFuel(group: ship.group[i]) <= 1e-9 {
+                    add(.noFuel(stage: stage))
+                } else if ship.fuel(ship.source(i)) <= 1e-9 {
+                    add(.wrongFuel(stage: stage, fuel: ship.fuelType(i)))
+                }
             }
             // Тяга первой ступени с двигателем.
             if let k = groups.firstIndex(where: { g in g.contains { node($0)?.part.spec.kind == .engine } }) {
@@ -132,7 +145,9 @@ extension VesselDesign {
             warnings.append(.decouplerAtBottom)
         }
         if parts.contains(where: { $0.spec.crew > 0 }) && !parts.contains(.chute) { warnings.append(.noChute) }
-        if kinds.contains(.monoTank) && !kinds.contains(.rcs) { warnings.append(.monoWithoutRCS) }
+        func has(_ k: PartKind, _ t: FuelType) -> Bool { parts.contains { $0.spec.kind == k && $0.spec.fuelType == t } }
+        if has(.monoTank, .mono) && !has(.rcs, .mono) { warnings.append(.monoWithoutRCS) }
+        if has(.monoTank, .gas) && !has(.rcs, .gas) { warnings.append(.gasWithoutJets) }
         // Разделитель уносит командную деталь: в части с корнем её не остаётся.
         if !blocking.contains(.noCommand) {
             func isCommand(_ id: Int) -> Bool { node(id).map { $0.part.spec.kind == .pod || $0.part.spec.kind == .probe } ?? false }

@@ -1,1 +1,1 @@
-spaceCenter hangar hangarBoosters research ascent orbit map reentry rcs
+spaceCenter hangar hangarBoosters hangarFuels research ascent orbit map reentry rcs

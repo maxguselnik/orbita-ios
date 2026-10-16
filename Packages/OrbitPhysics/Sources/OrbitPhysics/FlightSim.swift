@@ -593,17 +593,24 @@ public final class FlightSim: FlightSimulation {
         // РСУ: поступательная тяга по `input.translation` в осях корабля.
         s.rcsTranslation = .zero
         s.rcsRotation = .zero
-        var rcsUse = 0.0
+        var rcsUse: [FuelType: Double] = [:]
         var rcsAcc = Vec3.zero
         if let cmd = rcsTranslationCommand(s.ship) {
-            let blocks = Double(s.ship.rcsBlocks)
-            let spec = PartID.rcsBlock.spec
-            // Расход: Σ|t_i| × блоки × массовый расход на направление × dt.
-            let want = (abs(cmd.x) + abs(cmd.y) + abs(cmd.z)) * blocks * spec.massFlow * h
-            let frac = want > s.ship.monoMass ? s.ship.monoMass / want : 1
-            rcsUse = want * frac
-            s.rcsTranslation = cmd * frac
-            rcsAcc = s.q.rotate(cmd * (blocks * spec.thrust(pressure: p) * frac)) / m
+            // По каждому типу топлива: расход Σ|t_i| × расход блоков типа × dt, тяга — блоки типа × команда.
+            var force = 0.0, full = 0.0
+            for t in Self.rcsFuels {
+                let jets = s.ship.rcsJets(t, pressure: p)
+                let have = s.ship.rcsMass(t)
+                guard jets.count > 0 else { continue }
+                full += jets.thrust
+                guard have > 1e-9 else { continue }
+                let want = (abs(cmd.x) + abs(cmd.y) + abs(cmd.z)) * jets.flow * h
+                let frac = want > have ? have / want : 1
+                rcsUse[t] = want * frac
+                force += jets.thrust * frac
+            }
+            s.rcsTranslation = full > 0 ? cmd * (force / full) : .zero
+            rcsAcc = s.q.rotate(cmd * force) / m
         }
         let thrustAcc = (tr.force.map { s.q.rotate($0) / m } ?? nose * (tr.thrust / m)) + rcsAcc
         let g = b.mu / (rm * rm)
@@ -618,14 +625,14 @@ public final class FlightSim: FlightSimulation {
             } else {
                 // Не оторвались: сопла впустую топливо не жгут.
                 s.rcsTranslation = .zero
-                rcsUse = 0
+                rcsUse = [:]
                 lastProperAccel = g
                 s.ship.cool(dt: h, environment: World.thermalEnvironment(body: s.body, position: s.r, time: time))
                 vessels[ai] = s
                 return
             }
         }
-        s.ship.drawMono(rcsUse)
+        for (t, use) in rcsUse { s.ship.drawRCS(t, use) }
 
         let spin = World.spin(s.body)
         let vAir = s.v - spin.cross(s.r)
@@ -839,10 +846,18 @@ public final class FlightSim: FlightSimulation {
     /// Команда поступательного РСУ в осях корабля (−1…1 по осям), nil — сопла молчат:
     /// выключено, нет блоков, нет монотоплива или нулевая команда.
     func rcsTranslationCommand(_ ship: Ship) -> Vec3? {
-        guard rcsEnabled, ship.rcsBlocks > 0, ship.monoMass > 1e-9 else { return nil }
+        guard rcsEnabled, Self.rcsFuels.contains(where: { Self.rcsReady(ship, $0) }) else { return nil }
         let t = Vec3(clamp(input.translation.x, -1, 1), clamp(input.translation.y, -1, 1),
                      clamp(input.translation.z, -1, 1))
         return abs(t.x) + abs(t.y) + abs(t.z) > Self.rcsDeadzone ? t : nil
+    }
+
+    /// Типы топлива РСУ (порядок расчёта).
+    static let rcsFuels: [FuelType] = [.mono, .gas]
+
+    /// Есть ли блоки типа `t` и их топливо.
+    static func rcsReady(_ ship: Ship, _ t: FuelType) -> Bool {
+        ship.rcsJets(t).count > 0 && ship.rcsMass(t) > 1e-9
     }
 
     /// Управляющее ускорение: двигатели/маховики + (при РСУ) добавка сопел.
@@ -851,13 +866,22 @@ public final class FlightSim: FlightSimulation {
     /// Команда делится пропорционально: доля сопел `share = rcsCtrl/ctrl`, а `level = |alpha|/ctrl`
     /// — загрузка 0…1. Сопла дают `level × share` полного момента РСУ и тратят
     /// `level × share × блоки × massFlow` кг/с (при полном моменте каждый блок жжёт один
-    /// канал). Не хватает монотоплива — доля сопел в этом шаге урезается пропорционально.
+    /// канал). Не хватает топлива — доля сопел в этом шаге урезается пропорционально.
+    /// Типы топлива считаются отдельно: блоки типа дают «эквивалент Роя» = их тяга / тяга «Роя»,
+    /// расход — расход блоков типа, нехватка урезает долю своего типа.
     private func attitude(_ s: inout Vessel, _ h: Double, mass m: Double, firing: Bool, aero: Vec3) {
         let mt = m / 1000
-        let blocks = s.ship.rcsBlocks
-        let mono = s.ship.monoMass
-        let rcsOn = rcsEnabled && blocks > 0 && mono > 1e-9
-        let rcsCtrl = rcsOn ? Double(blocks) * Self.rcsRotationAccelPerBlock / (mt / 2 + 0.5).squareRoot() : 0
+        var channels: [(type: FuelType, ctrl: Double, flow: Double)] = []
+        if rcsEnabled {
+            let roy = PartID.rcsBlock.spec.thrustVacuum
+            for t in Self.rcsFuels where Self.rcsReady(s.ship, t) {
+                let jets = s.ship.rcsJets(t)
+                channels.append((t, jets.thrust / roy * Self.rcsRotationAccelPerBlock / (mt / 2 + 0.5).squareRoot(),
+                                 jets.flow))
+            }
+        }
+        let rcsOn = !channels.isEmpty
+        let rcsCtrl = channels.reduce(0) { $0 + $1.ctrl }
         let ctrl = 1.4 / (mt / 2 + 0.5).squareRoot() + (firing ? 0.25 : 0) + rcsCtrl
         var alpha = Vec3.zero
         let manual = Vec3(input.pitch, input.roll, input.yaw)
@@ -877,12 +901,19 @@ public final class FlightSim: FlightSimulation {
             let level = min(1, alpha.length / ctrl)
             let share = rcsCtrl / ctrl
             if level > 0.01 {
-                let want = level * share * Double(blocks) * PartID.rcsBlock.spec.massFlow * h
-                let frac = want > mono ? mono / want : 1
-                s.ship.drawMono(want * frac)
+                // Доля момента, которую сопла реально дают (взвешено по типам).
+                var given = 0.0
+                for c in channels {
+                    let have = s.ship.rcsMass(c.type)
+                    let want = level * (c.ctrl / ctrl) * c.flow * h
+                    let frac = want > have ? have / want : 1
+                    s.ship.drawRCS(c.type, want * frac)
+                    given += c.ctrl / ctrl * frac
+                }
+                let frac = share > 0 ? given / share : 0
                 let local = s.q.conjugate.rotate(alpha) / ctrl * frac
                 s.rcsRotation = Vec3(clamp(local.x, -1, 1), clamp(local.y, -1, 1), clamp(local.z, -1, 1))
-                alpha = alpha - alpha * (share * (1 - frac))
+                alpha = alpha - alpha * (share - given)
             }
         }
         s.w += (alpha + aero) * h
@@ -1344,7 +1375,8 @@ public final class FlightSim: FlightSimulation {
         t.thermal = thermal
         t.science = scienceStatus(s, altitude: alt)
         t.rcs = RCSStatus(available: s.ship.rcsBlocks > 0, enabled: rcsEnabled, monoMass: s.ship.monoMass,
-                          monoCapacity: s.ship.monoCapacity, firing: rcsFiring)
+                          monoCapacity: s.ship.monoCapacity, gasMass: s.ship.rcsMass(.gas),
+                          gasCapacity: s.ship.rcsCapacity(.gas), firing: rcsFiring)
         snapshot = WorldSnapshot(time: time, activeVessel: activeID, vessels: vessels.map(\.state),
                                  lunaPosition: World.lunaPosition(at: time), lunaVelocity: World.lunaVelocity(at: time),
                                  terraRotation: World.terraRotation(at: time), telemetry: t)

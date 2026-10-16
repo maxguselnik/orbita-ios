@@ -10,6 +10,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case hangarEmpty
     /// Ангар с проектом «Ускорители» (боковые блоки, симметрия, стабилизаторы, обтекатели).
     case hangarBoosters
+    /// Ангар: газовая РСУ и смешанная ступень (метан + керосин) — Δv по топливу.
+    case hangarFuels
     /// Ангар с проектом «Луна-Р» (ровер на посадочной ступени).
     case hangarRover
     /// Космоцентр (режим «Наука», немного науки).
@@ -118,7 +120,9 @@ enum DemoScenario: String, CaseIterable, Sendable {
     }
 
     /// Сценарий открывает не полёт, а экран космоцентра.
-    var opensBase: Bool { [.hangar, .hangarEmpty, .hangarBoosters, .hangarRover, .spaceCenter, .research].contains(self) }
+    var opensBase: Bool {
+        [.hangar, .hangarEmpty, .hangarBoosters, .hangarFuels, .hangarRover, .spaceCenter, .research].contains(self)
+    }
 
     /// Создаёт полёт: прокручивает автопилот до нужного момента; на подъёме автопилот ведёт и дальше.
     func makeSimulation() -> any FlightSimulation {
@@ -129,7 +133,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
         case .tarosOrbit: return Self.planetOrbit(.taros)
         case .vellaSurface: return Self.planetSurface(.vella)
         case .ardaSurface: return Self.planetSurface(.arda)
-        case .hangar, .hangarEmpty, .hangarBoosters, .hangarRover, .spaceCenter, .research, .flight, .tutorial,
+        case .hangar, .hangarEmpty, .hangarBoosters, .hangarFuels, .hangarRover, .spaceCenter, .research, .flight,
+             .tutorial,
              .crewGallery, .crewCalm:
             return FlightSim(design: .orbit)
         case .crewStrain: return DemoScenario.ascent.makeSimulation()
