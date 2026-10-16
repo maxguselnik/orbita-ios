@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Генерация проекта, тесты физики, сборка под симулятор.
+# Тесты физики — только для изменённого кода (scripts/affected-tests.sh);
+# FULL=1 scripts/run.sh — все тесты физики, как в CI.
 # Полный вывод шагов — в build/logs/, на экран — только итог и ошибки.
 # VERBOSE=1 scripts/run.sh — показывать всё как есть.
 set -euo pipefail
@@ -31,8 +33,15 @@ step() {
 echo "▶ xcodegen generate"
 step xcodegen xcodegen generate
 
-echo "▶ Тесты OrbitPhysics"
-step physics-tests swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors
+PHYS=all
+[[ "${FULL:-0}" == 1 ]] || PHYS=$(scripts/affected-tests.sh | sed -n 's/^physics: //p')
+if [[ "$PHYS" == none ]]; then
+  echo "▶ Тесты OrbitPhysics: не нужны (физика не менялась)"
+else
+  filt=(); [[ "$PHYS" == all ]] || filt=(--filter "($(tr ' ' '|' <<< "$PHYS"))")
+  echo "▶ Тесты OrbitPhysics: $PHYS"
+  step physics-tests swift test --package-path Packages/OrbitPhysics -Xswiftc -warnings-as-errors ${filt[@]+"${filt[@]}"}
+fi
 
 echo "▶ Сборка под симулятор"
 step build xcodebuild -project Orbita.xcodeproj -scheme Orbita \
