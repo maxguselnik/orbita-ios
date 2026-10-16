@@ -222,16 +222,23 @@ extension VesselDesign {
     /// Полная масса, кг.
     public var mass: Double { parts.reduce(0) { $0 + $1.spec.wetMass } }
 
-    /// Δv поступательного РСУ по типу топлива (вакуум) на последней конфигурации — после всех ступеней.
+    /// Δv поступательного РСУ по типу топлива (вакуум) на последней конфигурации, где блоки этого типа ещё на
+    /// корабле: ступени срабатывают по очереди, двигатели сжигают своё топливо (как в `stageInfos`).
     public func rcsDeltaV() -> [FuelType: Double] {
         var ship = Ship(design: self)
-        for k in ship.pendingStages { ship.simulateActivation(k) }
         var out: [FuelType: Double] = [:]
-        for t in FuelType.allCases where t.isRCS {
-            let dv = ship.rcsDeltaV(t)
-            if dv > 0 { out[t] = dv }
+        func record() {
+            for t in FuelType.allCases where t.isRCS && ship.rcsJets(t).count > 0 { out[t] = ship.rcsDeltaV(t) }
         }
-        return out
+        record()
+        let stages = ship.pendingStages
+        for (j, k) in stages.enumerated() {
+            ship.simulateActivation(k)
+            let dropped = j + 1 < stages.count ? ship.droppedUIDs(atStage: stages[j + 1]) : []
+            _ = ship.simulateBurn(pressure: 0, gravity: Bodies.terra.surfaceGravity, dropped: dropped)
+            record()
+        }
+        return out.filter { $0.value > 0 }
     }
 
     /// Ступени для ангара: [0] — первая (по давлению `pressure`, по умолчанию у земли), остальные — вакуум.

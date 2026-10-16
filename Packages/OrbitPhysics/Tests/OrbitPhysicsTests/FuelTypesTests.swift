@@ -218,4 +218,49 @@ struct FuelTypesTests {
             #expect(TechTree.nodes.filter { $0.parts.contains(p) }.count == 1, "\(p)")
         }
     }
+
+    // Ревью F: замечания P2.
+
+    @Test func presetsHaveNoNewIssues() {
+        for d in VesselDesign.presets {
+            let issues = d.issues()
+            #expect(!issues.contains { if case .wrongFuel = $0 { true } else { false } }, "\(d.name)")
+            #expect(!issues.contains(.gasWithoutJets), "\(d.name)")
+        }
+    }
+
+    @Test func rcsDeltaVKeepsDroppedRCSAndBurnsEngineFuel() {
+        // РСУ под разделителем уходит с нижней ступенью — Δv РСУ всё равно показывается.
+        let dropped = VesselDesign(name: "", parts: [.probe, .decoupler, .rcsBlock, .m100, .t400, .shtil])
+        #expect((dropped.rcsDeltaV()[.mono] ?? 0) > 0)
+        // Посадочник: Δv РСУ — после выработки баков двигателя (масса меньше, Δv больше, чем с полными).
+        let lander = VesselDesign(name: "", parts: [.probe, .rcsBlock, .m100, .t200, .shtil])
+        var ship = Ship(design: lander)
+        let full = ship.rcsDeltaV(.mono)
+        for k in ship.pendingStages { ship.simulateActivation(k) }
+        _ = ship.simulateBurn(pressure: 0, gravity: Bodies.terra.surfaceGravity, dropped: [])
+        let dry = ship.rcsDeltaV(.mono)
+        let shown = lander.rcsDeltaV()[.mono] ?? 0
+        #expect(dry > full * 1.5)
+        #expect(abs(shown - dry) / dry < 1e-9)
+    }
+
+    @Test func twoTypesOneEmptyStillWorks() {
+        // «Рой» без монотоплива + «Бриз» с азотом: сдвиг и поворот идут на азоте, доля «Роя» выпадает.
+        let d = VesselDesign(name: "", parts: [.probe, .n50, .gasJet, .rcsBlock])
+        let s = sim(d)
+        let ai = s.activeIndex
+        s.vessels[ai].ship.drawRCS(.mono, s.vessels[ai].ship.rcsMass(.mono))
+        #expect(s.active.ship.rcsMass(.mono) < 1e-9)
+        s.send(.setRCS(true))
+        let gas0 = s.snapshot.telemetry.rcs.gasMass
+        s.setInput(ControlInput(translation: Vec3(0, 1, 0)))
+        _ = run(s, limit: 1, frame: 0.05)
+        let cmd = s.active.rcsTranslation
+        s.setInput(.neutral)
+        #expect(s.snapshot.telemetry.rcs.gasMass < gas0)
+        let jets = s.active.ship
+        let share = jets.rcsJets(.gas).thrust / (jets.rcsJets(.gas).thrust + jets.rcsJets(.mono).thrust)
+        #expect(abs(cmd.y - share) < 1e-6, "команда \(cmd.y), доля \(share)")
+    }
 }
