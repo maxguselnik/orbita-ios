@@ -565,14 +565,24 @@ final class SceneRenderer: FlightRenderer {
             let att = v.attitude.quatd
             let center = RenderFrame.bodyCenter(v.body, in: frame, time: time) + v.position.d3
             let me = RenderFrame.bodyCenter(c.body, in: frame, time: time) + c.position.d3
-            var best = center, bestD = Double.infinity
+            var best = center, bestD = Double.infinity, bestLocal = D3(0, 0, 1)
             for h in v.hatches {
                 let p = center + att.act(h.d3)
                 let d = simd_length_squared(p - me)
-                if d < bestD { bestD = d; best = p }
+                if d < bestD { bestD = d; best = p; bestLocal = h.d3 }
             }
-            let normal = att.act(D3(0, 0, 1))
-            hatchRing.update(rel: best + normal * 0.04 - eye, orientation: att, canBoard: c.canBoard, time: Float(renderTime))
+            // Нормаль кольца — нормаль корпуса кабины (направление люка от оси, с наклоном конуса) в осях корабля.
+            var nLocal = D3(bestLocal.x, 0, bestLocal.z)
+            nLocal = simd_length(nLocal) > 0.05 ? simd_normalize(nLocal) : D3(0, 0, 1)
+            if let k = v.parts.indices.filter({ v.parts[$0].spec.crew > 0 && v.layout.indices.contains($0) })
+                .min(by: { simd_length_squared(v.layout[$0].center.d3 - bestLocal) < simd_length_squared(v.layout[$1].center.d3 - bestLocal) }) {
+                let q = v.layout[k].geometryOrientation.quatd
+                nLocal = simd_normalize(q.act(PartModels.hatchNormal(v.parts[k])))
+            }
+            let normal = att.act(nLocal)
+            let facing = simd_quatd(from: D3(0, 0, 1), to: nLocal)
+            hatchRing.update(rel: best + normal * 0.04 - eye, orientation: att * facing, canBoard: c.canBoard,
+                             time: Float(renderTime))
             ringShown = true
         }
         if !ringShown { hatchRing.hide() }

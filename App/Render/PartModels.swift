@@ -25,6 +25,8 @@ final class RenderMaterials {
     let concreteDark = SimpleMaterial(color: UIColor(white: 0.30, alpha: 1), roughness: 0.95, isMetallic: false)
     let monoBody = SimpleMaterial(color: UIColor(red: 0.74, green: 0.82, blue: 0.78, alpha: 1), roughness: 0.5, isMetallic: false)
     let yellow = SimpleMaterial(color: UIColor(red: 0.95, green: 0.76, blue: 0.14, alpha: 1), roughness: 0.55, isMetallic: false)
+    /// Поручни и лестницы EVA: оранжевые трубки #F2A03D.
+    let handrail = SimpleMaterial(color: UIColor(red: 0.949, green: 0.627, blue: 0.239, alpha: 1), roughness: 0.45, isMetallic: true)
     let towerSteel = SimpleMaterial(color: UIColor(red: 0.60, green: 0.17, blue: 0.10, alpha: 1), roughness: 0.7, isMetallic: false)
 
     let plumeOuter: UnlitMaterial
@@ -126,24 +128,92 @@ enum PartModels {
         return lathe(prof, twoSided: true)
     }
 
+    // MARK: Кабины и люки (EVA 6.2)
+
+    /// Высота люка кабины в долях высоты детали (совпадает с физикой: середина, у ЛК-2 — 35 %).
+    static func hatchFraction(_ id: PartID) -> Float { id == .lk2 ? 0.35 : 0.5 }
+
+    /// Радиус корпуса кабины на высоте `y` (линия от (r, 0.08h) к (top, 0.9h), как в `Ship.hatchRadius`).
+    private static func podHull(r: Float, top: Float, h: Float, y: Float) -> Float {
+        r - (r - top) * (y - 0.08 * h) / (0.82 * h)
+    }
+
+    /// Нормаль люка кабины в осях детали: +Z, наклонённая вверх по конусу корпуса (повторяет наклон корпуса).
+    static func hatchNormal(_ id: PartID) -> SIMD3<Double> {
+        let spec = id.spec
+        let h = Float(spec.height), r = Float(spec.diameter / 2)
+        let top = Float(0.3) * min(Float(spec.diameter), 1.25)
+        let s = Double(-(r - top) / (0.82 * h))
+        let n = SIMD3<Double>(0, -s, 1)
+        return n / (n * n).sum().squareRoot()
+    }
+
+    private static func podModel(_ id: PartID, h: Float, d: Float, r: Float) -> [(MeshBuilder, any Material)] {
+        let mats = RenderMaterials.shared
+        let top = Float(0.3) * min(d, 1.25)
+        let hull = { (y: Float) in podHull(r: r, top: top, h: h, y: y) }
+        var out: [(MeshBuilder, any Material)] = []
+        if id == .lk2 {
+            // ЛК-2: низкая широкая кабина, юбка-расширение книзу, золотая «фольга» снизу, стыковочный воротник сверху.
+            let split = 0.5 * h
+            out.append((lathe([SIMD2(0, 0), SIMD2(r * 0.9, 0), SIMD2(r * 1.06, 0.035 * h), SIMD2(r * 1.02, 0.08 * h),
+                               SIMD2(r, 0.08 * h)]), mats.darkMetal))
+            out.append((lathe([SIMD2(r, 0.08 * h), SIMD2(hull(split), split)]), mats.gold))
+            out.append((lathe([SIMD2(hull(split), split), SIMD2(top, 0.9 * h), SIMD2(top * 0.8, 0.94 * h),
+                               SIMD2(top * 0.8, h * 0.99), SIMD2(0, h * 0.99)]), mats.white))
+            out.append((lathe(cyl(hull(split) * 1.012, split - 0.02 * h, split + 0.02 * h, caps: false)), mats.darkGray))
+            out.append((lathe(cyl(top * 0.55, h * 0.99, h, caps: true)), mats.darkMetal))
+        } else {
+            let shield = lathe([SIMD2(0, 0), SIMD2(r * 0.93, 0), SIMD2(r, 0.05 * h), SIMD2(r, 0.08 * h)])
+            let body = lathe([SIMD2(r, 0.08 * h), SIMD2(r * 0.98, 0.12 * h), SIMD2(top, 0.9 * h),
+                              SIMD2(top, h), SIMD2(0, h)])
+            let band = lathe(cyl(r * 0.995 - (r - top) * 0.22, 0.24 * h, 0.3 * h, caps: false))
+            out += [(shield, mats.shield), (body, mats.lightGray), (band, mats.darkGray)]
+        }
+        // Иллюминаторы по бокам (±X); на спине (+Z) — люк.
+        var win = MeshBuilder()
+        let wy = (id == .lk2 ? 0.66 : 0.5) * h
+        let wr = hull(wy)
+        let ws = min(d, 1.25)
+        for sx: Float in [-1, 1] {
+            win.box(center: F3(sx * wr * 0.985, wy, 0.12 * ws), x: F3(0.025, 0, 0), y: F3(0, 0.08 * h, 0), z: F3(0, 0, 0.09 * ws))
+        }
+        out.append((win, mats.window))
+
+        // Люк: рамка, дверца, ручка; поручни-рамка вокруг (оранжевые трубки на стойках).
+        let y = hatchFraction(id) * h
+        let R = hull(y)
+        let s = -(r - top) / (0.82 * h)
+        let u = simd_normalize(F3(0, 1, s)), n = simd_normalize(F3(0, -s, 1)), sd = F3(1, 0, 0)
+        let c = F3(0, y, R)
+        let hw = 0.16 * ws, hh = min(0.28, 0.2 * h)
+        var frame = MeshBuilder(), door = MeshBuilder(), rail = MeshBuilder()
+        let fm: Float = 0.03
+        frame.box(center: c + n * 0.004, x: sd * (hw + fm), y: u * (hh + fm), z: n * 0.012)
+        door.box(center: c + n * 0.014, x: sd * hw, y: u * hh, z: n * 0.008)
+        rail.box(center: c + n * 0.03 + sd * (hw * 0.55), x: sd * 0.012, y: u * 0.05, z: n * 0.012)
+        let m: Float = 0.09, lift: Float = 0.07, t: Float = 0.028
+        let ex = hw + fm + m, ey = hh + fm + m
+        func pt(_ a: Float, _ b: Float, _ k: Float = lift) -> F3 { c + sd * a + u * b + n * k }
+        let corners = [(-ex, -ey), (ex, -ey), (ex, ey), (-ex, ey)]
+        for i in 0..<4 {
+            let p = corners[i], q = corners[(i + 1) % 4]
+            rail.beam(pt(p.0, p.1), pt(q.0, q.1), thickness: t)
+            rail.beam(pt(p.0, p.1, 0), pt(p.0, p.1), thickness: 0.02)
+        }
+        out.append((frame, mats.darkMetal))
+        out.append((door, mats.black))
+        out.append((rail, mats.handrail))
+        return out
+    }
+
     private static func build(_ id: PartID) -> [(MeshBuilder, any Material)] {
         let mats = RenderMaterials.shared
         let spec = id.spec
         let h = Float(spec.height), d = Float(spec.diameter), r = d / 2
         switch spec.kind {
         case .pod:
-            let top = Float(0.3) * min(d, 1.25)
-            let shield = lathe([SIMD2(0, 0), SIMD2(r * 0.93, 0), SIMD2(r, 0.05 * h), SIMD2(r, 0.08 * h)])
-            let body = lathe([SIMD2(r, 0.08 * h), SIMD2(r * 0.98, 0.12 * h), SIMD2(top, 0.9 * h),
-                              SIMD2(top, h), SIMD2(0, h)])
-            let band = lathe(cyl(r * 0.995 - (r - top) * 0.22, 0.24 * h, 0.3 * h, caps: false))
-            var win = MeshBuilder()
-            // Иллюминатор на спине (+Z) и люк.
-            let wy = 0.5 * h
-            let wr = r - (r - top) * (wy - 0.08 * h) / (0.82 * h)
-            win.box(center: F3(0, wy, wr * 0.98), x: F3(0.16 * d, 0, 0), y: F3(0, 0.1 * h, 0), z: F3(0, 0, 0.04))
-            win.box(center: F3(wr * 0.98, wy - 0.05 * h, 0), x: F3(0.03, 0, 0), y: F3(0, 0.16 * h, 0), z: F3(0, 0, 0.14 * d))
-            return [(shield, mats.shield), (body, mats.lightGray), (band, mats.darkGray), (win, mats.window)]
+            return podModel(id, h: h, d: d, r: r)
         case .probe:
             let body = lathe([SIMD2(0, 0), SIMD2(r, 0), SIMD2(r, 0.55 * h), SIMD2(r * 0.6, h), SIMD2(0, h)])
             let ring = lathe(cyl(r * 1.01, 0.1 * h, 0.2 * h, caps: false))

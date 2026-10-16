@@ -122,7 +122,30 @@ final class CosmonautVisual {
         let speed = Float(c.surfaceSpeed)
         var target = SuitPose()
         let injured = c.health == .injured
-        if c.onGround {
+        if let g = c.grip {
+            if let along = g.along {
+                // Лестница: один шаг на ступень (~0.3 м); руки и ноги попеременно, фаза — по высоте.
+                let a = Float(along) / 0.3 * .pi
+                let sn = sin(a), cs = cos(a)
+                target.armL = 2.35 + 0.35 * sn
+                target.armR = 2.35 - 0.35 * sn
+                target.elbow = 0.45 + 0.25 * max(0, cs)
+                target.thighL = 0.55 + 0.45 * max(0, -sn)
+                target.thighR = 0.55 + 0.45 * max(0, sn)
+                target.kneeL = -0.7 - 0.5 * max(0, -sn)
+                target.kneeR = -0.7 - 0.5 * max(0, sn)
+                target.lean = 0.05
+            } else {
+                // Поручни: обе руки на рамке вперёд-вверх, ноги свободно покачиваются.
+                let drift = sin(clock * 0.7) * 0.08
+                target.armL = 2.0; target.armR = 2.0
+                target.elbow = 0.7
+                target.thighL = 0.3 + drift; target.thighR = 0.15 - drift
+                target.kneeL = -0.5; target.kneeR = -0.3
+                target.lean = 0.08
+            }
+            if injured { target.roll = 0.05 }
+        } else if c.onGround {
             let amp = min(1, speed / 2.0) * 0.55
             if speed > 0.15 { phase += d * (2.5 + speed * 1.2) }
             let s = sin(phase), co = cos(phase)
@@ -186,7 +209,7 @@ final class CosmonautVisual {
     }
 }
 
-/// Подсветка люка: зелёное пунктирное кольцо ~0.6 м в плоскости люка (нормаль — +Z корабля).
+/// Подсветка люка: зелёное пунктирное кольцо ~0.6 м в плоскости люка (нормаль задаётся ориентацией: +Z кольца).
 @MainActor
 final class HatchHighlight {
     let root = Entity()
