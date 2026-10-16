@@ -86,11 +86,14 @@ extension VesselDesign {
 
     /// Ступени без пропусков 0…n−1 (порядок сохраняется); у неактивируемых — nil.
     mutating func compressStages() {
-        let used = Array(Set(nodes.compactMap { $0.part.spec.isActivatable ? $0.stage : nil })).sorted()
+        let used = Array(Set(nodes.compactMap { $0.part.spec.isActivatable && !isRoverMount($0) ? $0.stage : nil }))
+            .sorted()
         var map: [Int: Int] = [:]
         for (i, s) in used.enumerated() { map[s] = i }
         for i in nodes.indices {
-            nodes[i].stage = nodes[i].part.spec.isActivatable ? nodes[i].stage.flatMap { map[$0] } : nil
+            // Разделитель ровера — всегда без ступени (отделяется только командой «Отделить ровер»).
+            let staged = nodes[i].part.spec.isActivatable && !isRoverMount(nodes[i])
+            nodes[i].stage = staged ? nodes[i].stage.flatMap { map[$0] } : nil
         }
     }
 
@@ -239,7 +242,8 @@ extension VesselDesign {
     // MARK: Ступени
 
     func computeStageGroups() -> [[Int]] {
-        let used = Array(Set(nodes.compactMap { $0.part.spec.isActivatable ? $0.stage : nil })).sorted()
+        let used = Array(Set(nodes.compactMap { $0.part.spec.isActivatable && !isRoverMount($0) ? $0.stage : nil }))
+            .sorted()
         return used.map { s in nodes.filter { $0.stage == s && $0.part.spec.isActivatable }.map(\.id) }
     }
 

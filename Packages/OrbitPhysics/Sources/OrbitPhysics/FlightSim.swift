@@ -376,6 +376,8 @@ public final class FlightSim: FlightSimulation {
         if v.situation == .crashed { return nil }
         // 6.3: едущий (не закреплённый на грунте) ровер — как при тяге.
         if v.rover != nil && v.isOnSurface && v.fixedPos == nil { return .thrust }
+        // Газ у ровера, который может ехать, — тоже тяга (тронется на следующем шаге).
+        if v.rover != nil && abs(roverInput.drive) > 0.01 && roverCanDrive(v) { return .thrust }
         // Тяга проверяется раньше «на поверхности»: с работающим двигателем рельсы нельзя и на грунте.
         if v.ship.isThrusting(throttle: v.throttle) { return .thrust }
         if v.isActive && rcsTranslationCommand(v.ship) != nil { return .thrust }

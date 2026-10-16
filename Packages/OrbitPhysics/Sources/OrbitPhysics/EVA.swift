@@ -221,6 +221,8 @@ extension FlightSim {
         let ladder = s.ship.ladders.first { $0.hatch == hk }
         if s.isOnSurface && s.ship.parts[h.part].spec.kind == .seat {
             // 6.3: встать с кресла — на грунт сбоку от кресла (правый борт ровера), лицом к роверу.
+            // Без водителя ровер не должен укатиться: ручник.
+            vessels[i].rover?.handbrake = true
             let right = s.q.rotate(s.ship.roverBasis.rotate(.unitX))
             let up = hatch.normalized
             let side = Cosmonaut.horizontal(right, up: up)

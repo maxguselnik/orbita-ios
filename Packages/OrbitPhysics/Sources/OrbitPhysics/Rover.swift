@@ -476,16 +476,23 @@ extension FlightSim {
             rv.wheels[wh.index] = st
         }
 
-        // Корпус о грунт.
+        // Корпус о грунт. Жёсткость и демпфирование делятся на число точек касания (плашмя — до 32),
+        // демпфирующий импульс точки не больше гашения её скорости внутрь: иначе ровер подпрыгивает.
+        var hullHits: [(pt: Vec3, pen: Double)] = []
         for p in geo.hull {
             let pt = x + qr.rotate(p)
             let pen = groundPoint(pt, body: s.body, inverse: inv).length - pt.length
-            guard pen > 0 else { continue }
+            if pen > 0 { hullHits.append((pt, pen)) }
+        }
+        let mh = m / Double(max(1, hullHits.count))
+        for (pt, pen) in hullHits {
             let n = pt / pt.length
             let r = pt - x
             let vc = vel + w.cross(r) - spin.cross(pt)
             let vn = vc.dot(n)
-            let fn = max(0, m * (RoverPhysics.hullStiffness * pen - RoverPhysics.hullDamping * vn))
+            var fd = -mh * RoverPhysics.hullDamping * vn
+            if vn < 0 { fd = min(fd, -vn * effMass(r, n) / h) }
+            let fn = max(0, mh * RoverPhysics.hullStiffness * pen + fd)
             let j = n * (fn * h)
             dv += j / m
             dw += invI(r.cross(j))

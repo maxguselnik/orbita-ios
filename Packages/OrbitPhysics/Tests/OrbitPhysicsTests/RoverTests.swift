@@ -460,4 +460,139 @@ struct RoverTests {
         let b = World.toBodyFixed(sim.vessels[rj].r, body: .terra, time: sim.time)
         #expect((b - a).length < 1e-6)
     }
+
+    // MARK: Ревью F
+
+    /// Механическая энергия ровера относительно грунта (поступательная, вращательная, потенциальная).
+    func roverEnergy(_ sim: FlightSim, _ ri: Int) -> Double {
+        let v = sim.vessels[ri]
+        let geo = RoverGeometry(v.ship)
+        let qr = (v.q * geo.basis).normalized
+        let x = v.r + v.q.rotate(geo.cm)
+        let spin = World.spin(v.body)
+        let vRel = v.v - spin.cross(x)
+        let wl = qr.conjugate.rotate(v.w - spin)
+        let mu = Bodies.body(v.body).mu
+        return geo.mass * (0.5 * vRel.lengthSquared - mu / x.length)
+            + 0.5 * (geo.inertia.x * wl.x * wl.x + geo.inertia.y * wl.y * wl.y + geo.inertia.z * wl.z * wl.z)
+    }
+
+    /// Перевернуть активный ровер (`axis` в осях ровера, на угол π) и уронить с 1 м: энергия не растёт, через 5 с покой.
+    func dropFlipped(_ sim: FlightSim, axis: Vec3, label: String, minHull: Int = 1) throws {
+        let ri = try #require(roverIndex(sim))
+        let v = sim.vessels[ri]
+        let ax = v.q.rotate(v.ship.roverBasis.rotate(axis))
+        sim.vessels[ri].fixedPos = nil
+        sim.vessels[ri].fixedAtt = nil
+        sim.vessels[ri].q = (Quat(axis: ax, angle: .pi) * v.q).normalized
+        sim.vessels[ri].r = v.r + v.r.normalized * 1.0
+        sim.vessels[ri].v = World.surfaceVelocity(body: v.body, position: sim.vessels[ri].r)
+        sim.vessels[ri].w = World.spin(v.body)
+        sim.vessels[ri].rover?.restTime = 0
+        let e0 = roverEnergy(sim, ri)
+        var eMax = e0
+        var hull = 0
+        drive(sim, .neutral, seconds: 5) { s in
+            guard let i = roverIndex(s), s.vessels[i].fixedPos == nil else { return }
+            let e = roverEnergy(s, i)
+            eMax = max(eMax, e)
+            let v = s.vessels[i]
+            let geo = RoverGeometry(v.ship)
+            let qr = (v.q * geo.basis).normalized
+            let x = v.r + v.q.rotate(geo.cm)
+            hull = max(hull, geo.hull.filter { p in
+                let pt = x + qr.rotate(p)
+                return s.surfacePoint(body: v.body, near: pt, time: s.time).length > pt.length
+            }.count)
+        }
+        let rj = try #require(roverIndex(sim))
+        let w = sim.vessels[rj]
+        let m = RoverGeometry(w.ship).mass
+        let speed = (w.v - World.spin(w.body).cross(w.r)).length
+        print("\(label): рост энергии \((eMax - e0) / m) Дж/кг, "
+              + "точек корпуса в грунте до \(hull), скорость через 5 с \(speed) м/с, закреплён \(w.fixedPos != nil)")
+        #expect(hull >= minHull, "точек корпуса в грунте: \(hull)")
+        #expect(eMax - e0 < 0.05 * m, "энергия выросла: \((eMax - e0) / m) Дж/кг")
+        #expect(w.fixedPos != nil || speed < 0.05)
+        let ground = Bodies.body(w.body).radius + Terrain.surfaceHeight(body: w.body, direction: w.r.normalized)
+        #expect(w.r.length > ground - 1.5, "провалился")
+    }
+
+    /// Ровер с тремя одинаковыми батареями вместо кресла и панели: перевёрнутый ложится на 12 точек корпуса сразу.
+    static func flatTop(_ d: VesselDesign) -> VesselDesign {
+        var d = d
+        for i in d.nodes.indices where d.nodes[i].part == .roverSeat || d.nodes[i].part == .solarS1 {
+            d.nodes[i].part = .batteryB1
+        }
+        return d
+    }
+
+    /// Отделить ровер и сделать его активным (без водителя).
+    func deployActive(_ sim: FlightSim) throws {
+        sim.send(.deployRover)
+        _ = sim.advance(realDelta: 1.0 / 60)
+        sim.makeActive(try #require(roverIndex(sim)))
+        _ = sim.advance(realDelta: 1.0 / 60)
+    }
+
+    @Test func flippedRoverDropSettlesOnLuna() throws {
+        for (axis, label) in [(Vec3.unitY, "Луна, вверх колёсами"), (Vec3.unitX, "Луна, на нос")] {
+            let sim = landed()
+            try deployAndBoard(sim)
+            try dropFlipped(sim, axis: axis, label: label)
+        }
+        let sim = landed(Self.flatTop(Self.lander))
+        try deployActive(sim)
+        try dropFlipped(sim, axis: .unitY, label: "Луна, плашмя на батареи", minHull: 10)
+    }
+
+    @Test func flippedRoverDropSettlesOnTerra() throws {
+        let sim = FlightSim(design: Self.flatTop(.lunaRover))
+        try deployActive(sim)
+        try dropFlipped(sim, axis: .unitY, label: "Терра, плашмя на батареи", minHull: 10)
+    }
+
+    @Test func standUpAtSpeedSetsHandbrake() throws {
+        let sim = landed()
+        try deployAndBoard(sim)
+        drive(sim, RoverInput(drive: 1), seconds: 5)
+        #expect((sim.snapshot.rover?.speed ?? 0) > 2)
+        sim.send(.evaExit)
+        _ = sim.advance(realDelta: 1.0 / 60)
+        #expect(sim.snapshot.controlled != nil)
+        let ri = try #require(roverIndex(sim))
+        #expect(sim.vessels[ri].rover?.handbrake == true)
+        let p = sim.vessels[ri].r
+        _ = sim.advance(realDelta: 10)
+        let moved = (sim.vessels[ri].r - p).length
+        print("Встал на ходу: ровер прокатился \(moved) м")
+        #expect(moved < 15)
+    }
+
+    @Test func customStagingRoverMountHasNoStage() {
+        var d = VesselDesign(name: "т", parts: [.probe, .t400])
+        let tank = AttachTarget(parent: 1, node: .radial, angle: 0, height: 0.5, position: .zero)
+        let dec = try! #require(VesselEditing.attach(.decouplerRadial, to: tank, symmetry: 1, in: &d).first)
+        // Ручная ступень разделителю, пока он обычный.
+        VesselEditing.setStage(dec, to: 0, in: &d)
+        #expect(d.customStaging && d.node(dec)?.stage != nil)
+        let side = AttachTarget(parent: dec, node: .radial, angle: 0, height: 0.5, position: .zero)
+        #expect(!VesselEditing.attach(.roverFrame, to: side, symmetry: 1, in: &d).isEmpty)
+        #expect(d.node(dec)?.stage == nil)
+        // И правка ступеней ему ступень не вернёт.
+        VesselEditing.setStage(dec, to: 0, in: &d)
+        #expect(d.node(dec)?.stage == nil)
+    }
+
+    @Test func throttleOnParkedRoverBlocksRails() throws {
+        let sim = landed()
+        try deployAndBoard(sim)
+        sim.send(.setHandbrake(true))
+        drive(sim, .neutral, seconds: 4)
+        let ri = try #require(roverIndex(sim))
+        #expect(sim.vessels[ri].fixedPos != nil && sim.railsBlockReason() == nil)
+        sim.send(.setHandbrake(false))
+        sim.setRoverInput(RoverInput(drive: 1))
+        #expect(sim.railsBlockReason() == .thrust)
+    }
 }
