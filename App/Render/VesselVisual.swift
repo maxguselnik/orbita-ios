@@ -36,6 +36,9 @@ final class VesselVisual {
     private var rcsPuffs: [(partIndex: Int, jets: [ModelEntity])] = []
     private var rcsLit = false
     private var maxDiameter: Double = 1
+    // Лестницы EVA: общий корень (переживает пересборку), пересобираются при смене набора лестниц.
+    private let ladderRoot = Entity()
+    private var ladderBuilt: [EVALadder] = []
 
     // Нагрев деталей: ступенчатый уровень свечения (0 — холодная) и кэш материалов по уровням.
     private static let heatSteps = 8
@@ -117,6 +120,46 @@ final class VesselVisual {
         }
     }
 
+    private func clearLadders() {
+        for c in Array(ladderRoot.children) { c.removeFromParent() }
+        ladderBuilt = []
+    }
+
+    /// Лестницы: две рейки, ступени через ~0.3 м, площадка-ступенька у низа. Вызывается только при смене набора.
+    private func buildLadders(_ ladders: [EVALadder]) {
+        clearLadders()
+        ladderBuilt = ladders
+        var b = MeshBuilder()
+        for l in ladders {
+            let bot = F3(Float(l.bottom.x), Float(l.bottom.y), Float(l.bottom.z))
+            let top = F3(Float(l.top.x), Float(l.top.y), Float(l.top.z))
+            let axis = top - bot
+            let len = simd_length(axis)
+            guard len > 0.2 else { continue }
+            let up = axis / len
+            // Наружу — горизонтальное направление от оси корабля к лестнице (запасной — +Z).
+            var n = F3(top.x, 0, top.z)
+            if simd_length(n) < 0.05 { n = F3(0, 0, 1) }
+            n = simd_normalize(n - up * simd_dot(n, up))
+            let side = simd_normalize(simd_cross(up, n))
+            let half: Float = 0.22
+            b.beam(bot + side * half, top + side * half, thickness: 0.045)
+            b.beam(bot - side * half, top - side * half, thickness: 0.045)
+            var y: Float = 0.3
+            while y < len - 0.05 {
+                b.beam(bot + up * y + side * half, bot + up * y - side * half, thickness: 0.035)
+                y += 0.3
+            }
+            // Верхние кронштейны к корпусу и площадка у низа.
+            for sg: Float in [-1, 1] {
+                b.beam(top + side * (sg * half), top + side * (sg * half) - n * 0.12, thickness: 0.035)
+            }
+            b.box(center: bot + up * 0.16 + n * 0.14, x: side * (half + 0.06), y: n * 0.15, z: up * 0.015)
+        }
+        guard let mesh = b.makeMesh(name: "ladders") else { return }
+        ladderRoot.addChild(ModelEntity(mesh: mesh, materials: [RenderMaterials.shared.handrail]))
+    }
+
     /// Деталь `id` разрушена: вспышка на месте самой горячей из одноимённых (вызывать до пересборки).
     func flash(part id: PartID) {
         func heat(_ i: Int) -> Double { i < lastHeat.count ? lastHeat[i] : 0 }
@@ -182,6 +225,7 @@ final class VesselVisual {
     init(parts: [PartID], layout: [PartPlacement] = []) {
         SoftTextures.shared.start()
         root.addChild(flashRoot)
+        root.addChild(ladderRoot)
         rebuild(parts: parts, layout: layout)
     }
 
@@ -201,7 +245,8 @@ final class VesselVisual {
         sourceLayoutCount = newLayout.count
         let lay = newLayout.count == newParts.count ? newLayout : Self.stackLayout(newParts)
         layout = lay
-        for c in Array(root.children) where c !== flashRoot { c.removeFromParent() }
+        for c in Array(root.children) where c !== flashRoot && c !== ladderRoot { c.removeFromParent() }
+        clearLadders()
         heatLevels.removeAll()
         plumes.removeAll()
         rcsPuffs.removeAll()
@@ -457,6 +502,7 @@ final class VesselVisual {
         }
         updateHeat(v.partHeat)
         updateFlashes(time: time)
+        if v.ladders != ladderBuilt { buildLadders(v.ladders) }
         let vac = 1 - clampd(pressure, 0, 1)
         for (i, p) in plumes {
             let on = v.firingEngines.contains(i)
