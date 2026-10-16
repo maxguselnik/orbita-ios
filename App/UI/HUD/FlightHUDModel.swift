@@ -365,7 +365,9 @@ final class FlightHUDModel {
         feedback?.crew(crew.update(telemetry: snapshot.telemetry, events: events, dt: delta))
         map.update(sim: sim, now: now)
         advise(events: events, now: now)
-        if let message = events.compactMap(Self.message(for:)).last {
+        // Сел в кресло ровера — тост «за рулём» даёт смена водителя, «в капсуле» не нужен.
+        let shown = snapshot.rover == nil ? events : events.filter { if case .evaBoarded = $0 { false } else { true } }
+        if let message = shown.compactMap(Self.message(for:)).last {
             show(message, now: now)
         }
         if let tutorial { tutorialFrame(tutorial, delta: delta) }
