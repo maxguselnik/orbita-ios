@@ -25,6 +25,7 @@ final class ProceduralAudio: FlightAudio {
     private var sessionReady = false
     private var lastStartAttempt: ContinuousClock.Instant?
     private var pendingStop: Task<Void, Never>?
+    private var gripTracker = GripTracker()
 
     init() {
         Self.observeSession(into: sessionObservers, flags: flags, didBecomeActive: UIApplication.didBecomeActiveNotification)
@@ -56,6 +57,13 @@ final class ProceduralAudio: FlightAudio {
         } else {
             control.jet = 0
             control.stepRate = 0
+        }
+        switch gripTracker.update(snapshot.controlled) {
+        case .grabbed: control.shots.gripOn &+= 1
+        case .released: control.shots.gripOff &+= 1
+        case .rungUp: control.shots.rungUp &+= 1
+        case .rungDown: control.shots.rungDown &+= 1
+        case nil: break
         }
         control.serial &+= 1
 
@@ -309,5 +317,26 @@ final class ObserverBag: @unchecked Sendable {
 
     deinit {
         for token in tokens { NotificationCenter.default.removeObserver(token) }
+    }
+}
+
+/// Отслеживает захват и ступени лестницы у управляемого космонавта (шаг ступени — `rungStep`).
+struct GripTracker {
+    enum Change { case grabbed, released, rungUp, rungDown }
+    static let rungStep = 0.3
+
+    private var member: String?
+    private var gripped = false
+    private var rung: Int?
+
+    mutating func update(_ eva: CosmonautState?) -> Change? {
+        let id = eva?.memberID
+        let nowGripped = eva?.grip != nil
+        let nowRung = eva?.grip?.along.map { Int(($0 / Self.rungStep).rounded(.down)) }
+        defer { member = id; gripped = nowGripped; rung = nowRung }
+        guard id == member else { return nil } // смена космонавта — не событие
+        if nowGripped != gripped { return nowGripped ? .grabbed : .released }
+        if let a = rung, let b = nowRung, a != b { return b > a ? .rungUp : .rungDown }
+        return nil
     }
 }

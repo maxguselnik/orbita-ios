@@ -146,6 +146,10 @@ struct OneShotCounters: Sendable, Equatable {
     var hatch: UInt32 = 0
     var ping: UInt32 = 0
     var jetEmpty: UInt32 = 0
+    var gripOn: UInt32 = 0
+    var gripOff: UInt32 = 0
+    var rungUp: UInt32 = 0
+    var rungDown: UInt32 = 0
 }
 
 /// Фильтр с переменным состоянием (топология TPT): устойчив при любом изменении частоты.
@@ -684,6 +688,22 @@ final class SynthDSP: @unchecked Sendable {
             start(Shot(wave: .noise, mode: .band, f0: 3200, f1: 900, duration: 0.05, volume: 0.45, q: 1.2), scale: 1)
             start(Shot(wave: .sine, f0: 160, f1: 70, duration: 0.09, volume: 0.35), scale: 1)
             start(Shot(wave: .noise, mode: .high, f0: 4500, f1: 1800, duration: 0.55, volume: 0.22, delay: 0.07), scale: 1)
+        }
+        if s.gripOn != seenShots.gripOn {
+            start(Shot(wave: .noise, mode: .band, f0: 2800, f1: 1200, duration: 0.035, volume: 0.4, q: 1.4), scale: 1)
+            start(Shot(wave: .triangle, f0: 420, f1: 260, duration: 0.07, volume: 0.28), scale: 1)
+        }
+        if s.gripOff != seenShots.gripOff {
+            start(Shot(wave: .noise, mode: .band, f0: 2200, f1: 1000, duration: 0.03, volume: 0.3, q: 1.4), scale: 1)
+            start(Shot(wave: .triangle, f0: 300, f1: 200, duration: 0.06, volume: 0.2), scale: 1)
+        }
+        if s.rungUp != seenShots.rungUp {
+            start(Shot(wave: .triangle, f0: 640, f1: 520, duration: 0.08, volume: 0.1), scale: 1)
+            start(Shot(wave: .noise, mode: .band, f0: 2400, f1: 900, duration: 0.03, volume: 0.1, q: 1.6), scale: 1)
+        }
+        if s.rungDown != seenShots.rungDown {
+            start(Shot(wave: .triangle, f0: 560, f1: 450, duration: 0.08, volume: 0.1), scale: 1)
+            start(Shot(wave: .noise, mode: .band, f0: 2000, f1: 800, duration: 0.03, volume: 0.1, q: 1.6), scale: 1)
         }
         if s.ping != seenShots.ping {
             start(Shot(wave: .sine, f0: 880, f1: 880, duration: 0.14, volume: 0.22), scale: 1)
