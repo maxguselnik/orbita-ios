@@ -35,8 +35,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case lunaApproach
     /// На поверхности Луны (пресет «Луна»).
     case lunaSurface
-    /// EVA (этап 6): космонавт вышел на Луну рядом с посадочным кораблём.
+    /// EVA (этап 6): космонавт спустился по лестнице на Луну рядом с посадочным кораблём.
     case evaSurface
+    /// EVA 6.2: космонавт на середине лестницы посадочного корабля на Луне.
+    case evaLadder
     /// EVA на круговой орбите Луны 30 км: ранец включён, топлива ~18 %.
     case evaOrbit
     /// Последние 25 м реальной посадки автопилота и неподвижный корабль после касания.
@@ -159,10 +161,18 @@ enum DemoScenario: String, CaseIterable, Sendable {
             }
         case .lunaSurface:
             return ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
-        case .evaSurface:
+        case .evaSurface, .evaLadder:
             let flight = ScenarioFlight(design: .luna, goal: .lunaLanding, keepAutopilot: false) { _, ap in ap.isFinished }
             flight.send(.evaExit)
-            Self.roll(flight, seconds: 2)
+            // С лестницы вниз: до грунта (сцена «поверхность») или ~2 с (сцена «лестница»).
+            flight.setEVAInput(EVAInput(vertical: -1))
+            var t = 0.0
+            while t < (self == .evaLadder ? 2.5 : 30), flight.snapshot.controlled?.grip != nil {
+                _ = flight.advance(realDelta: 1.0 / 60)
+                t += 1.0 / 60
+            }
+            flight.setEVAInput(.neutral)
+            Self.roll(flight, seconds: self == .evaLadder ? 0.5 : 1.5)
             return flight
         case .evaOrbit:
             return Self.evaOrbit()
@@ -276,6 +286,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
         let sim = FlightSim(design: VesselDesign(name: "EVA", parts: [.chute, .podK1]), body: .luna, position: r, velocity: v,
                             attitude: Quat(basisX: Vec3.unitY, y: Vec3.unitX, z: Vec3.unitY.cross(Vec3.unitX)))
         sim.send(.evaExit)
+        sim.send(.evaRelease)
         let side = Vec3.unitZ
         for k in 0..<40 {
             sim.setEVAInput(EVAInput(move: side * [1.0, -1, -1, 1][k % 4]))
