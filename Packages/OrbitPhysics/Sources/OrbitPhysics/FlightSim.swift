@@ -295,7 +295,8 @@ public final class FlightSim: FlightSimulation {
         case .setRCS(let on): rcsEnabled = on
         case .collectScience(let e): collectScience(e)
         case .discardScience(let id): discardScience(id)
-        case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport:
+        case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport,
+             .evaGrab, .evaRelease, .evaSelect:
             sendEVA(command)
         }
         rebuildSnapshot()

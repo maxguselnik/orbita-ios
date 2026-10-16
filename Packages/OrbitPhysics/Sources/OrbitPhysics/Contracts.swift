@@ -74,6 +74,13 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     case evaCollectSample
     /// Отчёт EVA здесь.
     case evaReport
+    // EVA 6.2: лестница и поручни.
+    /// Ухватиться за ближайшую лестницу/поручни люка ближе `EVABalance.gripRadius` (`CosmonautState.canGrip`).
+    case evaGrab
+    /// Отпустить лестницу/поручни.
+    case evaRelease
+    /// Управлять космонавтом `memberID` (снаружи) или кораблём (nil).
+    case evaSelect(memberID: String?)
 }
 
 /// Непрерывный ввод космонавта (EVA); UI выставляет каждый кадр, пока управляет космонавтом.
@@ -135,6 +142,8 @@ public struct VesselState: Sendable, Hashable {
     public var partHeat: [Double] = []
     /// Люки кабин (EVA): точки в осях корабля относительно `position` (у кабины, на её стороне +Z — «спина»).
     public var hatches: [Vec3] = []
+    /// Лестницы (6.2) в осях корабля относительно `position`: по одной на люк кабины, если на корабле есть опоры.
+    public var ladders: [EVALadder] = []
 
     public init(id: VesselID, body: BodyID, position: Vec3, velocity: Vec3,
                 attitude: Quat = .identity, angularVelocity: Vec3 = .zero,
@@ -551,6 +560,8 @@ public struct WorldSnapshot: Sendable {
     public var flags: [FlagState] = []
     /// Почему `evaExit` сейчас нельзя; nil — можно.
     public var evaExitBlocker: EVABlocker? = nil
+    /// Погибшие в этом полёте (id отряда), по порядку.
+    public var deadCrew: [String] = []
 
     /// Управляемый космонавт.
     public var controlled: CosmonautState? {
@@ -662,6 +673,48 @@ public enum EVABalance {
     /// `exitGroundOffset` м наружу от борта.
     public static let exitOffset = 0.6
     public static let exitGroundOffset = 1.5
+    // 6.2: лестница, поручни, корпус.
+    /// Захват: центр космонавта ближе этого к лестнице или люку, м.
+    public static let gripRadius = 2.0
+    /// Скорость подъёма/спуска по лестнице и перебора по поручням, м/с.
+    public static let climbSpeed = 0.8
+    /// Лестница отстоит от корпуса, м; держащийся космонавт — ещё на столько же наружу.
+    public static let ladderStandoff = 0.15
+    /// Вход с лестницы: верх лестницы ближе этого, м.
+    public static let ladderTopReach = 0.3
+    /// Радиус космонавта для столкновений с корпусом, м.
+    public static let bodyRadius = 0.35
+}
+
+/// Лестница люка (6.2): вертикальный отрезок в осях корабля относительно `VesselState.position`,
+/// по центру под люком на стороне люка; `top` — у нижнего края люка, `bottom` — на уровне нижней точки корабля.
+public struct EVALadder: Sendable, Hashable {
+    /// Индекс в `VesselState.hatches`.
+    public var hatch: Int
+    public var bottom: Vec3
+    public var top: Vec3
+
+    public init(hatch: Int, bottom: Vec3, top: Vec3) {
+        self.hatch = hatch
+        self.bottom = bottom
+        self.top = top
+    }
+
+    public var length: Double { (top - bottom).length }
+}
+
+/// Захват (6.2): за лестницу (`along` — м от низа, 0…`length`) или за поручни у люка (`along` = nil).
+public struct EVAGrip: Sendable, Hashable {
+    public var vessel: VesselID
+    /// Индекс в `VesselState.hatches`.
+    public var hatch: Int
+    public var along: Double?
+
+    public init(vessel: VesselID, hatch: Int, along: Double?) {
+        self.vessel = vessel
+        self.hatch = hatch
+        self.along = along
+    }
 }
 
 /// Почему нельзя выйти.
@@ -720,6 +773,9 @@ public struct CosmonautState: Sendable, Hashable {
     public var flagBlocker: ScienceBlocker?
     public var sampleBlocker: ScienceBlocker?
     public var reportBlocker: ScienceBlocker?
+    /// 6.2: держится за лестницу/поручни (nil — нет); можно ухватиться сейчас.
+    public var grip: EVAGrip? = nil
+    public var canGrip: Bool = false
 
     public init(memberID: String, name: String, body: BodyID, position: Vec3, velocity: Vec3 = .zero,
                 attitude: Quat = .identity, onGround: Bool = false, health: CosmonautHealth = .ok,

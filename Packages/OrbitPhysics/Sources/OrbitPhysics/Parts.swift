@@ -16,6 +16,8 @@ public enum PartKind: String, Sendable, Hashable, Codable {
 
 public enum PartID: String, Sendable, Hashable, Codable, CaseIterable {
     case chute, podK1, podK3, probe, decoupler, decouplerXL
+    /// Посадочная кабина ЛК-2 (6.2): 2 места, люк у пола.
+    case lk2
     case t100, t200, t400, t800, j64
     case legs
     case shtil, vikhr, titan, molot
@@ -92,6 +94,7 @@ public enum PartCatalog {
         make(.chute, "Парашют П-16", .chute, dry: 0.1, h: 0.35, w: 0.7),
         make(.podK1, "Капсула К-1", .pod, dry: 0.84, crew: 1, h: 1.6, w: 1.25),
         make(.podK3, "Капсула К-3", .pod, dry: 2.7, crew: 3, h: 2.2, w: 2.5),
+        make(.lk2, "Посадочная кабина ЛК-2", .pod, dry: 1.3, crew: 2, h: 1.4, w: 1.25),
         make(.probe, "Модуль управления", .probe, dry: 0.1, h: 0.5, w: 1.25),
         make(.decoupler, "Разделитель 1.25 м", .decoupler, dry: 0.05, h: 0.25, w: 1.25),
         make(.decouplerXL, "Разделитель XL 2.5 м", .decoupler, dry: 0.2, h: 0.3, w: 2.5),

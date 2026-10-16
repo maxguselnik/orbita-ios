@@ -78,6 +78,7 @@ extension FlightSim {
         case .evaExit: evaExit()
         case .evaBoard: evaBoard()
         case .evaSwitch: evaSwitch()
+        case .evaGrab, .evaRelease, .evaSelect: break // TODO(A 6.2)
         case .evaJump: evaJump()
         case .evaToggleJetpack:
             if let i = controlledIndex { cosmonauts[i].jetpackOn.toggle() }

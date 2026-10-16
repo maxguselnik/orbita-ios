@@ -58,7 +58,7 @@ public enum TechTree {
         TechNode(id: .control, title: "Управление", cost: 15, requires: [.liquid],
                  parts: [.probe, .rcsBlock, .m100], column: 3, row: 1),
         TechNode(id: .crew, title: "Экипаж", cost: 25, requires: [.control, .landing],
-                 parts: [.podK3], column: 4, row: 2),
+                 parts: [.podK3, .lk2], column: 4, row: 2),
         TechNode(id: .heavy, title: "Тяжёлые ракеты", cost: 30, requires: [.aero, .liquid],
                  parts: [.titan, .j64, .decouplerXL, .fairingXL, .heatShieldXL], column: 3, row: 0),
         TechNode(id: .instruments, title: "Приборостроение", cost: 10, requires: [.basics],
