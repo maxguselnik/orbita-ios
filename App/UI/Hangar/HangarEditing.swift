@@ -42,21 +42,26 @@ enum HangarFormat {
         "Ø " + HUDFormat.fixed(spec.diameter, digits: 2) + " м · " + HUDFormat.fixed(spec.height, digits: 1) + " м"
     }
 
+    private static func fuelName(_ spec: PartSpec, fallback: String) -> String {
+        spec.fuelType?.shortTitle ?? fallback
+    }
+
     /// Две строки сведений на карточке каталога: масса; тяга и Isp; топливо.
     static func details(_ spec: PartSpec) -> [String] {
         switch spec.kind {
         case .pod, .probe:
             return [spec.crew > 0 ? "\(mass(spec.wetMass)) · экипаж \(spec.crew)" : mass(spec.wetMass)]
         case .tank:
-            return ["Топливо \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
+            return ["\(fuelName(spec, fallback: "Топливо")) \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
         case .engine:
             let isp = "Isp \(Int(spec.ispSeaLevel.rounded()))–\(Int(spec.ispVacuum.rounded())) с"
             return ["Тяга \(thrust(spec.thrustVacuum)) · \(isp)", spec.isSolid
-                    ? "РДТТ · \(mass(spec.wetMass))" : mass(spec.wetMass)]
+                    ? "РДТТ · \(mass(spec.wetMass))"
+                    : spec.fuelType.map { "\($0.shortTitle) · \(mass(spec.wetMass))" } ?? mass(spec.wetMass)]
         case .rcs:
-            return ["Монотопливо \(mass(spec.fuelMass)) · сопла \(thrust(spec.thrustVacuum))", mass(spec.wetMass)]
+            return ["\(fuelName(spec, fallback: "Монотопливо")) \(mass(spec.fuelMass)) · сопла \(thrust(spec.thrustVacuum))", mass(spec.wetMass)]
         case .monoTank:
-            return ["Монотопливо \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
+            return ["\(fuelName(spec, fallback: "Монотопливо")) \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
         case .heatShield:
             return ["Покрытие \(mass(spec.fuelMass))", "Масса \(mass(spec.wetMass))"]
         case .chute, .decoupler, .legs, .fairing, .fin:

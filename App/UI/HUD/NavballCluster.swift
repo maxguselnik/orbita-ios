@@ -196,7 +196,7 @@ struct ClusterRCSButton: View {
                     .strokeBorder(rcs.firing ? HUDPalette.lcd : Color.clear, lineWidth: 1))
                 .overlay(alignment: .bottom) {
                     if rcs.available {
-                        MonoStrip(fraction: rcs.monoFraction)
+                        RCSStrip(rcs: rcs)
                             .padding(.bottom, 3)
                     }
                 }
@@ -206,24 +206,34 @@ struct ClusterRCSButton: View {
         }
         .buttonStyle(HUDPressStyle())
         .accessibilityLabel(on ? "Выключить РСУ" : "Включить РСУ")
-        .accessibilityValue(rcs.available ? "монотоплива \(HUDFormat.percent(rcs.monoFraction))" : "нет блоков")
+        .accessibilityValue(rcs.available ? "топливо РСУ \(HUDFormat.percent(rcs.fraction))" : "нет блоков")
         .longPressHint("РСУ — малые двигатели для точных сдвигов и стыковки")
     }
 }
 
-/// Шкала монотоплива 28 × 3 pt.
-struct MonoStrip: View {
-    let fraction: Double
+/// Шкала общего запаса РСУ 28 × 3 pt: сегменты монотоплива и азота.
+struct RCSStrip: View {
+    let rcs: RCSStatus
+
+    private static let width: CGFloat = 28
 
     var body: some View {
-        let level = CGFloat(min(max(fraction.isFinite ? fraction : 0, 0), 1))
-        ZStack(alignment: .leading) {
-            Capsule().fill(Color.white.opacity(0.18))
-            Capsule()
-                .fill(fraction < 0.15 ? Color.red : HUDPalette.green)
-                .frame(width: 28 * level)
+        let total = rcs.monoCapacity + rcs.gasCapacity
+        let low = rcs.fraction < 0.15
+        let monoW = Self.segment(rcs.monoMass, of: total)
+        let gasW = Self.segment(rcs.gasMass, of: total)
+        let gap: CGFloat = monoW > 0 && gasW > 0 ? 1 : 0
+        HStack(spacing: gap) {
+            Capsule().fill(low ? Color.red : FuelType.mono.hudColor).frame(width: monoW)
+            Capsule().fill(low ? Color.red : FuelType.gas.hudColor).frame(width: gasW)
         }
-        .frame(width: 28, height: 3)
+        .frame(width: Self.width, height: 3, alignment: .leading)
+        .background(Capsule().fill(Color.white.opacity(0.18)))
+    }
+
+    private static func segment(_ mass: Double, of total: Double) -> CGFloat {
+        guard total > 0, mass.isFinite, mass > 0 else { return 0 }
+        return width * CGFloat(min(mass / total, 1))
     }
 }
 

@@ -64,6 +64,7 @@ final class HangarModel {
         var totalDV = 0.0
         var twr: Double?
         var mass = 0.0
+        var rcsDV = 0.0
         var count = 0
     }
 
@@ -203,6 +204,7 @@ final class HangarModel {
         r.totalDV = infos.reduce(0) { $0 + $1.deltaV }
         r.twr = infos.first?.twr
         r.mass = d.mass
+        r.rcsDV = d.rcsDeltaV().values.reduce(0, +)
         r.count = d.nodes.count
         report = r
     }
