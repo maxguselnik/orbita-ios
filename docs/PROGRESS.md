@@ -64,7 +64,7 @@
 
 ### Незакончено при передаче (2026-10-16 ~13:50 МСК, лимит Claude)
 Ветка `claude/stage6-eva-50f1c4` запушена, main влит. Осталось (по порядку):
-1. Тесты приложения затронутого кода (`scripts/affected-tests.sh` → 14 наборов: AutoBurnIntegration, EVAHUD, FirstFlightLesson, FlightControlAudit, HangarEditor, LunaLandingAudit, LunaLesson, ManeuverExecutor, MissionChecklist, RenderAndHUD, RoverHUD, SpaceCenterLogic, ThermalHUD, TutorialModel) — запущены, результат не получен. Команда: `xcodebuild test-without-building … -only-testing:OrbitaTests/<набор>` после `build-for-testing` (или `.claude/skills/check/check.sh` без сцен — снимки не нужны). Красное — чинить.
+1. Тесты приложения затронутого кода (`scripts/affected-tests.sh` → 14 наборов: AutoBurnIntegration, EVAHUD, FirstFlightLesson, FlightControlAudit, HangarEditor, LunaLandingAudit, LunaLesson, ManeuverExecutor, MissionChecklist, RenderAndHUD, RoverHUD, SpaceCenterLogic, ThermalHUD, TutorialModel) — **зелёные: 162 теста в 14 наборах** (2026-10-16 ~14:00 МСК).
 2. Дождаться зелёного CI по PR #29, обновить заголовок/описание PR («Этап 6, части 1–3: EVA, корабли под выход, ровер»), слить в main.
 3. Короткий отчёт пользователю; дальше — этап 7 (п. 0 очереди).
 Исправлено в `scripts/affected-tests.sh`: `suites_in` падал (`set -e` + `pipefail`), если в файле тестов нет типа `…Tests` (например, `CrewTests.swift`).
