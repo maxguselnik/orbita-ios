@@ -65,7 +65,20 @@ struct CompactFlightLayer: View {
                     .padding(.horizontal, CompactFlightLayout.side)
                     .padding(.bottom, CompactFlightLayout.bottom)
                     .frame(maxHeight: .infinity, alignment: .bottom)
-                    if model.rcs.enabled, model.rcs.available, !model.isPanelOpen {
+                    // Узел манёвра — справа под верхней строкой: слева под показаниями он наезжал на шкалу тяги.
+                    if model.telemetry.maneuver != nil, !model.isPanelOpen {
+                        VStack(alignment: .trailing, spacing: 6) {
+                            ManeuverBadgeHost(model: model)
+                            if model.isAutoBurning {
+                                ManeuverExecuteButton(model: model).frame(width: CompactFlightLayout.controlsWidth)
+                            }
+                        }
+                        .padding(.top, 62)
+                        .padding(.trailing, CompactFlightLayout.side)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    // Во время автопрожига справа «Стоп»; джойстик РСУ всё равно отменил бы прожиг.
+                    if model.rcs.enabled, model.rcs.available, !model.isPanelOpen, !model.isAutoBurning {
                         RCSControls(model: model)
                             .padding(.trailing, CompactFlightLayout.side)
                             .padding(.bottom, 169)
@@ -119,6 +132,10 @@ struct CompactFlightHeader: View {
             Menu {
                 if let reason = model.warp.blocked { Text(FlightHUDModel.warpReasonText(reason)) }
                 if model.hasManeuver { Button("До узла манёвра") { model.warpToManeuver() }.disabled(!model.canWarpToManeuver) }
+                if let e = model.encounterWarp {
+                    Button("До встречи с " + MapText.instrumental(e.body) + " · стоп за 10 мин") { model.warpToEncounter() }
+                        .disabled(!model.canWarpToEncounter)
+                }
                 ForEach(Array(TimeWarp.levels.enumerated()), id: \.offset) { index, factor in
                     Button(HUDFormat.warp(factor)) { model.send(.setWarp(index: index)) }
                         .disabled(model.warp.blocked != nil && index >= TimeWarp.physicalCount)
@@ -195,10 +212,6 @@ struct CompactFlightReadings: View {
             if let apo = AltimeterPanel.apoapsisToShow(t) {
                 ApoapsisRow(altitude: apo)
                     .tutorialAnchor(.apoapsis)
-            }
-            if t.maneuver != nil {
-                ManeuverBadgeHost(model: model)
-                if model.isAutoBurning { ManeuverExecuteButton(model: model) }
             }
         }
         .foregroundStyle(HUDPalette.text)

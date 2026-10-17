@@ -235,6 +235,61 @@ struct ManeuverTests {
         #expect(sim.warpIndex == 0)
     }
 
+    // MARK: Ускорение до момента
+
+    /// «Промотать до встречи»: рельсы с разгоном, остановка точно в заданный момент, узел не нужен.
+    @Test func warpUntilStopsAtTarget() throws {
+        let sim = Self.orbitSim()
+        let target = sim.time + 200_000
+        sim.send(.warpUntil(time: target))
+        #expect(sim.warpIndex == Self.maxWarp)
+        var frames = 0
+        var stopped = false
+        while !stopped && frames < 2_000 {
+            frames += 1
+            let ev = sim.advance(realDelta: Self.frame)
+            if ev.contains(.warpReset(.target)) {
+                stopped = true
+                #expect(abs(sim.time - target) < 1, "остановка в \(sim.time), цель \(target)")
+                #expect(sim.warpIndex == 0)
+            } else {
+                #expect(ev.isEmpty, "\(ev)")
+            }
+        }
+        #expect(stopped)
+        #expect(Double(frames) * Self.frame < 10, "\(frames) кадров")
+        // Момент в прошлом — ничего.
+        sim.send(.warpUntil(time: sim.time - 10))
+        #expect(sim.advance(realDelta: Self.frame).isEmpty)
+        #expect(sim.warpIndex == 0)
+    }
+
+    @Test func warpUntilCancelBlockAndCheckpoint() throws {
+        let sim = Self.orbitSim()
+        sim.send(.warpUntil(time: sim.time + 3_000))
+        let point = sim.checkpoint()
+        // Ручной выбор уровня отменяет цель.
+        sim.send(.setWarp(index: 7))
+        for _ in 0..<30 {
+            #expect(!sim.advance(realDelta: Self.frame).contains(.warpReset(.target)))
+        }
+        #expect(sim.warpIndex == 7)
+        // Контрольная точка хранит цель: после отката остановка снова наступает.
+        sim.restore(point)
+        var stopped = false
+        for _ in 0..<2_000 where !stopped {
+            stopped = sim.advance(realDelta: Self.frame).contains(.warpReset(.target))
+        }
+        #expect(stopped)
+        // Тяга блокирует рельсы.
+        sim.send(.stage)
+        sim.setInput(ControlInput(throttle: 1))
+        _ = sim.advance(realDelta: Self.frame)
+        sim.send(.warpUntil(time: sim.time + 3_000))
+        #expect(sim.advance(realDelta: Self.frame).contains(.warpReset(.thrust)))
+        #expect(sim.warpIndex == 0)
+    }
+
     // MARK: Отметки карты
 
     /// Эллипс Пе 100 км × Ап 3000 км, наклонение 30°, аргумент перицентра 40°.

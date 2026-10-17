@@ -49,6 +49,9 @@ public enum FlightCommand: Sendable, Hashable, Codable {
     case setManeuver(ManeuverNode?)
     /// Ускорение «на рельсах» до узла: само сбрасывается до ×1 за `ManeuverStatus.warpLead` до начала прожига.
     case warpToManeuver
+    /// Ускорение «на рельсах» до момента `time` (время симуляции): само сбрасывается до ×1 ровно в этот момент
+    /// (`WarpResetReason.target`). Момент в прошлом — без изменений; рельсы нельзя — `warpReset` с причиной.
+    case warpUntil(time: Double)
     /// Включить/выключить РСУ. Включённое РСУ даёт поступательную тягу по `ControlInput.translation`
     /// и добавляет момент к повороту (ручному и SAS), расходуя монотопливо.
     case setRCS(Bool)
@@ -622,6 +625,8 @@ public enum WarpResetReason: String, Sendable, Hashable, Codable {
     case atmosphere, terrain, thrust, soiChange
     /// `warpToManeuver`: до начала прожига осталось `ManeuverStatus.warpLead` с.
     case maneuver
+    /// `warpUntil`: наступил заданный момент.
+    case target
     /// Космонавт снаружи: рельсы запрещены (физическое ×1–4 можно).
     case eva
 }

@@ -261,6 +261,7 @@ extension FlightSim {
         warpIndex = 0
         railsBacklog = 0
         warpToManeuverActive = false
+        warpUntilTime = nil
         events.append(.evaExited(memberID: member))
     }
 

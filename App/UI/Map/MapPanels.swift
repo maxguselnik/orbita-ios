@@ -24,6 +24,18 @@ enum MapText {
         }
     }
 
+    /// «к Луне», «к Терре».
+    static func dative(_ body: BodyID) -> String {
+        switch body {
+        case .terra: "Терре"
+        case .luna: "Луне"
+        case .sol: "Солу"
+        case .vella: "Велле"
+        case .arda: "Арде"
+        case .taros: "Таросу"
+        }
+    }
+
     /// «Луной», «Террой».
     static func instrumental(_ body: BodyID) -> String {
         switch body {
@@ -339,7 +351,10 @@ struct MapSideColumn: View {
 
     @ViewBuilder
     private var simple: some View {
-        if model.hasManeuver {
+        // Выполненный узел не заслоняет встречу: «Промотать до встречи» важнее, «удалить узел» — в кнопке ниже.
+        if model.encounterWarp != nil, !pendingManeuver {
+            EncounterWarpCard(model: model)
+        } else if model.hasManeuver {
             ManeuverResultCard(model: model)
         } else {
             MapHintCard(text: model.availableGoals.isEmpty
@@ -348,12 +363,68 @@ struct MapSideColumn: View {
         }
     }
 
+    /// Узел есть и ещё не выполнен: правка узла важнее встречи.
+    private var pendingManeuver: Bool {
+        model.hasManeuver && model.telemetry.maneuver?.isDone != true
+    }
+
     @ViewBuilder
     private var expert: some View {
-        if model.hasManeuver {
+        if model.encounterWarp != nil, !pendingManeuver {
+            EncounterWarpCard(model: model)
+        } else if model.hasManeuver {
             ManeuverPanel(model: model)
         } else {
             MapHintCard(text: "Тапните по орбите, чтобы поставить узел манёвра")
+        }
+    }
+}
+
+/// Полёт к телу без узла: «Летим к Луне · встреча через 4:12:06» и «Промотать до встречи» (стоп за 10 мин).
+struct EncounterWarpCard: View {
+    let model: FlightHUDModel
+
+    var body: some View {
+        if let e = model.encounterWarp {
+            let left = max(0, e.time - model.snapshot.time)
+            let can = model.canWarpToEncounter
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Летим к " + MapText.dative(e.body))
+                    .font(.system(size: HUDFont.caption, weight: .semibold))
+                    .foregroundStyle(HUDStyle.secondaryText)
+                    .lineLimit(1)
+                Text("встреча через " + HUDFormat.countdown(left))
+                    .font(.system(size: 16, weight: .heavy).monospacedDigit())
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+                Button {
+                    model.warpToEncounter()
+                } label: {
+                    Label("Промотать до встречи", systemImage: "forward.fill")
+                        .font(.system(size: 13, weight: .heavy))
+                        .foregroundStyle(.black.opacity(0.85))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity, minHeight: HUDStyle.minTouch)
+                        .background(ManeuverExecuteButton.green, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+                .buttonStyle(HUDPressStyle())
+                .disabled(!can)
+                .opacity(can ? 1 : 0.4)
+                .tutorialAnchor(.encounterWarp)
+                .accessibilityLabel("Промотать до встречи, остановка за 10 минут")
+                .longPressHint("Время пойдёт быстро и остановится за 10 мин до входа в сферу " + MapText.genitive(e.body))
+                Text(can ? "остановлю за 10 мин до " + MapText.genitive(e.body) : "до встречи меньше 10 мин")
+                    .font(.system(size: HUDFont.caption, weight: .medium))
+                    .foregroundStyle(HUDStyle.secondaryText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity)
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .hudBackground()
         }
     }
 }
@@ -715,7 +786,7 @@ struct ManeuverJog: View {
 struct ManeuverExecuteButton: View {
     let model: FlightHUDModel
 
-    private static let green = Color(red: 0.2, green: 0.72, blue: 0.34)
+    static let green = Color(red: 0.2, green: 0.72, blue: 0.34)
     private static let red = Color(red: 0.85, green: 0.28, blue: 0.25)
 
     var body: some View {

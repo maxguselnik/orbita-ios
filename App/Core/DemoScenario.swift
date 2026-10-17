@@ -63,6 +63,8 @@ enum DemoScenario: String, CaseIterable, Sendable {
     case mapManeuver
     /// Карта при входе в сферу влияния Луны, фокус на Луне.
     case mapLuna
+    /// Карта в перелёте к Луне без узла: карточка «Промотать до встречи».
+    case mapCoast
     case systemMap, vellaOrbit, ardaOrbit, tarosOrbit, vellaSurface, ardaSurface
     /// Экипаж (5.4): все персонажи × все настроения крупно поверх полёта на площадке.
     case crewGallery
@@ -82,7 +84,7 @@ enum DemoScenario: String, CaseIterable, Sendable {
     /// Сцена открывается на карте.
     var opensMap: Bool {
         switch self {
-        case .map, .mapManeuver, .mapLuna, .systemMap: true
+        case .map, .mapManeuver, .mapLuna, .mapCoast, .systemMap: true
         default: false
         }
     }
@@ -159,6 +161,10 @@ enum DemoScenario: String, CaseIterable, Sendable {
         case .rcs:
             return ScenarioFlight(design: Self.rcsDesign, goal: .orbit, keepAutopilot: false,
                                   rcsOn: true, heldTranslation: Vec3(0.6, 1, 0)) { _, ap in ap.isFinished }
+        case .mapCoast:
+            return ScenarioFlight(design: .luna, goal: .lunaEncounter, keepAutopilot: false) { sim, _ in
+                sim.activeBody == .terra && sim.snapshot.telemetry.altitude > 2_000_000
+            }
         case .lunaApproach, .mapLuna:
             return ScenarioFlight(design: .luna, goal: .lunaEncounter, keepAutopilot: false) { sim, _ in
                 sim.activeBody == .luna

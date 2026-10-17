@@ -109,6 +109,8 @@ public final class FlightSim: FlightSimulation {
     private(set) var maneuverBurned: Vec3 = .zero
     /// `warpToManeuver` активен: рельсы остановятся за `ManeuverStatus.warpLead` с до начала прожига.
     var warpToManeuverActive = false
+    /// `warpUntil` активен: рельсы остановятся в этот момент (время симуляции).
+    var warpUntilTime: Double?
 
     var vessels: [Vessel] = []
     var activeID: VesselID
@@ -181,7 +183,8 @@ public final class FlightSim: FlightSimulation {
                       lastProperAccel: lastProperAccel, qPeak: qPeak, qPeakReported: qPeakReported,
                       mission: mission, railsBacklog: railsBacklog,
                       cosmonauts: cosmonauts, controlledCosmonaut: controlledCosmonaut, evaInput: evaInput,
-                      flags: flags, nextFlagID: nextFlagID, deadCrew: deadCrew, roverInput: roverInput)
+                      flags: flags, nextFlagID: nextFlagID, deadCrew: deadCrew, roverInput: roverInput,
+                      warpUntilTime: warpUntilTime)
     }
 
     /// Вернуть мир в контрольную точку; накопленные события сбрасываются, снимок пересчитывается.
@@ -196,6 +199,7 @@ public final class FlightSim: FlightSimulation {
         maneuverRemaining = c.maneuverRemaining
         maneuverBurned = c.maneuverBurned
         warpToManeuverActive = c.warpToManeuverActive
+        warpUntilTime = c.warpUntilTime
         vessels = c.vessels
         activeID = c.activeID
         nextID = c.nextID
@@ -308,6 +312,7 @@ public final class FlightSim: FlightSimulation {
         case .deployChute: armChute()
         case .setManeuver(let node): setManeuver(node)
         case .warpToManeuver: warpToManeuver()
+        case .warpUntil(let target): warpUntil(target)
         case .setRCS(let on): rcsEnabled = on
         case .collectScience(let e): collectScience(e)
         case .discardScience(let id): discardScience(id)
@@ -336,16 +341,16 @@ public final class FlightSim: FlightSimulation {
         } else {
             let full = realDelta * w + railsBacklog
             railsBacklog = 0
-            // Остановка у узла: участок рельсов обрезается точно по моменту остановки.
+            // Остановка у узла или в заданный момент: участок рельсов обрезается точно по моменту остановки.
             var total = full
             var stopTime: Double?
-            if warpToManeuverActive, let s = maneuverWarpStopTime(), s - time <= total {
+            if let s = warpStopTime(), s - time <= total {
                 total = max(0, s - time)
                 stopTime = s
             }
             let unused = railsAdvance(total)
             if let s = stopTime, warpIndex >= TimeWarp.physicalCount, railsBacklog == 0, time >= s - 1e-6 {
-                resetWarp(.maneuver)
+                resetWarp(warpToManeuverActive ? .maneuver : .target)
             }
             // Авто-сброс посреди кадра: остаток реального времени кадра — физикой на новом уровне.
             let lived = total - unused
@@ -356,6 +361,7 @@ public final class FlightSim: FlightSimulation {
         }
         // Цель `warpToManeuver` живёт, пока идут рельсы.
         if warpIndex < TimeWarp.physicalCount || maneuverNode == nil { warpToManeuverActive = false }
+        if warpIndex < TimeWarp.physicalCount { warpUntilTime = nil }
         rebuildSnapshot()
         return events
     }
@@ -396,8 +402,9 @@ public final class FlightSim: FlightSimulation {
         // Перенесённый остаток рельсов отменяется только при смене уровня.
         if i != warpIndex { railsBacklog = 0 }
         warpIndex = i
-        // Ручной выбор уровня отменяет `warpToManeuver`.
+        // Ручной выбор уровня отменяет `warpToManeuver` и `warpUntil`.
         warpToManeuverActive = false
+        warpUntilTime = nil
     }
 
     /// Рельсы на максимальном уровне до остановки за `warpLead` с до начала прожига.
@@ -412,10 +419,26 @@ public final class FlightSim: FlightSimulation {
         if top != warpIndex { railsBacklog = 0 }
         warpIndex = top
         warpToManeuverActive = true
+        warpUntilTime = nil
+    }
+
+    /// Рельсы на максимальном уровне (с тем же разгоном, что «до узла») до момента `target`.
+    private func warpUntil(_ target: Double) {
+        guard target.isFinite, target > time else { return }
+        if let reason = railsBlockReason() {
+            events.append(.warpReset(reason))
+            return
+        }
+        let top = TimeWarp.levels.count - 1
+        if top != warpIndex { railsBacklog = 0 }
+        warpIndex = top
+        warpToManeuverActive = false
+        warpUntilTime = target
     }
 
     private func resetWarp(_ reason: WarpResetReason) {
         warpToManeuverActive = false
+        warpUntilTime = nil
         if warpIndex > 0 {
             warpIndex = 0
             railsBacklog = 0
@@ -1459,9 +1482,14 @@ public final class FlightSim: FlightSimulation {
     /// Множитель времени сейчас: уровень `warpIndex`, а «до узла» на верхнем уровне — `TimeWarp.maneuverRate`.
     private func currentWarpRate() -> Double {
         let base = TimeWarp.levels[warpIndex]
-        guard warpToManeuverActive, warpIndex == TimeWarp.levels.count - 1,
-              let stop = maneuverWarpStopTime() else { return base }
+        guard warpIndex == TimeWarp.levels.count - 1, let stop = warpStopTime() else { return base }
         return TimeWarp.maneuverRate(remaining: stop - time)
+    }
+
+    /// Момент, где рельсы остановятся сами: «до узла» или `warpUntil`; nil — цели нет.
+    private func warpStopTime() -> Double? {
+        if warpToManeuverActive { return maneuverWarpStopTime() }
+        return warpUntilTime
     }
 
     /// Момент остановки `warpToManeuver`: начало прожига − `warpLead` (время симуляции).
@@ -1525,4 +1553,5 @@ public struct SimCheckpoint: Sendable {
     let nextFlagID: Int
     let deadCrew: [String]
     let roverInput: RoverInput
+    let warpUntilTime: Double?
 }

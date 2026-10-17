@@ -38,10 +38,10 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
     var screen: LessonScreen {
         switch self {
         case .intro: .flight
-        case .lunaNode, .encounter, .execute, .captureNode, .captureBurn: .map
+        case .lunaNode, .encounter, .execute, .coast, .captureNode, .captureBurn: .map
         // SAS и тяга есть только в полёте: с карты шаг просит «Полёт».
         case .retro, .brake, .land: .flight
-        case .openMap, .coast, .finish: .any
+        case .openMap, .finish: .any
         }
     }
 
@@ -54,7 +54,7 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
         case .execute, .captureBurn: .mapExecute
         case .captureNode: .mapCircularize
         case .land: .throttle
-        case .coast: .warp
+        case .coast: .encounterWarp
         case .retro: .sas
         case .brake: .throttle
         }
@@ -177,8 +177,8 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
                                 why: "Корабль сам долетит до узла, развернётся, сделает прожиг и поправит курс.")
         case .coast:
             let way = Self.timeToEncounter(i).map { "До Луны \(HUDFormat.countdown($0))." } ?? "До Луны несколько часов."
-            return LessonBubble(title: "Ускорение времени", text: way + " Увеличьте ускорение вверху слева: «+» на карте или «×1 ▾» в полёте.", button: nil,
-                                why: "Лететь долго. На ускорении время идёт быстрее; у Луны игра сама вернёт обычную скорость.")
+            return LessonBubble(title: "Ускорение времени", text: way + " Нажмите «Промотать до встречи» справа.", button: nil,
+                                why: "Лететь долго. Время пойдёт быстро и остановится за 10 минут до Луны — будет время осмотреться.")
         case .captureNode:
             return LessonBubble(title: "Захват", text: "Вы у Луны. Откройте карту и нажмите «Скруглить орбиту».",
                                 button: nil,
@@ -206,7 +206,9 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
         case .execute, .captureBurn:
             return LivePlate.burn(i)
         case .coast:
-            return LivePlate(head: "Летим к Луне · до встречи ", value: HUDFormat.countdown(Self.timeToEncounter(i)))
+            // После остановки за 10 мин до Луны — подсказка, как не ждать эти минуты вживую.
+            return LivePlate(head: "Летим к Луне · до встречи ", value: HUDFormat.countdown(Self.timeToEncounter(i)),
+                             tail: t.warpIndex == 0 ? " · «+» вверху — быстрее" : "")
         case .brake:
             return LivePlate(head: "Тяга MAX, нос по ретро · скорость ", value: HUDFormat.speed(t.surfaceSpeed),
                              tail: " → меньше \(Int(Self.brakedSpeed)) м/с")

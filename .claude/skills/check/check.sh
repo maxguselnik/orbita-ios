@@ -15,6 +15,8 @@ else
   aff=$(scripts/affected-tests.sh)
   PHYS=$(sed -n 's/^physics: //p' <<< "$aff"); APP=$(sed -n 's/^app: //p' <<< "$aff")
 fi
+# SKIP_PHYSICS=1 — физика уже проверена отдельно (например, полным прогоном): только приложение и снимки.
+[ "${SKIP_PHYSICS:-0}" = 1 ] && PHYS=none
 echo "Тесты физики: $PHYS"; echo "Тесты приложения: $APP"
 
 step() {

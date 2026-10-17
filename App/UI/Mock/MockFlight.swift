@@ -117,7 +117,7 @@ final class MockFlight: FlightSimulation {
         case .setRCS(let enabled):
             rcsEnabled = enabled
             if !enabled { rcsFiring = false }
-        case .collectScience, .discardScience:
+        case .collectScience, .discardScience, .warpUntil:
             break
         case .evaExit, .evaBoard, .evaSwitch, .evaJump, .evaToggleJetpack, .evaPlantFlag, .evaCollectSample, .evaReport,
              .evaGrab, .evaRelease, .evaSelect, .setHandbrake, .setRoverStabilizer, .deployRover, .selectVessel:

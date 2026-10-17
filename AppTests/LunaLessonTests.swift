@@ -92,10 +92,10 @@ struct LunaLessonTests {
         #expect(LunaStep.encounter.kind == .pause)
         #expect(LunaStep.execute.target == .mapExecute && LunaStep.captureBurn.target == .mapExecute)
         #expect(LunaStep.lunaNode.target == .mapLuna && LunaStep.captureNode.target == .mapCircularize)
-        #expect(LunaStep.coast.target == .warp && LunaStep.retro.target == .sas)
+        #expect(LunaStep.coast.target == .encounterWarp && LunaStep.retro.target == .sas)
         // SAS и тяга есть только в полёте: с карты эти шаги просят «Полёт», а не ждут недоступную кнопку.
         #expect([LunaStep.retro, .brake, .land].allSatisfy { $0.screen == .flight })
-        for step in [LunaStep.lunaNode, .encounter, .execute, .captureNode, .captureBurn] {
+        for step in [LunaStep.lunaNode, .encounter, .execute, .coast, .captureNode, .captureBurn] {
             #expect(step.screen == .map)
         }
     }
@@ -216,9 +216,11 @@ struct LunaLessonTests {
     @Test func coastWaitsForWarpThenForLunaSOI() {
         var l = lesson(at: .coast)
         let t = with(orbitT(apo: 11_000_000)) { $0.maneuver = node(done: true) }
-        l.update(input(t), delta: 0.02)
-        #expect(l.phase == .holding && l.scene(input(t)).target == .warp)
-        l.update(input(with(t) { $0.warpIndex = 7 }), delta: 0.02)
+        // Шаг на карте: закрытая карта просит её открыть, открытая подсвечивает «Промотать до встречи».
+        #expect(l.scene(input(t)).target == .mapButton)
+        l.update(input(t, map: true), delta: 0.02)
+        #expect(l.phase == .holding && l.scene(input(t, map: true)).target == .encounterWarp)
+        l.update(input(with(t) { $0.warpIndex = 7 }, map: true), delta: 0.02)
         #expect(l.phase == .running && !l.holdsPhysics)
         l.update(input(lunaOrbit), delta: 0.02)
         #expect(l.step == .captureNode && l.phase == .holding && l.holdsPhysics)
