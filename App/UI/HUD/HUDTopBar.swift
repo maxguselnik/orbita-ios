@@ -114,6 +114,14 @@ struct WarpButtons: View {
                 }
                 .disabled(!model.canWarpToManeuver)
             }
+            if let e = model.encounterWarp {
+                Button {
+                    model.warpToEncounter()
+                } label: {
+                    Label("До встречи с " + MapText.instrumental(e.body) + " · стоп за 10 мин", systemImage: "forward.fill")
+                }
+                .disabled(!model.canWarpToEncounter)
+            }
             ForEach(Array(TimeWarp.levels.enumerated()), id: \.offset) { index, factor in
                 Button {
                     model.send(.setWarp(index: index))

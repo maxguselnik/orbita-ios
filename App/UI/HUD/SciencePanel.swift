@@ -6,6 +6,7 @@ import SwiftUI
 /// (`GameFlow.finishFlight`); здесь только сбор и предпросмотр по архиву.
 struct SciencePanel: View {
     let model: FlightHUDModel
+    var singleColumn = false
 
     var body: some View {
         let st = model.telemetry.science
@@ -22,7 +23,7 @@ struct SciencePanel: View {
                     .foregroundStyle(HUDStyle.secondaryText)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible(), spacing: 6)], spacing: 6) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: singleColumn ? 1 : 2), spacing: 6) {
                     ForEach(experiments, id: \.self) { e in
                         actionButton(e, st: st, archive: archive)
                     }

@@ -17,6 +17,8 @@ enum LessonElement: Hashable, Sendable {
     case mapGoals, mapExecute
     /// Кнопка цели «Скруглить орбиту».
     case mapCircularize
+    /// «Промотать до встречи» в карточке карты.
+    case encounterWarp
 }
 
 /// Вид шага: `pause` — игра на паузе, ждём кнопку в пузыре; `wait` — пауза, ждём действие игрока

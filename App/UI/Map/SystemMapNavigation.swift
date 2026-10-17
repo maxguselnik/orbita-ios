@@ -1,8 +1,8 @@
 import OrbitPhysics
 import SwiftUI
 
-/// Верхняя строка карты. В обзоре системы — только время, уровень, «К кораблю» и «Полёт»;
-/// у корабля — прежний набор с «глазом» и «Ступенью».
+/// Верхняя строка карты. В обзоре системы — время, уровень, «К кораблю» и «Полёт»;
+/// у корабля — время, уровень, переключатель «Эксперт» / «Просто» и «Полёт».
 struct MapNavigationHeader: View {
     let model: FlightHUDModel
     @Binding var showLegend: Bool
@@ -22,20 +22,18 @@ struct MapNavigationHeader: View {
                 }
                 MapToggleButton(model: model).frame(width: 94)
             } else {
-                Button { model.setMapFocus(.vessel) } label: {
-                    Label("К кораблю", systemImage: "location.circle")
-                        .font(.system(size: HUDFont.caption, weight: .bold))
+                Button { model.setMapExpert(!model.mapExpert) } label: {
+                    Text(model.mapExpert ? "Просто" : "Эксперт")
+                        .font(.system(size: HUDFont.body, weight: .bold))
                         .lineLimit(1)
+                        .padding(.horizontal, 6)
                 }
                 .buttonStyle(HUDButtonStyle())
-                .accessibilityLabel("Вернуться к кораблю и восстановить масштаб")
-                HUDIconButton(systemImage: model.mapPanelsHidden ? "eye.slash" : "eye",
-                              label: model.mapPanelsHidden ? "Показать панели карты" : "Спрятать панели карты",
-                              isActive: model.mapPanelsHidden,
-                              hint: "Скрыть панели карты; возврат к кораблю и Стоп останутся доступны") {
-                    model.toggleMapPanels()
-                }
-                StagePanelButton(model: model)
+                .disabled(model.tutorial?.isActive == true)
+                .opacity(model.tutorial?.isActive == true ? 0.45 : 1)
+                .accessibilityLabel(model.mapExpert ? "Простой режим" : "Режим «Эксперт»")
+                .longPressHint(model.mapExpert ? "Просто — цель выбирает игра" : "Эксперт — ручки Δv, оси и время узла вручную")
+                MapToggleButton(model: model).frame(width: 94)
             }
         }
         .padding(.top, 4)

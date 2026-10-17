@@ -29,6 +29,12 @@ struct WarpStatus: Equatable {
     var blocked: WarpResetReason?
 }
 
+/// Ближайшая встреча: тело и момент входа в его сферу (время симуляции).
+struct EncounterWarp: Equatable {
+    var body: BodyID
+    var time: Double
+}
+
 /// Система отсчёта скорости на навболе.
 enum SpeedFrame: Equatable {
     case orbit, surface
@@ -98,6 +104,20 @@ final class FlightHUDModel {
     var throttle: Double = 0
     var isPaused = false
     var isPanelOpen = false
+    private(set) var isFlightOverview = false
+
+    func setFlightOverview(_ visible: Bool) {
+        isFlightOverview = visible
+        if visible {
+            isPanelOpen = false
+            releaseFlightControls()
+        }
+    }
+
+    func releaseFlightControls() {
+        resetAttitudeInput()
+        resetTranslationInput()
+    }
     /// Режим камеры (зеркало `feedback.cameraMode`).
     private(set) var cameraMode: CameraMode = .follow
     /// Скорость на навболе: nil — авто (у поверхности — относительно поверхности).
@@ -120,6 +140,9 @@ final class FlightHUDModel {
     @ObservationIgnored private var lastDragSend: TimeInterval = 0
     /// «К узлу» имеет смысл: узел есть и до прожига больше `ManeuverStatus.warpLead`. Меняется редко.
     private(set) var canWarpToManeuver = false
+    /// Ближайшая встреча по текущей траектории (нет невыполненного узла): «Промотать до встречи».
+    private(set) var encounterWarp: EncounterWarp?
+    @ObservationIgnored private var encounterRefresh: TimeInterval = -.infinity
     /// Режим «Эксперт» карты: ручки Δv, панель узла, тап по орбите. В уроках всегда выключен.
     private(set) var mapExpert = false
     /// Цель, по которой поставлен узел (простая карта); сбрасывается удалением узла и правкой в «Эксперт».
@@ -165,6 +188,10 @@ final class FlightHUDModel {
     @ObservationIgnored private var attitudeHeld: [AttitudeButton: TimeInterval] = [:]
     /// Режим «ТОЧНО»: ввод кнопок ориентации ×0.3.
     var fineControl = false
+    /// Джойстик «Направление» компактного HUD: x — вправо, y — вниз, −1…1. Пишется жестом, читается в `tick`.
+    @ObservationIgnored var attitudeStick = SIMD2<Double>.zero
+    /// Отклонение джойстика, с которого урок считает ось нажатой.
+    static let stickHeldThreshold = 0.3
 
     /// Нажатие/отпускание кнопки ориентации; повторное нажатие уже удерживаемой не сбрасывает разгон.
     func setAttitude(_ button: AttitudeButton, pressed: Bool, now: TimeInterval = CACurrentMediaTime()) {
@@ -185,12 +212,20 @@ final class FlightHUDModel {
             if hasPlus && hasMinus { return 0 }
             return value(plus) - value(minus)
         }
-        return (axis(.pitchUp, .pitchDown), axis(.yawRight, .yawLeft), axis(.rollRight, .rollLeft))
+        // Джойстик: квадратичная кривая — малое отклонение даёт точную коррекцию; перекрывает кнопки своей оси.
+        func stick(_ v: Double) -> Double {
+            let c = min(max(v, -1), 1)
+            return c * abs(c) * (fineControl ? AttitudeInputCurve.fineScale : 1)
+        }
+        let pitch = attitudeStick.y != 0 ? stick(-attitudeStick.y) : axis(.pitchUp, .pitchDown)
+        let yaw = attitudeStick.x != 0 ? stick(attitudeStick.x) : axis(.yawRight, .yawLeft)
+        return (pitch, yaw, axis(.rollRight, .rollLeft))
     }
 
     /// Кнопки исчезают из иерархии вместе с жестами (карта, перезапуск): сбрасываем ввод вручную.
     private func resetAttitudeInput() {
         attitudeHeld.removeAll()
+        attitudeStick = .zero
     }
 
     /// Поступательный джойстик РСУ: вправо (x) и вверх (z), −1…1.
@@ -366,6 +401,9 @@ final class FlightHUDModel {
         feedback?.frame(snapshot: snapshot, events: events, frameDelta: delta)
         feedback?.crew(crew.update(telemetry: snapshot.telemetry, events: events, dt: delta))
         map.update(sim: sim, now: now)
+        // Смена сферы — старая встреча уже не та: пересчитать в этом же кадре.
+        if events.contains(where: { if case .soiChanged = $0 { true } else { false } }) { encounterRefresh = -.infinity }
+        refreshEncounter(now: now)
         advise(events: events, now: now)
         // Сел в кресло ровера — тост «за рулём» даёт смена водителя, «в капсуле» не нужен.
         var shown = snapshot.rover == nil ? events : events.filter { if case .evaBoarded = $0 { false } else { true } }
@@ -400,9 +438,10 @@ final class FlightHUDModel {
     /// Что урок видит в игре сейчас: телеметрия, ввод, карта, отсутствующие элементы.
     func lessonInput() -> LessonInput {
         var input = LessonInput(telemetry: telemetry, throttle: throttle,
-                                yawRightHeld: attitudeHeld[.yawRight] != nil)
+                                yawRightHeld: attitudeHeld[.yawRight] != nil || attitudeStick.x > Self.stickHeldThreshold)
         let dpad: [AttitudeButton] = [.pitchUp, .pitchDown, .yawLeft, .yawRight]
         input.dpadHeld = dpad.contains { attitudeHeld[$0] != nil }
+            || max(abs(attitudeStick.x), abs(attitudeStick.y)) > Self.stickHeldThreshold
         input.mapOpen = map.isOpen
         input.autoBurn = executor != nil
         input.warpMenuCount = warpMenuCount
@@ -549,6 +588,7 @@ final class FlightHUDModel {
 
     /// Перезапуск полёта.
     func restart() {
+        isFlightOverview = false
         onRestart?(telemetry.mission)
         executor = nil
         autoBurnText = nil
@@ -668,6 +708,7 @@ final class FlightHUDModel {
 
     /// Кнопка «Карта»: полёт ↔ карта.
     func toggleMap() {
+        isFlightOverview = false
         maneuverDrag = nil
         // Кнопки ориентации исчезают из иерархии вместе с жестом: сбрасываем ввод вручную.
         resetAttitudeInput()
@@ -797,6 +838,54 @@ final class FlightHUDModel {
         send(.setManeuver(node))
     }
 
+    // MARK: - Промотать до встречи
+
+    /// Запас перед входом в сферу тела: время на решение, с.
+    static let encounterLead = 600.0
+    /// Как часто пересчитывать встречу при закрытой карте, с.
+    static let encounterInterval = 2.0
+
+    /// Встреча по текущей траектории: при открытой карте — из её прогноза, иначе раз в 2 с свой прогноз.
+    /// Нет: невыполненный узел (сначала он), тяга, космонавт снаружи или ровер.
+    private func refreshEncounter(now: TimeInterval) {
+        let t = telemetry
+        let pendingNode = t.maneuver.map { !$0.isDone } ?? false
+        // Встречи ищутся только в свободном полёте: не на грунте и не на старте.
+        let coasting = [.suborbital, .orbiting, .escaping].contains(t.situation)
+        guard coasting, !pendingNode, eva == nil, rover == nil, warp.blocked != .thrust else {
+            if encounterWarp != nil { encounterWarp = nil }
+            return
+        }
+        let encounter: Encounter?
+        if map.isOpen {
+            encounter = map.snapshot.trajectory?.encounter
+        } else {
+            guard now - encounterRefresh >= Self.encounterInterval else { return }
+            encounterRefresh = now
+            encounter = sim.predictTrajectory(maxPatches: MapModel.maxPatches).encounter
+        }
+        let next = encounter.flatMap { $0.time > snapshot.time ? EncounterWarp(body: $0.body, time: $0.time) : nil }
+        // Момент встречи по прогнозу дрожит на доли секунды — без лишних перерисовок.
+        if next?.body != encounterWarp?.body || abs((next?.time ?? 0) - (encounterWarp?.time ?? 0)) > 1 {
+            encounterWarp = next
+        }
+    }
+
+    /// До встречи хватает времени на перемотку с запасом, и рельсы можно.
+    var canWarpToEncounter: Bool {
+        guard let e = encounterWarp else { return false }
+        return e.time - snapshot.time > Self.encounterLead + 30 && warp.blocked == nil
+    }
+
+    /// Рельсы до момента «встреча − 10 мин»; дальше игрок решает сам.
+    func warpToEncounter() {
+        guard let e = encounterWarp, canWarpToEncounter else {
+            if encounterWarp != nil { notify("До встречи меньше 10 мин") }
+            return
+        }
+        send(.warpUntil(time: e.time - Self.encounterLead))
+    }
+
     /// Ускорение «на рельсах» до начала прожига.
     func warpToManeuver() {
         guard canWarpToManeuver else {
@@ -910,7 +999,7 @@ final class FlightHUDModel {
     /// Шаг автопрожига перед `setInput`: рука игрока отменяет, иначе выполняем вывод.
     private func stepExecutor() {
         guard var current = executor else { return }
-        if !attitudeHeld.isEmpty || abs(throttle - autoThrottle) > 1e-6 {
+        if !attitudeHeld.isEmpty || attitudeStick != .zero || abs(throttle - autoThrottle) > 1e-6 {
             // Игрок взял управление: тяга и ориентация теперь его.
             executor = nil
             autoBurnText = nil
@@ -1125,7 +1214,7 @@ final class FlightHUDModel {
     private func revealTutorialControls() {
         guard let target = tutorial?.display.target else { return }
         let mapTargets: Set<LessonElement> = [.mapLuna, .mapSummary, .mapHandle, .mapToNode,
-            .mapSASNode, .mapPanel, .mapNode, .mapGoals, .mapExecute, .mapCircularize, .navball, .sas]
+            .mapSASNode, .mapPanel, .mapNode, .mapGoals, .mapExecute, .mapCircularize, .encounterWarp, .navball, .sas]
         if map.isOpen && mapTargets.contains(target) {
             mapPanelsHidden = false
             if isSystemMap { setMapFocus(.vessel) }
@@ -1233,6 +1322,7 @@ final class FlightHUDModel {
         case .thrust: "работает двигатель"
         case .soiChange: "смена сферы влияния"
         case .maneuver: "узел манёвра"
+        case .target: "впереди встреча"
         case .eva: "космонавт снаружи"
         }
     }

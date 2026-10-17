@@ -38,10 +38,10 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
     var screen: LessonScreen {
         switch self {
         case .intro: .flight
-        case .lunaNode, .encounter, .execute, .captureNode, .captureBurn: .map
+        case .lunaNode, .encounter, .execute, .coast, .captureNode, .captureBurn: .map
         // SAS и тяга есть только в полёте: с карты шаг просит «Полёт».
         case .retro, .brake, .land: .flight
-        case .openMap, .coast, .finish: .any
+        case .openMap, .finish: .any
         }
     }
 
@@ -54,7 +54,7 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
         case .execute, .captureBurn: .mapExecute
         case .captureNode: .mapCircularize
         case .land: .throttle
-        case .coast: .warp
+        case .coast: .encounterWarp
         case .retro: .sas
         case .brake: .throttle
         }
@@ -166,28 +166,28 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
             return LessonBubble(title: "Куда летим?", text: "Нажмите «К Луне» слева.", button: nil,
                                 why: "Игра сама поставит узел — точку прожига — в нужном месте орбиты.")
         case .encounter:
-            return LessonBubble(title: "Фиолетовая линия — встреча",
-                                text: "После прожига вы долетите до Луны. В сводке: Пе у Луны "
-                                    + "\(Self.periapsisRangeText) км с галочкой — то, что нужно.",
+            return LessonBubble(title: "Встреча с Луной",
+                                text: "Фиолетовая линия ведёт к Луне. Справа «Пролёт над Луной» — "
+                                    + "\(Self.periapsisRangeText) км с ✓: так и нужно.",
                                 button: "Дальше",
-                                why: "Пе — самая близкая точка к Луне. Слишком близко — упадёте, слишком далеко — пролетите мимо.")
+                                why: "Пролёт — как низко корабль пройдёт над Луной. Слишком низко — упадёте, слишком высоко — пролетите мимо.")
         case .execute:
-            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа внизу.",
+            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа.",
                                 button: nil,
                                 why: "Корабль сам долетит до узла, развернётся, сделает прожиг и поправит курс.")
         case .coast:
             let way = Self.timeToEncounter(i).map { "До Луны \(HUDFormat.countdown($0))." } ?? "До Луны несколько часов."
-            return LessonBubble(title: "Ускорение времени", text: way + " Нажмите «+» вверху слева.", button: nil,
-                                why: "Лететь долго. На ускорении время идёт быстрее; у Луны игра сама вернёт обычную скорость.")
+            return LessonBubble(title: "Ускорение времени", text: way + " Нажмите «Промотать до встречи» справа.", button: nil,
+                                why: "Лететь долго. Время пойдёт быстро и остановится за 10 минут до Луны — будет время осмотреться.")
         case .captureNode:
             return LessonBubble(title: "Захват", text: "Вы у Луны. Откройте карту и нажмите «Скруглить орбиту».",
                                 button: nil,
                                 why: "Сейчас корабль пролетит мимо. Торможение у ближней точки (Пе) превратит пролёт в орбиту вокруг Луны.")
         case .captureBurn:
-            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа внизу.",
-                                button: nil, why: "Корабль сам затормозит у Пе — и Луна его «поймает».")
+            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа.",
+                                button: nil, why: "Корабль сам затормозит в самой низкой точке над Луной — и Луна его «поймает».")
         case .retro:
-            return LessonBubble(title: "Ретро", text: "Выберите SAS «Ретро» — нос развернётся против движения.",
+            return LessonBubble(title: "Ретро", text: "Нажмите «SAS ▾» и выберите «Против вектора скорости» — нос развернётся против движения.",
                                 button: nil,
                                 why: "Двигатель тормозит, только если смотрит против полёта. Чтобы сесть, нужно погасить скорость.")
         case .finish:
@@ -206,7 +206,9 @@ enum LunaStep: Int, CaseIterable, ScriptStep {
         case .execute, .captureBurn:
             return LivePlate.burn(i)
         case .coast:
-            return LivePlate(head: "Летим к Луне · до встречи ", value: HUDFormat.countdown(Self.timeToEncounter(i)))
+            // После остановки за 10 мин до Луны — подсказка, как не ждать эти минуты вживую.
+            return LivePlate(head: "Летим к Луне · до встречи ", value: HUDFormat.countdown(Self.timeToEncounter(i)),
+                             tail: t.warpIndex == 0 ? " · «+» вверху — быстрее" : "")
         case .brake:
             return LivePlate(head: "Тяга MAX, нос по ретро · скорость ", value: HUDFormat.speed(t.surfaceSpeed),
                              tail: " → меньше \(Int(Self.brakedSpeed)) м/с")

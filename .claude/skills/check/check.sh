@@ -15,6 +15,8 @@ else
   aff=$(scripts/affected-tests.sh)
   PHYS=$(sed -n 's/^physics: //p' <<< "$aff"); APP=$(sed -n 's/^app: //p' <<< "$aff")
 fi
+# SKIP_PHYSICS=1 — физика уже проверена отдельно (например, полным прогоном): только приложение и снимки.
+[ "${SKIP_PHYSICS:-0}" = 1 ] && PHYS=none
 echo "Тесты физики: $PHYS"; echo "Тесты приложения: $APP"
 
 step() {
@@ -51,7 +53,7 @@ echo "▶ Сборка с тестами";   step build xcodebuild -project Orbi
   -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath build -configuration Debug \
   build-for-testing CODE_SIGNING_ALLOWED=NO SWIFT_TREAT_WARNINGS_AS_ERRORS=YES GCC_TREAT_WARNINGS_AS_ERRORS=YES
 if [ "$APP" != none ]; then
-  only=(); [ "$APP" = all ] || for t in $APP; do only+=("-only-testing:AppTests/$t"); done
+  only=(); [ "$APP" = all ] || for t in $APP; do only+=("-only-testing:OrbitaTests/$t"); done
   echo "▶ AppTests";          step app-tests xcodebuild -project Orbita.xcodeproj -scheme Orbita \
     -destination "platform=iOS Simulator,id=$UDID" -derivedDataPath build -configuration Debug \
     test-without-building CODE_SIGNING_ALLOWED=NO ${only[@]+"${only[@]}"}

@@ -354,6 +354,7 @@ struct StageButton: View {
     let model: FlightHUDModel
     /// Кнопка карты (место под панель узла): тянется на всю ширину колонки.
     var compact = false
+    var narrow = false
     /// Помощник советует нажать её сейчас.
     var highlighted = false
 
@@ -395,23 +396,40 @@ struct StageButton: View {
         Button {
             model.send(.stage)
         } label: {
-            HStack(spacing: 6) {
-                if enabled {
-                    Image(systemName: icon).font(.system(size: 18, weight: .bold))
-                    Text(word).font(.system(size: 13, weight: .black)).lineLimit(1)
-                    if compact { Spacer(minLength: 0) }
-                    Text("\(t.number)")
-                        .font(.system(size: 11, weight: .heavy).monospacedDigit())
-                        .foregroundStyle(Self.rim)
-                        .frame(width: 20, height: 20)
-                        .background(HUDPalette.accentText, in: Circle())
+            let badgeSize: CGFloat = narrow ? 16 : 20
+            let badge = Text("\(t.number)")
+                .font(.system(size: 11, weight: .heavy).monospacedDigit())
+                .foregroundStyle(Self.rim)
+                .frame(width: badgeSize, height: badgeSize)
+                .background(HUDPalette.accentText, in: Circle())
+            Group {
+                if enabled, compact {
+                    // Широкая кнопка: слово по центру всей капсулы, номер ступени — у правого края;
+                    // поля по бокам равные, поэтому «ПУСК» и «ОТДЕЛИТЬ» стоят по одному центру.
+                    HStack(spacing: 4) {
+                        if !narrow { Image(systemName: icon).font(.system(size: 18, weight: .bold)) }
+                        Text(word).font(.system(size: narrow ? 12 : 13, weight: .black)).lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, badgeSize + 12)
+                    .overlay(alignment: .trailing) { badge.padding(.trailing, 8) }
                 } else {
-                    Text(word).font(.system(size: 16, weight: .black))
+                    HStack(spacing: narrow ? 4 : 6) {
+                        if enabled {
+                            if !narrow { Image(systemName: icon).font(.system(size: 18, weight: .bold)) }
+                            Text(word).font(.system(size: narrow ? 12 : 13, weight: .black)).lineLimit(1)
+                                .minimumScaleFactor(narrow ? 0.92 : 1)
+                            badge
+                        } else {
+                            Text(word).font(.system(size: 16, weight: .black))
+                        }
+                    }
+                    .padding(.leading, enabled ? (narrow ? 10 : 14) : 18)
+                    .padding(.trailing, enabled ? 8 : 18)
                 }
             }
             .foregroundStyle(enabled ? HUDPalette.accentText : HUDPalette.muted)
-            .padding(.leading, enabled ? 14 : 18)
-            .padding(.trailing, enabled ? 8 : 18)
             .frame(maxWidth: compact ? CGFloat.infinity : nil, minHeight: Self.height, maxHeight: Self.height)
             .background(enabled ? HUDPalette.accent : Color.white.opacity(0.1), in: Capsule())
             .overlay(Capsule().strokeBorder(enabled ? Self.rim : Color.white.opacity(0.2), lineWidth: enabled ? 1.5 : 1))

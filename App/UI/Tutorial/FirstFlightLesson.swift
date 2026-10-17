@@ -246,17 +246,17 @@ extension LessonStep {
         switch self {
         case .intro:
             return LessonBubble(title: "Цель урока",
-                                text: "Выйти на орбиту 80 км. Шаги и прогресс — в карточке слева.", button: "Понятно",
+                                text: "Выйти на орбиту 80 км. Шаги и прогресс — в строке сверху.", button: "Понятно",
                                 why: "Орбита — это когда корабль летит вокруг Терры так быстро, что не падает.")
         case .throttleMax:
-            return LessonBubble(title: "Тяга", text: "Проведите пальцем по дуге вверх до MAX.", button: nil,
+            return LessonBubble(title: "Тяга", text: "Нажмите MAX над шкалой ТЯГА или проведите по ней вверх до 100 %.", button: nil,
                                 why: "Полная тяга нужна, чтобы оторваться от площадки и набрать скорость.")
         case .launch:
             return LessonBubble(title: "Пуск", text: "Нажмите ПУСК — двигатели запустятся.", button: nil,
                                 why: "Пока двигатели не зажжены, ракета стоит на месте.")
         case .turn:
             return LessonBubble(title: "Разворот на восток",
-                                text: "Удерживайте ▶, пока тангаж не станет \(Int(Self.turnPitch))°.", button: nil,
+                                text: "Отведите джойстик «Направление» вправо и держите, пока тангаж не станет \(Int(Self.turnPitch))°.", button: nil,
                                 why: "Орбита — это не высота, а скорость вбок. Чем раньше нос уходит к востоку, тем лучше разгон.")
         case .separate:
             return LessonBubble(title: "Топливо кончилось",
@@ -275,7 +275,7 @@ extension LessonStep {
             return LessonBubble(title: "Скруглить орбиту", text: "Нажмите «Скруглить орбиту» слева.", button: nil,
                                 why: "Сейчас ракета летит по дуге и упадёт обратно. Игра поставит узел в высшей точке — там нужно добавить скорость вбок.")
         case .execute:
-            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа внизу.",
+            return LessonBubble(title: "Выполнить манёвр", text: "Нажмите «Выполнить манёвр» справа.",
                                 button: nil,
                                 why: "Корабль сам долетит до узла, развернётся и включит двигатель на нужное время.")
         case .finish:

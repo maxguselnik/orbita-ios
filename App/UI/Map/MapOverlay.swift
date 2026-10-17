@@ -385,17 +385,7 @@ struct ManeuverHandleKnob: View {
             .background(Circle().fill(Color.black.opacity(active ? 0.7 : 0.45)))
             .overlay(Circle().strokeBorder(color.opacity(active ? 1 : 0.6), lineWidth: active ? 2 : 1))
             .contentShape(Circle())
-            .overlay(alignment: .bottom) {
-                Text(Self.caption(handle))
-                    .font(.system(size: HUDFont.caption, weight: .heavy))
-                    .foregroundStyle(color)
-                    .lineLimit(1)
-                    .fixedSize()
-                    .padding(.horizontal, 4)
-                    .background(Color.black.opacity(0.5), in: Capsule())
-                    .offset(y: 12)
-                    .allowsHitTesting(false)
-            }
+            // Постоянных подписей нет: название и величина — в пузыре над ручкой, пока её тянут.
             .overlay(alignment: .top) {
                 if active {
                     HandleValueBubble(model: model, handle: handle)
@@ -409,7 +399,7 @@ struct ManeuverHandleKnob: View {
                 // Касание отменено системой — onEnded может не прийти.
                 if !value, model.maneuverDrag?.handle == handle { model.maneuverDrag = nil }
             }
-            .accessibilityLabel("Ручка узла: \(handle.label)")
+            .accessibilityLabel("Ручка узла: \(Self.caption(handle))")
             .accessibilityHint("Тяните от узла — добавить импульс, к узлу — убавить")
     }
 
@@ -445,15 +435,15 @@ struct ManeuverHandleKnob: View {
 }
 
 extension ManeuverHandleKnob {
-    /// Короткая подпись под ручкой.
+    /// Название ручки теми же словами, что оси в панели узла.
     static func caption(_ handle: ManeuverHandle) -> String {
         switch handle {
-        case .prograde: "разгон"
-        case .retrograde: "тормоз"
-        case .normal: "норм."
-        case .antiNormal: "анти"
-        case .radialOut: "наруж."
-        case .radialIn: "внутр."
+        case .prograde: "вперёд"
+        case .retrograde: "назад"
+        case .normal: "вбок"
+        case .antiNormal: "вбок обратно"
+        case .radialOut: "от планеты"
+        case .radialIn: "к планете"
         }
     }
 }
@@ -477,9 +467,9 @@ struct HandleValueBubble: View {
 
     static func title(_ axis: ManeuverAxis, value: Double) -> String {
         switch axis {
-        case .prograde: value < 0 ? "Торможение" : "Разгон"
-        case .normal: value < 0 ? "Антинормаль" : "Нормаль"
-        case .radial: value < 0 ? "Внутрь" : "Наружу"
+        case .prograde: value < 0 ? "Назад" : "Вперёд"
+        case .normal: "Вбок"
+        case .radial: value < 0 ? "К планете" : "От планеты"
         }
     }
 }

@@ -7,22 +7,24 @@ struct FlightStatusView: View {
     let model: FlightHUDModel
     /// Помощник подъёма включён (настройка подсказок).
     var ascentEnabled = true
+    var stacked = false
 
     var body: some View {
         let t = model.telemetry
         let advice = ascentEnabled ? AscentGuide.advice(t) : nil
-        HStack(spacing: 5) {
+        let layout = stacked ? AnyLayout(VStackLayout(alignment: .leading, spacing: 3)) : AnyLayout(HStackLayout(spacing: 5))
+        layout {
             if let advice {
                 Image(systemName: "diamond.fill").font(.system(size: 7))
                 Text(advice.text)
             } else {
                 Text(title(t)).font(.system(size: HUDFont.caption, weight: .heavy))
-                Text(verbatim: "·").foregroundStyle(HUDPalette.muted)
+                if !stacked { Text(verbatim: "·").foregroundStyle(HUDPalette.muted) }
                 Text(detail(t)).foregroundStyle(HUDPalette.muted)
             }
         }
         .font(.system(size: HUDFont.caption, weight: .medium))
-        .lineLimit(1)
+        .lineLimit(stacked ? nil : 1)
         .minimumScaleFactor(0.7)
         .foregroundStyle(advice == nil ? HUDPalette.text : HUDPalette.advice)
         .shadow(color: .black.opacity(0.85), radius: 2, y: 1)

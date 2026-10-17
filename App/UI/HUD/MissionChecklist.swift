@@ -79,6 +79,8 @@ struct MissionCard: View {
     /// Развёрнутая карточка помещается над крестовиной: на площадке она развёрнута по умолчанию. Иначе по умолчанию
     /// свёрнута, но тап разворачивает её поверх крестовины (карточка выше в ZStack и перехватывает касания).
     var autoExpand = true
+    /// В верхней строке HUD: всегда видна свёрнутая строка высотой 44 pt, список шагов выпадает под ней.
+    var dropDown = false
 
     @State private var override: Bool?
 
@@ -93,7 +95,9 @@ struct MissionCard: View {
     }
 
     var body: some View {
-        if enabled, model.missionActive {
+        if enabled, model.missionActive, dropDown {
+            dropDownBody
+        } else if enabled, model.missionActive {
             let expanded = override ?? (model.onPad && autoExpand)
             let done = model.missionProgress
             let complete = done >= MissionChecklist.titles.count
@@ -133,6 +137,56 @@ struct MissionCard: View {
             .accessibilityLabel("\(MissionChecklist.goalTitle). \(MissionChecklist.summary(done: done))")
             .accessibilityHint(expanded ? "Свернуть список шагов" : "Показать список шагов")
         }
+    }
+
+    /// Строка «◆ N/5 · шаг» в верхней панели; тап раскрывает список шагов под ней, поверх сцены.
+    private var dropDownBody: some View {
+        let expanded = override ?? false
+        let done = model.missionProgress
+        let complete = done >= MissionChecklist.titles.count
+        return Button {
+            withAnimation(.snappy(duration: 0.2)) { override = !expanded }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: complete ? "checkmark.circle.fill" : "diamond.fill")
+                    .font(.system(size: 8))
+                Text(MissionChecklist.summary(done: done)).lineLimit(1).minimumScaleFactor(0.7)
+                Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 8, weight: .bold))
+            }
+            .font(.system(size: HUDFont.caption, weight: .semibold))
+            .foregroundStyle(complete ? HUDPalette.green : HUDPalette.advice)
+            .frame(width: Self.width, height: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(HUDPressStyle())
+        .overlay(alignment: .topLeading) {
+            if expanded {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(MissionChecklist.goalTitle)
+                        .font(.system(size: HUDFont.caption, weight: .heavy))
+                        .foregroundStyle(HUDPalette.advice)
+                    ForEach(model.missionSteps) { step in
+                        MissionStepRow(step: step)
+                    }
+                    if complete {
+                        Text(MissionChecklist.doneTitle)
+                            .font(.system(size: HUDFont.caption, weight: .heavy))
+                            .foregroundStyle(HUDPalette.green)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 5)
+                .frame(width: Self.width, alignment: .leading)
+                .classicPanel(corner: 6)
+                .offset(y: 50)
+                .onTapGesture { withAnimation(.snappy(duration: 0.2)) { override = false } }
+                .transition(.opacity)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(MissionChecklist.goalTitle). \(MissionChecklist.summary(done: done))")
+        .accessibilityHint(expanded ? "Свернуть список шагов" : "Показать список шагов")
     }
 }
 
